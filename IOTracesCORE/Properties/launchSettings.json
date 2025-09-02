@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "IOTracesCORE": {
+      "commandName": "Project",
+      "commandLineArgs": "-o \"C:\\Users\\ASUS\\Documents\\iotraceroutput\""
+    }
+  }
+}
