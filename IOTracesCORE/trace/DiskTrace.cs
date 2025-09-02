@@ -12,7 +12,7 @@ namespace IOTracesCORE.trace
         {
             Ts = ts;
             Pid = pid;
-            Comm = comm;
+            Comm = string.IsNullOrEmpty(comm) ? "[uncaptured]" : comm;
             Sector = sector;
             Operation = operation;
             TraceSize = traceSize;

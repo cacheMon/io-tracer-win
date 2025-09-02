@@ -30,24 +30,25 @@ namespace IOTracesCORE
             ds_filepath = GenerateFilePath("ds");
             mr_filepath = GenerateFilePath("mr");
 
-            string folder = Path.GetDirectoryName(fs_filepath);
-            if (folder == null)
-            {
-                throw new Exception("Invalid directory path.");
-            }
+            string? folder = Path.GetDirectoryName(fs_filepath) ?? throw new Exception("Invalid directory path.");
             if (!Directory.Exists(folder))
             {
                 Directory.CreateDirectory(folder);
             }
 
             Console.WriteLine("File output: {0}", dirpath);
-            fs_sb.AppendLine("timestamp operation pid process filename size");
-            ds_sb.AppendLine("timestamp pid processname lba operation size");
+            fs_sb.AppendLine("timestamp,operation,pid,process,filename,size");
+            ds_sb.AppendLine("timestamp,pid,processname,lba,operation,size");
         }
 
 
         public void Write(FilesystemTrace data)
         {
+            if (data.Comm.Equals("IOTracesCORE"))
+            {
+                return;
+            }
+
             DateTime ts = data.Ts;
             string operation_type = data.Op;
             int pid = data.Pid;
@@ -55,7 +56,7 @@ namespace IOTracesCORE
             string filename = data.Filename;
             int size = data.TraceSize;
 
-            fs_sb.AppendFormat("{0} {1} {2} {3} {4} {5}\n", ts.ToFileTimeUtc(), operation_type, pid, process_name, filename, size);
+            fs_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToFileTimeUtc(), operation_type, pid, process_name, filename, size);
 
             if (IsTimeToFlush(fs_sb))
             {
@@ -70,6 +71,11 @@ namespace IOTracesCORE
         
         public void Write(DiskTrace data)
         {
+            if (data.Comm.Equals("IOTracesCORE"))
+            {
+                return;
+            }
+
             DateTime ts = data.Ts;
             int pid = data.Pid;
             string process_name = data.Comm;
@@ -77,7 +83,7 @@ namespace IOTracesCORE
             string operation = data.Operation;
             int size = data.TraceSize;
 
-            ds_sb.AppendFormat("{0} {1} {2} {3} {4} {5}\n", ts.ToFileTimeUtc(), pid, process_name, sector, operation, size);
+            ds_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToFileTimeUtc(), pid, process_name, sector, operation, size);
 
             if (IsTimeToFlush(ds_sb))
             {
@@ -97,7 +103,7 @@ namespace IOTracesCORE
             string process_name = data.Comm;
             string type = data.Type;
 
-            mr_sb.AppendFormat("{0} {1} {2} {3}\n", ts.ToFileTimeUtc(), pid, process_name, type);
+            mr_sb.AppendFormat("{0},{1},{2},{3}\n", ts.ToFileTimeUtc(), pid, process_name, type);
 
             if (IsTimeToFlush(mr_sb))
             {
@@ -164,7 +170,7 @@ namespace IOTracesCORE
             {
                 return;
             }
-            compressed_fp = old_fp + ".zst";
+            compressed_fp = $"{dir_path}\\{tracetype}_{DateTime.UtcNow:yyyyMMdd_HHmmss}" + ".zst";
 
 
 
@@ -202,7 +208,7 @@ namespace IOTracesCORE
 
         private string GenerateFilePath(string type)
         {
-            string fs_name = $"{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.log";
+            string fs_name = $"{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
             return Path.Combine(dir_path, fs_name);
         }
 

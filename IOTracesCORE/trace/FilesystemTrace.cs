@@ -28,8 +28,8 @@ namespace IOTracesCORE.trace
             Ts = ts;
             Op = op;
             Pid = pid;
-            Comm = string.IsNullOrEmpty(comm) ? "[uncaptured]" : "\""+ comm + "\"";
-            Filename = string.IsNullOrEmpty(filename) ? "[uncaptured]" : "\"" + filename + "\"";
+            Comm = string.IsNullOrEmpty(comm) ? "[uncaptured]" : comm;
+            Filename = string.IsNullOrEmpty(filename) ? "[uncaptured]" : filename;
             TraceSize = size;
         }
     }
