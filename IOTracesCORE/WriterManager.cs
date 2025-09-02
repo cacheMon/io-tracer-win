@@ -1,4 +1,5 @@
 ﻿using IOTracesCORE.trace;
+using System.IO.Compression;
 using System.Text;
 using ZstdSharp;
 
@@ -25,7 +26,7 @@ namespace IOTracesCORE
             ds_sb = new StringBuilder();
             mr_sb = new StringBuilder();
 
-            dir_path = dirpath;
+            dir_path = $"{dirpath}\\run_{DateTime.UtcNow:yyyyMMdd_HHmmss}";
             fs_filepath = GenerateFilePath("fs");
             ds_filepath = GenerateFilePath("ds");
             mr_filepath = GenerateFilePath("mr");
@@ -198,12 +199,42 @@ namespace IOTracesCORE
             }
         }
 
+        public void CompressRun()
+        {
+            string zipPath = $"{dir_path}_temp.zip";
+            string output_dir = $"{dir_path}_compressed.zst";
+
+            try
+            {
+                ZipFile.CreateFromDirectory(dir_path, zipPath);
+
+                byte[] zipData = File.ReadAllBytes(zipPath);
+
+                using (var compressor = new Compressor())
+                {
+                    var compressedData = compressor.Wrap(zipData);
+                    File.WriteAllBytes(output_dir, compressedData.ToArray());
+                }
+
+                File.Delete(zipPath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred during compression: {ex.Message}");
+                return;
+            }
+
+            Console.WriteLine($"Compressed entire run to {output_dir}");
+            Directory.Delete(dir_path, true);
+        }
+
         public void CompressAll()
         {
             CompressWrite("filesystem");
             CompressWrite("disk");
             //CompressWrite("memory");
             WriteStatus();
+            CompressRun();
         }
 
         private string GenerateFilePath(string type)
