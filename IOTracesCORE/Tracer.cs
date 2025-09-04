@@ -36,7 +36,7 @@ namespace IOTracesCORE
                 session.StopOnDispose = true;
                 Console.CancelKeyPress += (_, e) =>
                 {
-                    Console.WriteLine("Cleaing up!");
+                    Console.WriteLine("Cleaning up!");
                     wm.CompressAll();
                     e.Cancel = true;
                     session.Dispose();
