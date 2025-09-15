@@ -33,12 +33,21 @@ namespace IOTracesCORE
             mr_filepath = GenerateFilePath("mr");
             fs_snap_filepath = $"{dir_path}\\snapshot_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt";
 
-            string? folder = Path.GetDirectoryName(fs_filepath) ?? throw new Exception("Invalid directory path.");
-            if (!Directory.Exists(folder))
+            string? fs_folder = Path.GetDirectoryName(fs_filepath) ?? throw new Exception("Invalid directory path.");
+            string? ds_folder = Path.GetDirectoryName(ds_filepath) ?? throw new Exception("Invalid directory path.");
+            string? mr_folder = Path.GetDirectoryName(mr_filepath) ?? throw new Exception("Invalid directory path.");
+            if (!Directory.Exists(fs_folder))
             {
-                Directory.CreateDirectory(folder);
+                Directory.CreateDirectory(fs_folder);
             }
-
+            if(!Directory.Exists(ds_folder))
+            {
+                Directory.CreateDirectory(ds_folder);
+            }
+            //if(!Directory.Exists(mr_folder))
+            //{
+            //    Directory.CreateDirectory(mr_folder);
+            //}
             Console.WriteLine("File output: {0}", dirpath);
         }
 
@@ -56,8 +65,7 @@ namespace IOTracesCORE
             string process_name = data.Comm;
             string filename = data.Filename;
             int size = data.TraceSize;
-
-            fs_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToFileTimeUtc(), operation_type, pid, process_name, filename, size);
+            fs_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToString(), operation_type, pid, process_name, filename, size);
 
             if (IsTimeToFlush(fs_sb))
             {
@@ -79,7 +87,7 @@ namespace IOTracesCORE
             string operation = data.Operation;
             int size = data.TraceSize;
 
-            ds_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToFileTimeUtc(), pid, process_name, sector, operation, size);
+            ds_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToString(), pid, process_name, sector, operation, size);
 
             if (IsTimeToFlush(ds_sb))
             {
@@ -94,7 +102,7 @@ namespace IOTracesCORE
             string process_name = data.Comm;
             string type = data.Type;
 
-            mr_sb.AppendFormat("{0},{1},{2},{3}\n", ts.ToFileTimeUtc(), pid, process_name, type);
+            mr_sb.AppendFormat("{0},{1},{2},{3}\n", ts.ToString(), pid, process_name, type);
 
             if (IsTimeToFlush(mr_sb))
             {
@@ -127,25 +135,26 @@ namespace IOTracesCORE
             {
                 return;
             }
-            
-            using (StreamWriter writeText = new StreamWriter(old_fp, true))
+
+            using (StreamWriter writeText = new(old_fp, true))
             {
                 writeText.Write(temp_str);
             }
-            WriteStatus();
             CompressFile(old_fp);
+            WriteStatus();
+
         }
 
         private static bool IsTimeToFlush(StringBuilder sb)
         {
             int maxChars = maxKB * 1024 / sizeof(char);
 
-            return sb.Length > 100000;
+            return sb.Length > 1000000;
         }
 
-        public void CompressFile(string filepath)
+        public static void CompressFile(string filepath)
         {
-            Console.WriteLine($"Compressing {filepath}");
+            //Console.WriteLine($"Compressing {filepath}");
             string compressed_fp = $"{filepath}.zst";
             using (var input = File.OpenRead(filepath))
             using (var output = File.Create(compressed_fp))
@@ -153,14 +162,14 @@ namespace IOTracesCORE
             {
                 input.CopyTo(compressor);
             }
-            Console.WriteLine($"Compressed {filepath} -> {compressed_fp}");
+            //Console.WriteLine($"Compressed {filepath} -> {compressed_fp}");
             amount_compressed_file++;
 
             string full_path_old = Path.GetFullPath(filepath);
             if (File.Exists(full_path_old))
             {
                 File.Delete(full_path_old);
-                Console.WriteLine("File deleted successfully.");
+                //Console.WriteLine("File deleted successfully.");
             }
             else
             {
@@ -201,7 +210,7 @@ namespace IOTracesCORE
         {
             FlushWrite(fs_sb, fs_filepath, "filesystem");
             FlushWrite(ds_sb, ds_filepath, "disk");
-            FlushWrite(mr_sb, mr_filepath, "memory");
+            //FlushWrite(mr_sb, mr_filepath, "memory");
             WriteStatus();
             CompressRun();
         }
@@ -214,8 +223,8 @@ namespace IOTracesCORE
 
         private static void WriteStatus()
         {
-            Console.Clear();
-            Console.WriteLine("Press CTRL + C to exit, or close the console window!");
+            //Console.Clear();
+            //Console.WriteLine("Press CTRL + C to exit, or close the console window!");
             string stat = $"{DateTime.Now} | File Compressed: {amount_compressed_file}";
             Console.WriteLine(stat);
         }

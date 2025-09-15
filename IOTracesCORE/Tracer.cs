@@ -103,7 +103,7 @@ namespace IOTracesCORE
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
 
             Console.WriteLine("Starting IOTracer...");
-            wm.TraverseFilesystem();
+            Task task = Task.Run(() => wm.TraverseFilesystem());
             Console.WriteLine("Press CTRL + C to exit, or close the console window!");
 
             string sessionName = "IOTrace-" + Process.GetCurrentProcess().Id;
