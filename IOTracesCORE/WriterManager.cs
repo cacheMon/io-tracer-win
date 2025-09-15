@@ -1,5 +1,6 @@
 ﻿using IOTracesCORE.trace;
 using System.IO.Compression;
+using System.Security.AccessControl;
 using System.Text;
 using ZstdSharp;
 
@@ -11,11 +12,11 @@ namespace IOTracesCORE
         private string fs_filepath;
         private string ds_filepath;
         private string mr_filepath;
+        private string fs_snap_filepath;
         private readonly StringBuilder fs_sb;
         private readonly StringBuilder ds_sb;
         private readonly StringBuilder mr_sb;
         private readonly static int maxKB = 10000;
-        private readonly static int maxMB = 200;
         private static int amount_compressed_file = 0;
 
         public WriterManager(string dirpath)
@@ -30,6 +31,7 @@ namespace IOTracesCORE
             fs_filepath = GenerateFilePath("fs");
             ds_filepath = GenerateFilePath("ds");
             mr_filepath = GenerateFilePath("mr");
+            fs_snap_filepath = $"{dir_path}\\snapshot_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt";
 
             string? folder = Path.GetDirectoryName(fs_filepath) ?? throw new Exception("Invalid directory path.");
             if (!Directory.Exists(folder))
@@ -38,8 +40,6 @@ namespace IOTracesCORE
             }
 
             Console.WriteLine("File output: {0}", dirpath);
-            fs_sb.AppendLine("timestamp,operation,pid,process,filename,size");
-            ds_sb.AppendLine("timestamp,pid,processname,lba,operation,size");
         }
 
 
@@ -61,12 +61,7 @@ namespace IOTracesCORE
 
             if (IsTimeToFlush(fs_sb))
             {
-                FlushWrite(fs_sb, fs_filepath);
-                if (IsTimeToCompress(fs_filepath))
-                {
-                    CompressWrite("filesystem");
-                }
-
+                FlushWrite(fs_sb, fs_filepath, "filesystem");
             }
         }
         
@@ -88,12 +83,7 @@ namespace IOTracesCORE
 
             if (IsTimeToFlush(ds_sb))
             {
-                FlushWrite(ds_sb, ds_filepath);
-                if (IsTimeToCompress(ds_filepath))
-                {
-                    CompressWrite("disk");
-                }
-                
+                FlushWrite(ds_sb, ds_filepath, "disk");
             }
         }
         
@@ -108,86 +98,65 @@ namespace IOTracesCORE
 
             if (IsTimeToFlush(mr_sb))
             {
-                FlushWrite(mr_sb, mr_filepath);
-                if (IsTimeToCompress(mr_filepath))
-                {
-                    CompressWrite("memory");
-                }
-                
+                FlushWrite(mr_sb, mr_filepath, "memory");
             }
         }
 
-        public static void FlushWrite(StringBuilder sb, string filepath)
+        public void FlushWrite(StringBuilder sb, string filepath, string tracetype)
         {
+            string old_fp;
             string temp_str = sb.ToString();
             sb.Clear();
 
-            using (StreamWriter writeText = new StreamWriter(filepath, true))
+            if (tracetype.Equals("filesystem"))
+            {
+                old_fp = fs_filepath;
+                fs_filepath = GenerateFilePath("fs");
+            }
+            else if (tracetype.Equals("disk"))
+            {
+                old_fp = ds_filepath;
+                ds_filepath = GenerateFilePath("ds");
+            }
+            else if (tracetype.Equals("memory"))
+            {
+                old_fp = mr_filepath;
+                mr_filepath = GenerateFilePath("mr");
+            }
+            else
+            {
+                return;
+            }
+            
+            using (StreamWriter writeText = new StreamWriter(old_fp, true))
             {
                 writeText.Write(temp_str);
             }
             WriteStatus();
-            //Console.WriteLine("Flushed!");
+            CompressFile(old_fp);
         }
 
         private static bool IsTimeToFlush(StringBuilder sb)
         {
             int maxChars = maxKB * 1024 / sizeof(char);
 
-            return sb.Length > maxChars;
+            return sb.Length > 100000;
         }
 
-        private static bool IsTimeToCompress(string filepath)
+        public void CompressFile(string filepath)
         {
-            FileInfo fileInfo = new FileInfo(Path.GetFullPath(filepath));
-            double fileSizeInMBFS = fileInfo.Length / (1024 * 1024);
-
-            return fileSizeInMBFS > maxMB;
-        }
-
-        public void CompressWrite(string tracetype)
-        {
-            string old_fp;
-            string compressed_fp;
-            if (tracetype.Equals("filesystem"))
-            {
-                old_fp = fs_filepath;
-                fs_filepath = GenerateFilePath("fs");
-                FlushWrite(fs_sb, old_fp);
-            }
-            else if (tracetype.Equals("disk"))
-            {
-                old_fp = ds_filepath;
-                ds_filepath = GenerateFilePath("ds");
-                FlushWrite(ds_sb, old_fp);
-            }
-            else if (tracetype.Equals("memory"))
-            {
-                old_fp = mr_filepath;
-                mr_filepath = GenerateFilePath("mr");
-                FlushWrite(mr_sb, old_fp);
-            }
-            else
-            {
-                return;
-            }
-            compressed_fp = $"{dir_path}\\{tracetype}_{DateTime.UtcNow:yyyyMMdd_HHmmss}" + ".zst";
-
-
-
-            Console.WriteLine($"Writing to new file: {fs_filepath}");
-
-            Console.WriteLine($"Compressing {old_fp}");
-            using (var input = File.OpenRead(old_fp))
+            Console.WriteLine($"Compressing {filepath}");
+            string compressed_fp = $"{filepath}.zst";
+            using (var input = File.OpenRead(filepath))
             using (var output = File.Create(compressed_fp))
             using (var compressor = new CompressionStream(output))
             {
                 input.CopyTo(compressor);
             }
-            Console.WriteLine($"Compressed {old_fp} -> {compressed_fp}");
+            Console.WriteLine($"Compressed {filepath} -> {compressed_fp}");
             amount_compressed_file++;
 
-            string full_path_old = Path.GetFullPath(old_fp);
+            string full_path_old = Path.GetFullPath(filepath);
             if (File.Exists(full_path_old))
             {
                 File.Delete(full_path_old);
@@ -202,7 +171,7 @@ namespace IOTracesCORE
         public void CompressRun()
         {
             string zipPath = $"{dir_path}_temp.zip";
-            string output_dir = $"{dir_path}_compressed.zst";
+            string output_dir = $"{dir_path}_compressed.zip.zst";
 
             try
             {
@@ -230,24 +199,79 @@ namespace IOTracesCORE
 
         public void CompressAll()
         {
-            CompressWrite("filesystem");
-            CompressWrite("disk");
-            //CompressWrite("memory");
+            FlushWrite(fs_sb, fs_filepath, "filesystem");
+            FlushWrite(ds_sb, ds_filepath, "disk");
+            FlushWrite(mr_sb, mr_filepath, "memory");
             WriteStatus();
             CompressRun();
         }
 
         private string GenerateFilePath(string type)
         {
-            string fs_name = $"{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
+            string fs_name = $".\\{type}\\{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
             return Path.Combine(dir_path, fs_name);
         }
 
-
         private static void WriteStatus()
         {
+            Console.Clear();
+            Console.WriteLine("Press CTRL + C to exit, or close the console window!");
             string stat = $"{DateTime.Now} | File Compressed: {amount_compressed_file}";
             Console.WriteLine(stat);
+        }
+
+        public void TraverseFilesystem()
+        {
+            DriveInfo[] drives = DriveInfo.GetDrives();
+            Console.WriteLine("Starting filesystem snapshot...");
+            foreach (DriveInfo drive in drives)
+            {
+                if (drive.IsReady)
+                {
+                    Console.WriteLine($"=== Drive: {drive.Name} ===");
+                    TraverseDirectory(drive.RootDirectory.FullName);
+                    Console.WriteLine();
+                }
+            }
+            CompressFile(fs_snap_filepath);
+        }
+
+        private void TraverseDirectory(string dirPath)
+        {
+            try
+            {
+
+                string[] files = Directory.GetFiles(dirPath);
+                using (StreamWriter writeText = new StreamWriter(fs_snap_filepath, true))
+                {
+                    foreach (string file in files)
+                    {
+                        writeText.WriteLine(file);
+                    }
+                }
+                
+
+                string[] directories = Directory.GetDirectories(dirPath);
+                foreach (string directory in directories)
+                {
+                    TraverseDirectory(directory);
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                using StreamWriter writeText = new(fs_snap_filepath, true);
+                writeText.WriteLine($"[ACCESS DENIED] {dirPath}");
+            }
+            catch (DirectoryNotFoundException)
+            {
+                using StreamWriter writeText = new(fs_snap_filepath, true);
+                writeText.WriteLine($"[NOT FOUND] {dirPath}");
+            }
+            catch (Exception ex)
+            {
+                using StreamWriter writeText = new(fs_snap_filepath, true);
+                writeText.WriteLine($"[ERROR] {dirPath}: {ex.Message}");
+            }
         }
     }
 }

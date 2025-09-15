@@ -2,6 +2,7 @@
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Session;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace IOTracesCORE
 {
@@ -10,14 +11,85 @@ namespace IOTracesCORE
         private readonly WriterManager wm;
         private readonly FilesystemHandlers fsHandler;
         private readonly DiskHandlers dsHandler;
-        //private readonly MemoryHandlers  mrHandler;
+        private TraceEventSession? session;
+        private volatile bool isShuttingDown = false;
+
+        [DllImport("kernel32.dll")]
+        static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate handler, bool add);
+
+        delegate bool ConsoleCtrlDelegate(CtrlTypes ctrlType);
+
+        enum CtrlTypes : uint
+        {
+            CTRL_C_EVENT = 0,
+            CTRL_BREAK_EVENT = 1,
+            CTRL_CLOSE_EVENT = 2,
+            CTRL_LOGOFF_EVENT = 5,
+            CTRL_SHUTDOWN_EVENT = 6
+        }
 
         public Tracer(string outputPath = ".\\output")
         {
             wm = new WriterManager(outputPath);
             fsHandler = new FilesystemHandlers(wm);
             dsHandler = new DiskHandlers(wm);
-            //mrHandler = new MemoryHandlers(wm);
+        }
+
+        private bool ConsoleCtrlHandler(CtrlTypes ctrlType)
+        {
+            switch (ctrlType)
+            {
+                case CtrlTypes.CTRL_C_EVENT:
+                    Console.WriteLine("\nReceived Ctrl+C signal. Cleaning up...");
+                    break;
+                case CtrlTypes.CTRL_BREAK_EVENT:
+                    Console.WriteLine("\nReceived Ctrl+Break signal. Cleaning up...");
+                    break;
+                case CtrlTypes.CTRL_CLOSE_EVENT:
+                    Console.WriteLine("\nConsole window is being closed. Cleaning up...");
+                    break;
+                case CtrlTypes.CTRL_LOGOFF_EVENT:
+                    Console.WriteLine("\nUser is logging off. Cleaning up...");
+                    break;
+                case CtrlTypes.CTRL_SHUTDOWN_EVENT:
+                    Console.WriteLine("\nSystem is shutting down. Cleaning up...");
+                    break;
+            }
+
+            if (!isShuttingDown)
+            {
+                isShuttingDown = true;
+                CleanupAndExit();
+            }
+
+            return true;
+        }
+
+        private void CleanupAndExit()
+        {
+            try
+            {
+                Console.WriteLine("Performing cleanup operations...");
+
+                if (session != null)
+                {
+                    session.Dispose();
+                    session = null;
+                }
+
+                wm.CompressAll();
+
+                Console.WriteLine("Cleanup completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error during cleanup: {ex.Message}");
+            }
+            finally
+            {
+                Thread.Sleep(1000);
+                Environment.Exit(0);
+            }
         }
 
         public void Trace()
@@ -28,65 +100,67 @@ namespace IOTracesCORE
                 return;
             }
 
+            SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
+
             Console.WriteLine("Starting IOTracer...");
-            Console.WriteLine("Press CTRL + C to exit!");
+            wm.TraverseFilesystem();
+            Console.WriteLine("Press CTRL + C to exit, or close the console window!");
+
             string sessionName = "IOTrace-" + Process.GetCurrentProcess().Id;
-            using (var session = new TraceEventSession(sessionName))
+
+            try
             {
-                session.StopOnDispose = true;
-                Console.CancelKeyPress += (_, e) =>
+                using (session = new TraceEventSession(sessionName))
                 {
-                    Console.WriteLine("Cleaning up!");
-                    wm.CompressAll();
-                    e.Cancel = true;
-                    session.Dispose();
-                    Console.WriteLine("Cleaing up complete.");
-                };
+                    session.StopOnDispose = true;
 
-                session.EnableKernelProvider(
-                    //KernelTraceEventParser.Keywords.Process |
-                    //KernelTraceEventParser.Keywords.Memory |
-                    //KernelTraceEventParser.Keywords.MemoryHardFaults |
-                    //KernelTraceEventParser.Keywords.VirtualAlloc |
-                    KernelTraceEventParser.Keywords.FileIO |
-                    KernelTraceEventParser.Keywords.FileIOInit |
-                    KernelTraceEventParser.Keywords.DiskIO
-                );
+                    Console.CancelKeyPress += (_, e) =>
+                    {
+                        if (!isShuttingDown)
+                        {
+                            Console.WriteLine("\nCtrl+C pressed. Cleaning up...");
+                            e.Cancel = true;
+                            isShuttingDown = true;
+                            CleanupAndExit();
+                        }
+                    };
 
-                var source = session.Source;
-                var kernel = source.Kernel;
+                    session.EnableKernelProvider(
+                        KernelTraceEventParser.Keywords.FileIO |
+                        KernelTraceEventParser.Keywords.FileIOInit |
+                        KernelTraceEventParser.Keywords.DiskIO
+                    );
 
-                // FS HANDLERS
+                    var source = session.Source;
+                    var kernel = source.Kernel;
 
-                kernel.FileIORead += fsHandler.OnFileRead;
-                kernel.FileIOWrite += fsHandler.OnFileWrite;
-                kernel.FileIOClose += fsHandler.OnFileClose;
-                kernel.FileIOCreate += fsHandler.OnFileCreate;
-                kernel.FileIODelete += fsHandler.OnFileDelete;
-                kernel.FileIOFlush += fsHandler.OnFileFlush;
+                    // FS HANDLERS
+                    kernel.FileIORead += fsHandler.OnFileRead;
+                    kernel.FileIOWrite += fsHandler.OnFileWrite;
+                    kernel.FileIOClose += fsHandler.OnFileClose;
+                    kernel.FileIOCreate += fsHandler.OnFileCreate;
+                    kernel.FileIODelete += fsHandler.OnFileDelete;
+                    kernel.FileIOFlush += fsHandler.OnFileFlush;
 
-                // DISK HANDLERS    
-                kernel.DiskIORead += dsHandler.OnDiskRead;
-                kernel.DiskIOWrite += dsHandler.OnDiskWrite;
+                    // DISK HANDLERS    
+                    kernel.DiskIORead += dsHandler.OnDiskRead;
+                    kernel.DiskIOWrite += dsHandler.OnDiskWrite;
 
-
-                //// MEMORY HANDLERS
-                //// ---- PAGE FAULT FAMILY ----
-                //kernel.MemoryTransitionFault += mrHandler.OnMemoryTransitionFault;
-                //kernel.MemoryDemandZeroFault += mrHandler.OnMemoryDemandZeroFault;
-                //kernel.MemoryCopyOnWrite += mrHandler.OnMemoryCopyOnWrite;
-                //kernel.MemoryGuardMemory += mrHandler.OnMemoryGuardMemory;
-                //kernel.MemoryGuardMemory += mrHandler.OnMemoryGuardMemory;
-                //kernel.MemoryAccessViolation += mrHandler.OnMemoryAccessViolation;
-                //kernel.MemoryHardFault += mrHandler.OnMemoryHardFault;
-
-                //// ---- VIRTUAL MEMORY OPS (note: VirtualMem*) ----
-                //kernel.VirtualMemAlloc += mrHandler.OnVirtualMemAlloc;
-                //kernel.VirtualMemFree += mrHandler.OnVirtualMemFree;
-
-
-                // Pump
-                source.Process();
+                    // Start processing events
+                    source.Process();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred during tracing: {ex.Message}");
+                if (!isShuttingDown)
+                {
+                    CleanupAndExit();
+                }
+            }
+            finally
+            {
+                SetConsoleCtrlHandler(ConsoleCtrlHandler, false);
             }
         }
     }
