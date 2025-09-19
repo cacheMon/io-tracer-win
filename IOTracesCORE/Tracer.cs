@@ -16,6 +16,7 @@ namespace IOTracesCORE
         private readonly FilesystemSnapper fsSnapper;
         private TraceEventSession? session;
         private volatile bool isShuttingDown = false;
+        private bool anonymouse = false;
 
         [DllImport("kernel32.dll")]
         static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate handler, bool add);
@@ -31,13 +32,13 @@ namespace IOTracesCORE
             CTRL_SHUTDOWN_EVENT = 6
         }
 
-        public Tracer(string outputPath = ".\\output")
+        public Tracer(bool anonymouse, string outputPath = ".\\output")
         {
             wm = new WriterManager(outputPath);
             fsHandler = new FilesystemHandlers(wm);
             dsHandler = new DiskHandlers(wm);
             psHandler = new ProcessSnapper(wm);
-            fsSnapper = new FilesystemSnapper(wm);
+            fsSnapper = new FilesystemSnapper(wm, anonymouse);
         }
 
         private bool ConsoleCtrlHandler(CtrlTypes ctrlType)

@@ -1,4 +1,5 @@
 ﻿using IOTracesCORE.trace;
+using IOTracesCORE.utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,10 +12,14 @@ namespace IOTracesCORE.snapper
     {
         private WriterManager wm;
         private bool interrupted;
-        public FilesystemSnapper(WriterManager wm)
+        private readonly int hashLen = 16;
+        private string scanRoot = "";
+        private bool anonymouse;
+        public FilesystemSnapper(WriterManager wm, bool anonymouse = false)
         {
             this.wm = wm;
             interrupted = false;
+            this.anonymouse = anonymouse;
         }
 
         public void Stop()
@@ -31,6 +36,7 @@ namespace IOTracesCORE.snapper
                 if (drive.IsReady)
                 {
                     Console.WriteLine($"Scanning Drive: {drive.Name}");
+                    scanRoot = drive.Name;
                     TraverseDirectory(drive.RootDirectory.FullName);
                     Console.WriteLine();
                 }
@@ -47,8 +53,9 @@ namespace IOTracesCORE.snapper
                 foreach (string file in files)
                 {
                     FileInfo fileInfo = new FileInfo(file);
+                    string filepath = anonymouse ? PathHasher.HashFilePath(fileInfo.FullName, scanRoot, hashLen) : fileInfo.FullName;
                     FilesystemInfo fi = new FilesystemInfo(
-                        path: fileInfo.FullName, 
+                        path: filepath, 
                         size: fileInfo.Length, 
                         creationDate: fileInfo.CreationTime, 
                         modificationDate: fileInfo.LastWriteTime
