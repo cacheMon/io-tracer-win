@@ -1,4 +1,5 @@
 ﻿using IOTracesCORE.handlers;
+using IOTracesCORE.snapper;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Session;
 using System.Diagnostics;
@@ -11,6 +12,8 @@ namespace IOTracesCORE
         private readonly WriterManager wm;
         private readonly FilesystemHandlers fsHandler;
         private readonly DiskHandlers dsHandler;
+        private readonly ProcessSnapper psHandler;
+        private readonly FilesystemSnapper fsSnapper;
         private TraceEventSession? session;
         private volatile bool isShuttingDown = false;
 
@@ -33,6 +36,8 @@ namespace IOTracesCORE
             wm = new WriterManager(outputPath);
             fsHandler = new FilesystemHandlers(wm);
             dsHandler = new DiskHandlers(wm);
+            psHandler = new ProcessSnapper(wm);
+            fsSnapper = new FilesystemSnapper(wm);
         }
 
         private bool ConsoleCtrlHandler(CtrlTypes ctrlType)
@@ -76,7 +81,8 @@ namespace IOTracesCORE
                     session.Dispose();
                     session = null;
                 }
-
+                fsSnapper.Stop();
+                psHandler.Stop();
                 wm.CompressAll();
 
                 Console.WriteLine("Cleanup completed successfully.");
@@ -99,11 +105,11 @@ namespace IOTracesCORE
                 Console.Error.WriteLine("Please run as Administrator.");
                 return;
             }
-
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
 
             Console.WriteLine("Starting IOTracer...");
-            Task task = Task.Run(() => wm.TraverseFilesystem());
+            Task _ = Task.Run(() => fsSnapper.Run());
+            Task __ = Task.Run(() => psHandler.Run());
             Console.WriteLine("Press CTRL + C to exit, or close the console window!");
 
             string sessionName = "IOTrace-" + Process.GetCurrentProcess().Id;

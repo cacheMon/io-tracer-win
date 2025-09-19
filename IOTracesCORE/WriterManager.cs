@@ -1,4 +1,5 @@
 ﻿using IOTracesCORE.trace;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Text;
@@ -13,10 +14,14 @@ namespace IOTracesCORE
         private string ds_filepath;
         private string mr_filepath;
         private string fs_snap_filepath;
+        private string process_snap_filepath;
         private readonly StringBuilder fs_sb;
         private readonly StringBuilder ds_sb;
         private readonly StringBuilder mr_sb;
-        private readonly static int maxKB = 10000;
+        private readonly StringBuilder fs_snap_sb;
+        private readonly StringBuilder process_snap_sb;
+        private readonly static int maxKB = 500000;
+        private readonly static int maxSnapKB = 1000000;
         private static int amount_compressed_file = 0;
 
         public WriterManager(string dirpath)
@@ -26,16 +31,21 @@ namespace IOTracesCORE
             fs_sb = new StringBuilder();
             ds_sb = new StringBuilder();
             mr_sb = new StringBuilder();
+            fs_snap_sb = new StringBuilder();
+            process_snap_sb = new StringBuilder();
 
             dir_path = $"{dirpath}\\run_{DateTime.UtcNow:yyyyMMdd_HHmmss}";
             fs_filepath = GenerateFilePath("fs");
             ds_filepath = GenerateFilePath("ds");
             mr_filepath = GenerateFilePath("mr");
-            fs_snap_filepath = $"{dir_path}\\snapshot_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt";
+            process_snap_filepath = GenerateFilePath("process");
+            fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
 
             string? fs_folder = Path.GetDirectoryName(fs_filepath) ?? throw new Exception("Invalid directory path.");
             string? ds_folder = Path.GetDirectoryName(ds_filepath) ?? throw new Exception("Invalid directory path.");
             string? mr_folder = Path.GetDirectoryName(mr_filepath) ?? throw new Exception("Invalid directory path.");
+            string? proc_snap_folder = Path.GetDirectoryName(process_snap_filepath) ?? throw new Exception("Invalid directory path.");
+            string? fs_snap_folder = Path.GetDirectoryName(fs_snap_filepath) ?? throw new Exception("Invalid directory path.");
             if (!Directory.Exists(fs_folder))
             {
                 Directory.CreateDirectory(fs_folder);
@@ -44,6 +54,14 @@ namespace IOTracesCORE
             {
                 Directory.CreateDirectory(ds_folder);
             }
+            if (!Directory.Exists(proc_snap_folder))
+            {
+                Directory.CreateDirectory(proc_snap_folder);
+            }
+            if (!Directory.Exists(fs_snap_folder))
+            {
+                Directory.CreateDirectory(fs_snap_folder);
+            }
             //if(!Directory.Exists(mr_folder))
             //{
             //    Directory.CreateDirectory(mr_folder);
@@ -51,6 +69,42 @@ namespace IOTracesCORE
             Console.WriteLine("File output: {0}", dirpath);
         }
 
+        public void Write(FilesystemInfo fs)
+        {
+            DateTime ts = DateTime.Now;
+            string name = fs.path;
+            long size = fs.size;       // bytes
+            DateTime? creationDate = fs.CreationDate;
+            DateTime modificationDate = fs.modificationDate;
+            fs_snap_sb.AppendFormat("{0},{1},{2},{3},{4}\n", ts.ToString(), name, size, creationDate, modificationDate);
+            if (IsTimeToFlush(fs_snap_sb, true))
+            {
+                FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+            }
+        }
+
+        public void Write(ProcessInfo pc)
+        {
+            if (pc.Name.Equals("IOTracesCORE"))
+            {
+                return;
+            }
+            DateTime ts = DateTime.Now;
+            uint pid = pc.ProcessId;
+            string name = pc.Name;
+            string cmd = pc.CommandLine;
+            ulong virtualSize = pc.VirtualSize;      // bytes
+            ulong workingSetSize = pc.WorkingSetSize;    // bytes
+            DateTime? creationDate = pc.CreationDate;
+            string status = pc.Status;
+
+            process_snap_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6},{7}\n", ts.ToString(), pid, name, cmd, virtualSize, workingSetSize, creationDate, status);
+
+            if (IsTimeToFlush(process_snap_sb))
+            {
+                FlushWrite(process_snap_sb, process_snap_filepath, "process");
+            }
+        }
 
         public void Write(FilesystemTrace data)
         {
@@ -113,8 +167,6 @@ namespace IOTracesCORE
         public void FlushWrite(StringBuilder sb, string filepath, string tracetype)
         {
             string old_fp;
-            string temp_str = sb.ToString();
-            sb.Clear();
 
             if (tracetype.Equals("filesystem"))
             {
@@ -131,25 +183,44 @@ namespace IOTracesCORE
                 old_fp = mr_filepath;
                 mr_filepath = GenerateFilePath("mr");
             }
+            else if (tracetype.Equals("process"))
+            {
+                old_fp = process_snap_filepath;
+                process_snap_filepath = GenerateFilePath("process");
+            }
+            else if (tracetype.Equals("filesystem_snapshot"))
+            {
+                old_fp = fs_snap_filepath;
+                fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
+            }
             else
             {
                 return;
             }
 
-            using (StreamWriter writeText = new(old_fp, true))
+            using (var writer = new StreamWriter(old_fp, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             {
-                writeText.Write(temp_str);
+                writer.Write(sb);
             }
+
+            sb.Clear();
+
             CompressFile(old_fp);
             WriteStatus();
-
         }
 
-        private static bool IsTimeToFlush(StringBuilder sb)
+        private static bool IsTimeToFlush(StringBuilder sb, bool isSnap = false)
         {
-            int maxChars = maxKB * 1024 / sizeof(char);
+            int limit = 0;
+            if (isSnap)
+            {
+                limit = maxSnapKB;
+            } else
+            {
+                limit = maxKB;
+            }
 
-            return sb.Length > 1000000;
+                return sb.Length > limit;
         }
 
         public static void CompressFile(string filepath)
@@ -206,10 +277,17 @@ namespace IOTracesCORE
             Directory.Delete(dir_path, true);
         }
 
+        public void FlushSnapper()
+        {
+            FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+        }
+
         public void CompressAll()
         {
             FlushWrite(fs_sb, fs_filepath, "filesystem");
             FlushWrite(ds_sb, ds_filepath, "disk");
+            FlushWrite(process_snap_sb, process_snap_filepath, "process");
+            FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
             //FlushWrite(mr_sb, mr_filepath, "memory");
             WriteStatus();
             CompressRun();
@@ -227,60 +305,6 @@ namespace IOTracesCORE
             //Console.WriteLine("Press CTRL + C to exit, or close the console window!");
             string stat = $"{DateTime.Now} | File Compressed: {amount_compressed_file}";
             Console.WriteLine(stat);
-        }
-
-        public void TraverseFilesystem()
-        {
-            DriveInfo[] drives = DriveInfo.GetDrives();
-            Console.WriteLine("Starting filesystem snapshot...");
-            foreach (DriveInfo drive in drives)
-            {
-                if (drive.IsReady)
-                {
-                    Console.WriteLine($"=== Drive: {drive.Name} ===");
-                    TraverseDirectory(drive.RootDirectory.FullName);
-                    Console.WriteLine();
-                }
-            }
-            CompressFile(fs_snap_filepath);
-        }
-
-        private void TraverseDirectory(string dirPath)
-        {
-            try
-            {
-
-                string[] files = Directory.GetFiles(dirPath);
-                using (StreamWriter writeText = new StreamWriter(fs_snap_filepath, true))
-                {
-                    foreach (string file in files)
-                    {
-                        writeText.WriteLine(file);
-                    }
-                }
-                
-
-                string[] directories = Directory.GetDirectories(dirPath);
-                foreach (string directory in directories)
-                {
-                    TraverseDirectory(directory);
-                }
-            }
-            catch (UnauthorizedAccessException)
-            {
-                using StreamWriter writeText = new(fs_snap_filepath, true);
-                writeText.WriteLine($"[ACCESS DENIED] {dirPath}");
-            }
-            catch (DirectoryNotFoundException)
-            {
-                using StreamWriter writeText = new(fs_snap_filepath, true);
-                writeText.WriteLine($"[NOT FOUND] {dirPath}");
-            }
-            catch (Exception ex)
-            {
-                using StreamWriter writeText = new(fs_snap_filepath, true);
-                writeText.WriteLine($"[ERROR] {dirPath}: {ex.Message}");
-            }
         }
     }
 }
