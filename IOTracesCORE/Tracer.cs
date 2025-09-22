@@ -11,6 +11,7 @@ namespace IOTracesCORE
     {
         private readonly WriterManager wm;
         private readonly FilesystemHandlers fsHandler;
+        private readonly SystemSnapper systemSnapper;
         private readonly DiskHandlers dsHandler;
         private readonly ProcessSnapper psHandler;
         private readonly FilesystemSnapper fsSnapper;
@@ -39,6 +40,7 @@ namespace IOTracesCORE
             dsHandler = new DiskHandlers(wm);
             psHandler = new ProcessSnapper(wm);
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
+            systemSnapper = new SystemSnapper(wm);
         }
 
         private bool ConsoleCtrlHandler(CtrlTypes ctrlType)
@@ -112,6 +114,7 @@ namespace IOTracesCORE
             Task _ = Task.Run(() => fsSnapper.Run());
             Task __ = Task.Run(() => psHandler.Run());
             Console.WriteLine("Press CTRL + C to exit, or close the console window!");
+            systemSnapper.CaptureSpecSnapshot();
 
             string sessionName = "IOTrace-" + Process.GetCurrentProcess().Id;
 

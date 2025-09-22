@@ -15,11 +15,13 @@ namespace IOTracesCORE
         private string mr_filepath;
         private string fs_snap_filepath;
         private string process_snap_filepath;
+
         private readonly StringBuilder fs_sb;
         private readonly StringBuilder ds_sb;
         private readonly StringBuilder mr_sb;
         private readonly StringBuilder fs_snap_sb;
         private readonly StringBuilder process_snap_sb;
+
         private readonly static int maxKB = 500000;
         private readonly static int maxSnapKB = 1000000;
         private static int amount_compressed_file = 0;
@@ -207,6 +209,16 @@ namespace IOTracesCORE
 
             CompressFile(old_fp);
             WriteStatus();
+        }
+
+        public void DirectWrite(string file_out_path ,string input)
+        {
+            string out_path = $"{dir_path}\\{file_out_path}";
+
+            using (var writer = new StreamWriter(out_path, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+            {
+                writer.Write(input);
+            }
         }
 
         private static bool IsTimeToFlush(StringBuilder sb, bool isSnap = false)
