@@ -43,6 +43,11 @@ namespace IOTracesCORE
             process_snap_filepath = GenerateFilePath("process");
             fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
 
+            
+        }
+
+        public void InitiateDirectory()
+        {
             string? fs_folder = Path.GetDirectoryName(fs_filepath) ?? throw new Exception("Invalid directory path.");
             string? ds_folder = Path.GetDirectoryName(ds_filepath) ?? throw new Exception("Invalid directory path.");
             string? mr_folder = Path.GetDirectoryName(mr_filepath) ?? throw new Exception("Invalid directory path.");
@@ -52,7 +57,7 @@ namespace IOTracesCORE
             {
                 Directory.CreateDirectory(fs_folder);
             }
-            if(!Directory.Exists(ds_folder))
+            if (!Directory.Exists(ds_folder))
             {
                 Directory.CreateDirectory(ds_folder);
             }
@@ -68,7 +73,7 @@ namespace IOTracesCORE
             //{
             //    Directory.CreateDirectory(mr_folder);
             //}
-            Console.WriteLine("File output: {0}", dirpath);
+            Console.WriteLine("File output: {0}", this.dir_path);
         }
 
         public void Write(FilesystemInfo fs)
@@ -78,7 +83,7 @@ namespace IOTracesCORE
             long size = fs.size;       // bytes
             DateTime? creationDate = fs.CreationDate;
             DateTime modificationDate = fs.modificationDate;
-            fs_snap_sb.AppendFormat("{0},{1},{2},{3},{4}\n", ts.ToString(), name, size, creationDate, modificationDate);
+            fs_snap_sb.AppendFormat("{0},{1},{2},{3},{4}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), name, size, creationDate, modificationDate);
             if (IsTimeToFlush(fs_snap_sb, true))
             {
                 FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
@@ -99,8 +104,7 @@ namespace IOTracesCORE
             ulong workingSetSize = pc.WorkingSetSize;    // bytes
             DateTime? creationDate = pc.CreationDate;
 
-            process_snap_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6}\n", ts.ToString(), pid, name, cmd, virtualSize, workingSetSize, creationDate);
-
+            process_snap_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, name, cmd, virtualSize, workingSetSize, creationDate);
             if (IsTimeToFlush(process_snap_sb))
             {
                 FlushWrite(process_snap_sb, process_snap_filepath, "process");

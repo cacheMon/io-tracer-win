@@ -12,7 +12,7 @@ namespace IOTracesCORE.trace
         {
             Ts = ts;
             Pid = pid;
-            Comm = comm;
+            Comm = $"\"{comm}\"";
             Type = type;
         }
 

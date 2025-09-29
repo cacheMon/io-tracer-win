@@ -26,8 +26,8 @@ namespace IOTracesCORE.trace
         )
             {
                 ProcessId = processId;
-                Name = name;
-                CommandLine = commandLine;
+                Name = $"\"{name}\"";
+                CommandLine = $"\"{commandLine}\"";
                 VirtualSize = virtualSize;
                 WorkingSetSize = workingSetSize;
                 CreationDate = creationDate;

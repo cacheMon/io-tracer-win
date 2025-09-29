@@ -105,11 +105,14 @@ namespace IOTracesCORE
         {
             if (!(TraceEventSession.IsElevated() ?? false))
             {
-                Console.Error.WriteLine("Please run as Administrator.");
-                return;
+                while (true)
+                {
+                    Console.Error.WriteLine("Please run as Administrator. Try again!");
+                    Thread.Sleep(5000);
+                }
             }
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
-
+            wm.InitiateDirectory();
             Console.WriteLine("Starting IOTracer...");
             Task _ = Task.Run(() => fsSnapper.Run());
             Task __ = Task.Run(() => psHandler.Run());

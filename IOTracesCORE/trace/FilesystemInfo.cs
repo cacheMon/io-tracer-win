@@ -16,7 +16,7 @@ namespace IOTracesCORE.trace
 
         public FilesystemInfo(string path, long size, DateTime? creationDate, DateTime modificationDate)
         {
-            this.path = path;
+            this.path = $"\"{path}\"";
             this.size = size;
             this.CreationDate = creationDate;
             this.modificationDate = modificationDate;
