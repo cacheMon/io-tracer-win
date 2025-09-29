@@ -55,7 +55,7 @@ namespace IOTracesCORE.snapper
                     FileInfo fileInfo = new FileInfo(file);
                     string filepath = anonymouse ? PathHasher.HashFilePath(fileInfo.FullName, scanRoot, hashLen) : fileInfo.FullName;
                     FilesystemInfo fi = new FilesystemInfo(
-                        path: filepath, 
+                        path: filepath.Replace("\\", "/"), 
                         size: fileInfo.Length, 
                         creationDate: fileInfo.CreationTime, 
                         modificationDate: fileInfo.LastWriteTime
