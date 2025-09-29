@@ -124,6 +124,10 @@ namespace IOTracesCORE
             string process_name = data.Comm;
             string filename = data.Filename;
             int size = data.TraceSize;
+            if (process_name.Equals("IOTracesCORE"))
+            {
+                return;
+            }
             fs_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), operation_type, pid, process_name, filename, size);
             if (IsTimeToFlush(fs_sb))
             {
@@ -144,6 +148,11 @@ namespace IOTracesCORE
             long sector = data.Sector;
             string operation = data.Operation;
             int size = data.TraceSize;
+
+            if (process_name.Equals("IOTracesCORE"))
+            {
+                return;
+            }
 
             ds_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, process_name, sector, operation, size);
 
