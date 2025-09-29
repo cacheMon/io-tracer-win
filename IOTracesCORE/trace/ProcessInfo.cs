@@ -15,7 +15,6 @@ namespace IOTracesCORE.trace
         public ulong VirtualSize { get; set; }       // bytes
         public ulong WorkingSetSize { get; set; }    // bytes
         public DateTime? CreationDate { get; set; }
-        public string Status { get; set; }
 
         public ProcessInfo(
             uint processId,
@@ -23,8 +22,7 @@ namespace IOTracesCORE.trace
             string commandLine,
             ulong virtualSize,
             ulong workingSetSize,
-            DateTime? creationDate,
-            string status
+            DateTime? creationDate
         )
             {
                 ProcessId = processId;
@@ -33,7 +31,6 @@ namespace IOTracesCORE.trace
                 VirtualSize = virtualSize;
                 WorkingSetSize = workingSetSize;
                 CreationDate = creationDate;
-                Status = status;
             }
 
         public override string ToString()

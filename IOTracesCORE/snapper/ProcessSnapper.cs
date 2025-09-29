@@ -33,8 +33,7 @@ namespace IOTracesCORE.snapper
                         commandLine: (string)mo["CommandLine"] ?? "",
                         virtualSize: (ulong)(mo["VirtualSize"] ?? 0UL),
                         workingSetSize: (ulong)(mo["WorkingSetSize"] ?? 0UL),
-                        creationDate: ManagementDateTimeConverter.ToDateTime(mo["CreationDate"]?.ToString()),
-                        status: (string)mo["Status"]
+                        creationDate: ManagementDateTimeConverter.ToDateTime(mo["CreationDate"]?.ToString())
                     );
                     wm.Write(pi);
                 }

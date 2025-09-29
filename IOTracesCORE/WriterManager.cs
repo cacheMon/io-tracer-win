@@ -98,9 +98,8 @@ namespace IOTracesCORE
             ulong virtualSize = pc.VirtualSize;      // bytes
             ulong workingSetSize = pc.WorkingSetSize;    // bytes
             DateTime? creationDate = pc.CreationDate;
-            string status = pc.Status;
 
-            process_snap_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6},{7}\n", ts.ToString(), pid, name, cmd, virtualSize, workingSetSize, creationDate, status);
+            process_snap_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6}\n", ts.ToString(), pid, name, cmd, virtualSize, workingSetSize, creationDate);
 
             if (IsTimeToFlush(process_snap_sb))
             {
