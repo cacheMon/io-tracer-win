@@ -120,8 +120,7 @@ namespace IOTracesCORE
             string process_name = data.Comm;
             string filename = data.Filename;
             int size = data.TraceSize;
-            fs_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToString(), operation_type, pid, process_name, filename, size);
-
+            fs_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), operation_type, pid, process_name, filename, size);
             if (IsTimeToFlush(fs_sb))
             {
                 FlushWrite(fs_sb, fs_filepath, "filesystem");
@@ -142,7 +141,7 @@ namespace IOTracesCORE
             string operation = data.Operation;
             int size = data.TraceSize;
 
-            ds_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToString(), pid, process_name, sector, operation, size);
+            ds_sb.AppendFormat("{0},{1},{2},{3},{4},{5}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, process_name, sector, operation, size);
 
             if (IsTimeToFlush(ds_sb))
             {
@@ -157,7 +156,7 @@ namespace IOTracesCORE
             string process_name = data.Comm;
             string type = data.Type;
 
-            mr_sb.AppendFormat("{0},{1},{2},{3}\n", ts.ToString(), pid, process_name, type);
+            mr_sb.AppendFormat("{0},{1},{2},{3}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, process_name, type);
 
             if (IsTimeToFlush(mr_sb))
             {
