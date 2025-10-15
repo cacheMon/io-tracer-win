@@ -86,6 +86,9 @@ namespace IOTracesCORE
                 }
                 fsSnapper.Stop();
                 psHandler.Stop();
+
+                Thread.Sleep(10000);
+
                 wm.CompressAll();
 
                 Console.WriteLine("Cleanup completed successfully.");
