@@ -96,11 +96,11 @@ namespace IOTracesCORE
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error during cleanup: {ex.Message}");
+                MessageBox.Show($"Error! {ex.Message}", "Info", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Debug.WriteLine($"Error during cleanup: {ex.Message}");
             }
             finally
             {
-                MessageBox.Show("IO-Tracer has stopped.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 Environment.Exit(0);
             }
         }
@@ -118,6 +118,8 @@ namespace IOTracesCORE
                 }
                 return;
             }
+            string sessionName = "IOTracer";
+            CleanupOrphanedSession(sessionName);
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
             wm.InitiateDirectory();
             Console.WriteLine("Starting IOTracer...");
@@ -126,7 +128,6 @@ namespace IOTracesCORE
             Console.WriteLine("Press CTRL + C to exit, or close the console window!");
             systemSnapper.CaptureSpecSnapshot();
 
-            string sessionName = "IOTrace-" + Process.GetCurrentProcess().Id;
 
             cancellationToken.Register(() =>
             {
@@ -183,7 +184,7 @@ namespace IOTracesCORE
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"An error occurred during tracing: {ex.Message}");
+                Debug.WriteLine($"An error occurred during tracing: {ex.Message}");
                 if (!isShuttingDown)
                 {
                     CleanupAndExit();
@@ -195,9 +196,49 @@ namespace IOTracesCORE
                 {
                     isShuttingDown = true;
                 }
-                MessageBox.Show("IO Tracing session has ended. The application performing cleaning operation. Please Wait....", "IO Traces Core", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Form pleaseWaitForm = new Form()
+                {
+                    Width = 400,
+                    Height = 100,
+                    FormBorderStyle = FormBorderStyle.None,
+                    StartPosition = FormStartPosition.CenterScreen,
+                    BackColor = Color.White,
+                    TopMost = true
+                };
+
+                Label label = new Label()
+                {
+                    Text = "IO Tracing session has ended. The application performing cleaning operation. Please Wait....",
+                    Dock = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Font = new Font("Segoe UI", 10)
+                };
+
+                pleaseWaitForm.Controls.Add(label);
+                pleaseWaitForm.Show();
+                Application.DoEvents();
                 CleanupAndExit();
-                SetConsoleCtrlHandler(ConsoleCtrlHandler, false);
+                pleaseWaitForm.Close();
+                pleaseWaitForm.Dispose();
+            }
+        }
+
+        private void CleanupOrphanedSession(string sessionName)
+        {
+            try
+            {
+                var existingSession = TraceEventSession.GetActiveSession(sessionName);
+                if (existingSession != null)
+                {
+                    Debug.WriteLine($"Found orphaned session '{sessionName}', cleaning up...");
+                    existingSession.Stop();
+                    existingSession.Dispose();
+                    Thread.Sleep(1000); 
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Warning: Could not clean up orphaned session: {ex.Message}");
             }
         }
     }

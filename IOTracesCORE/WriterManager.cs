@@ -76,10 +76,23 @@ namespace IOTracesCORE
             Console.WriteLine("File output: {0}", this.dir_path);
         }
 
+        private static string EscapeCsvField(string field)
+        {
+            if (string.IsNullOrEmpty(field))
+                return "\"\"";
+
+            if (field.Contains(',') || field.Contains('\n') || field.Contains('"'))
+            {
+                return $"\"{field.Replace("\"", "\"\"")}\"";
+            }
+
+            return $"\"{field}\"";
+        }
+
         public void Write(FilesystemInfo fs)
         {
             DateTime ts = DateTime.Now;
-            string name = fs.path;
+            string name = EscapeCsvField(fs.path);
             long size = fs.size;       // bytes
             DateTime? creationDate = fs.CreationDate;
             DateTime modificationDate = fs.modificationDate;
@@ -98,13 +111,14 @@ namespace IOTracesCORE
             }
             DateTime ts = DateTime.Now;
             uint pid = pc.ProcessId;
-            string name = pc.Name;
-            string cmd = pc.CommandLine;
+            string name = EscapeCsvField(pc.Name);
+            string cmd = EscapeCsvField(pc.CommandLine);
             ulong virtualSize = pc.VirtualSize;      // bytes
             ulong workingSetSize = pc.WorkingSetSize;    // bytes
             DateTime? creationDate = pc.CreationDate;
+            double procUsage = pc.CpuUsage;
 
-            process_snap_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, name, cmd, virtualSize, workingSetSize, creationDate);
+            process_snap_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6},{7}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, name, cmd, virtualSize, workingSetSize, creationDate, procUsage);
             if (IsTimeToFlush(process_snap_sb))
             {
                 FlushWrite(process_snap_sb, process_snap_filepath, "process");
@@ -119,10 +133,10 @@ namespace IOTracesCORE
             }
 
             DateTime ts = data.Ts;
-            string operation_type = data.Op;
+            string operation_type = EscapeCsvField(data.Op);
             int pid = data.Pid;
-            string process_name = data.Comm;
-            string filename = data.Filename;
+            string process_name = EscapeCsvField(data.Comm);
+            string filename = EscapeCsvField(data.Filename);
             int size = data.TraceSize;
             if (process_name.Equals("IOTracesCORE"))
             {
@@ -144,9 +158,9 @@ namespace IOTracesCORE
 
             DateTime ts = data.Ts;
             int pid = data.Pid;
-            string process_name = data.Comm;
+            string process_name = EscapeCsvField(data.Comm);
             long sector = data.Sector;
-            string operation = data.Operation;
+            string operation = EscapeCsvField(data.Operation);
             int size = data.TraceSize;
 
             if (process_name.Equals("IOTracesCORE"))
@@ -166,8 +180,8 @@ namespace IOTracesCORE
         {
             DateTime ts = data.Ts;
             int pid = data.Pid;
-            string process_name = data.Comm;
-            string type = data.Type;
+            string process_name = EscapeCsvField(data.Comm);
+            string type = EscapeCsvField(data.Type);
 
             mr_sb.AppendFormat("{0},{1},{2},{3}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, process_name, type);
 

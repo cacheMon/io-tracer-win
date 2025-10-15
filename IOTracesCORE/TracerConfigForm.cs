@@ -115,8 +115,6 @@ namespace IOTracesCORE
                 Directory.CreateDirectory(outputPath);
             }
 
-            MessageBox.Show($"IO-Tracer now active!\n\nPath: {outputPath}\nAnonymous: {anonymous}",
-                "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             this.Close();
             Task.Run(() =>

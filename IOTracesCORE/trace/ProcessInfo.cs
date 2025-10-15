@@ -16,22 +16,26 @@ namespace IOTracesCORE.trace
         public ulong WorkingSetSize { get; set; }    // bytes
         public DateTime? CreationDate { get; set; }
 
+        public double CpuUsage { get; set; } // percentage
+
         public ProcessInfo(
             uint processId,
             string name,
             string commandLine,
             ulong virtualSize,
             ulong workingSetSize,
-            DateTime? creationDate
+            DateTime? creationDate,
+            double cpuUsage
         )
             {
                 ProcessId = processId;
-                Name = $"\"{name}\"";
-                CommandLine = $"\"{commandLine}\"";
+                Name = name;
+                CommandLine = commandLine;
                 VirtualSize = virtualSize;
                 WorkingSetSize = workingSetSize;
                 CreationDate = creationDate;
-            }
+                CpuUsage = cpuUsage;
+        }
 
         public override string ToString()
         {
