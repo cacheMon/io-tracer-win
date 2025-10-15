@@ -24,7 +24,7 @@ namespace IOTracesCORE
 
         private readonly static int maxKB = 500000;
         private readonly static int maxSnapKB = 1000000;
-        private static int amount_compressed_file = 0;
+        public static int amount_compressed_file = 0;
 
         public WriterManager(string dirpath)
         {

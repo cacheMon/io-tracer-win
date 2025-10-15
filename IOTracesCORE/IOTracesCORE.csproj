@@ -1,16 +1,17 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <StartupObject>IOTracesCORE.Program</StartupObject>
     <ApplicationIcon>Opera_Glasses_icon-icons.com_54155.ico</ApplicationIcon>
+    <UseWindowsForms>True</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="Opera_Glasses_icon-icons.com_54155.ico" />
+    <EmbeddedResource Include="Opera_Glasses_icon-icons.com_54155.ico" />
   </ItemGroup>
 
   <ItemGroup>

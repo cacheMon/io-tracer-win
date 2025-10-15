@@ -18,6 +18,7 @@ namespace IOTracesCORE
         private TraceEventSession? session;
         private volatile bool isShuttingDown = false;
         private bool anonymouse = false;
+        private CancellationToken cancellationToken;
 
         [DllImport("kernel32.dll")]
         static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate handler, bool add);
@@ -99,20 +100,23 @@ namespace IOTracesCORE
             }
             finally
             {
-                Thread.Sleep(1000);
+                MessageBox.Show("IO-Tracer has stopped.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 Environment.Exit(0);
             }
         }
 
-        public void Trace()
+        public void Trace(CancellationToken cancellationToken = default)
         {
+            this.cancellationToken = cancellationToken;
+
             if (!(TraceEventSession.IsElevated() ?? false))
             {
-                while (true)
+                while (!cancellationToken.IsCancellationRequested)
                 {
                     Console.Error.WriteLine("Please run as Administrator. Try again!");
                     Thread.Sleep(5000);
                 }
+                return;
             }
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
             wm.InitiateDirectory();
@@ -123,6 +127,20 @@ namespace IOTracesCORE
             systemSnapper.CaptureSpecSnapshot();
 
             string sessionName = "IOTrace-" + Process.GetCurrentProcess().Id;
+
+            cancellationToken.Register(() =>
+            {
+                if (!isShuttingDown)
+                {
+                    Console.WriteLine("\nShutdown requested. Cleaning up...");
+                    isShuttingDown = true;
+
+                    if (session != null)
+                    {
+                        session.Stop();
+                    }
+                }
+            });
 
             try
             {
@@ -150,7 +168,6 @@ namespace IOTracesCORE
                     var source = session.Source;
                     var kernel = source.Kernel;
 
-                    // FS HANDLERS
                     kernel.FileIORead += fsHandler.OnFileRead;
                     kernel.FileIOWrite += fsHandler.OnFileWrite;
                     kernel.FileIOClose += fsHandler.OnFileClose;
@@ -158,11 +175,9 @@ namespace IOTracesCORE
                     kernel.FileIODelete += fsHandler.OnFileDelete;
                     kernel.FileIOFlush += fsHandler.OnFileFlush;
 
-                    // DISK HANDLERS    
                     kernel.DiskIORead += dsHandler.OnDiskRead;
                     kernel.DiskIOWrite += dsHandler.OnDiskWrite;
 
-                    // Start processing events
                     source.Process();
                 }
             }
@@ -176,6 +191,12 @@ namespace IOTracesCORE
             }
             finally
             {
+                if (!isShuttingDown)
+                {
+                    isShuttingDown = true;
+                }
+                MessageBox.Show("IO Tracing session has ended. The application performing cleaning operation. Please Wait....", "IO Traces Core", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                CleanupAndExit();
                 SetConsoleCtrlHandler(ConsoleCtrlHandler, false);
             }
         }
