@@ -3,6 +3,7 @@ using System;
 using System.Drawing;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -20,10 +21,21 @@ namespace IOTracesCORE
         const int SW_HIDE = 0;
         private static CancellationTokenSource cancellationTokenSource;
         private static NotifyIcon trayIcon;
+        private static bool isElevated;
 
         [STAThread]
         static void Main(string[] args)
         {
+            using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
+            {
+                WindowsPrincipal principal = new WindowsPrincipal(identity);
+                isElevated = principal.IsInRole(WindowsBuiltInRole.Administrator);
+                if (!isElevated)
+                {
+                    MessageBox.Show("This application must be run as Administrator.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+            }
             var handle = GetConsoleWindow();
             ShowWindow(handle, SW_HIDE);
 
