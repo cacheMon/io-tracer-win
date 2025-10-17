@@ -1,5 +1,6 @@
 ﻿using Microsoft.Win32;
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -42,7 +43,7 @@ namespace IOTracesCORE
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            Application.ApplicationExit += OnApplicationExit;
+            Application.ApplicationExit += new EventHandler(OnApplicationExit);
             SystemEvents.SessionEnding += OnSessionEnding;
 
             cancellationTokenSource = new CancellationTokenSource();
@@ -50,7 +51,7 @@ namespace IOTracesCORE
             var assembly = Assembly.GetExecutingAssembly();
             var iconStream = assembly.GetManifestResourceStream("IOTracesCORE.Opera_Glasses_icon-icons.com_54155.ico");
             var icon = iconStream != null ? new Icon(iconStream) : SystemIcons.Application;
-            var trayIcon = new NotifyIcon
+            trayIcon = new NotifyIcon
             {
                 Icon = icon,
                 Visible = true,
@@ -71,12 +72,9 @@ namespace IOTracesCORE
             {
                 MessageBox.Show("IO Traces Core is running!", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
             };
-            TracerConfigForm.Run(cancellationTokenSource.Token);
-
-            Application.Run();
-
-            trayIcon.Dispose();
-            cancellationTokenSource?.Dispose();
+            var form = TracerConfigForm.Run(cancellationTokenSource.Token); ;
+            form.FormClosed += (_, __) => { cancellationTokenSource?.Cancel(); };
+            Application.Run(form);
         }
         private static void OnExitClicked(object sender, EventArgs e)
         {
@@ -120,9 +118,9 @@ namespace IOTracesCORE
             Thread.Sleep(2000);
         }
 
-        private static void OnApplicationExit(object sender, EventArgs e)
+        private static void OnApplicationExit(object? sender, EventArgs e)
         {
-            Console.WriteLine("Application exiting...");
+            Debug.WriteLine("Application exiting...");
             if (trayIcon != null)
             {
                 trayIcon.Visible = false;

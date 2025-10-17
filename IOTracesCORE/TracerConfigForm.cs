@@ -116,7 +116,8 @@ namespace IOTracesCORE
             }
 
 
-            this.Close();
+            this.Hide();
+            this.ShowInTaskbar = false;
             Task.Run(() =>
             {
                 try
@@ -138,10 +139,10 @@ namespace IOTracesCORE
             });
         }
 
-        public static void Run(CancellationToken cancellationToken = default)
+        public static TracerConfigForm Run(CancellationToken cancellationToken = default)
         {
-            var form = new TracerConfigForm(cancellationToken);
-            form.ShowDialog();
+            return new TracerConfigForm(cancellationToken);
+            //form.ShowDialog();
         }
     }
 }
