@@ -91,7 +91,7 @@ namespace IOTracesCORE
 
         public void Write(FilesystemInfo fs)
         {
-            string name = fs.path;
+            string name = EscapeCsvField(fs.path);
             long size = fs.size;       // bytes
             DateTime? creationDate = fs.CreationDate;
             DateTime modificationDate = fs.modificationDate;
