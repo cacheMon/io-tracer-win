@@ -91,12 +91,11 @@ namespace IOTracesCORE
 
         public void Write(FilesystemInfo fs)
         {
-            DateTime ts = DateTime.Now;
-            string name = EscapeCsvField(fs.path);
+            string name = fs.path;
             long size = fs.size;       // bytes
             DateTime? creationDate = fs.CreationDate;
             DateTime modificationDate = fs.modificationDate;
-            fs_snap_sb.AppendFormat("{0},{1},{2},{3},{4}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), name, size, creationDate, modificationDate);
+            fs_snap_sb.AppendFormat("{0},{1},{2},{3}\n", name, size, creationDate, modificationDate);
             if (IsTimeToFlush(fs_snap_sb, true))
             {
                 FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
