@@ -9,9 +9,22 @@ namespace IOTracesCORE.utils
 {
     internal class PathHasher
     {
-        public static string HashFilePath(string fileFullPath, string rootBase, int hashLen = 16)
+        public static string HashDirectoryPath(string fullPath, string rootBase, int hashLen = 16)
+        {
+            string root = Path.GetPathRoot(fullPath) ?? "";
+            string relative = Path.GetRelativePath(rootBase, fullPath);
+
+            var hashedSegments = relative
+                .Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(seg => Hash(seg, hashLen));
+
+            return Path.Combine(root, Path.Combine(hashedSegments.ToArray()));
+        }
+
+        public static string HashFilePath(string fileFullPath, string rootBase, bool anonymous, int hashLen = 16)
         {
             string dir = Path.GetDirectoryName(fileFullPath) ?? "";
+            dir = anonymous ? HashDirectoryPath(dir, rootBase, hashLen) : dir;
             string file = Path.GetFileName(fileFullPath);
 
             string name = Path.GetFileNameWithoutExtension(file);

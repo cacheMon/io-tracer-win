@@ -2,6 +2,7 @@
 using IOTracesCORE.utils;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -53,13 +54,14 @@ namespace IOTracesCORE.snapper
                 foreach (string file in files)
                 {
                     FileInfo fileInfo = new FileInfo(file);
-                    string filepath = anonymouse ? PathHasher.HashFilePath(fileInfo.FullName, scanRoot, hashLen) : fileInfo.FullName;
+                    string filepath = PathHasher.HashFilePath(fileInfo.FullName, scanRoot, anonymouse ,hashLen);
                     FilesystemInfo fi = new FilesystemInfo(
                         path: filepath.Replace("\\", "/"), 
                         size: fileInfo.Length, 
                         creationDate: fileInfo.CreationTime, 
                         modificationDate: fileInfo.LastWriteTime
                     );
+                    //Debug.WriteLine($"Path: {filepath}");
                     wm.Write(fi);
                 }
 
