@@ -61,7 +61,6 @@ namespace IOTracesCORE.snapper
                         creationDate: fileInfo.CreationTime, 
                         modificationDate: fileInfo.LastWriteTime
                     );
-                    //Debug.WriteLine($"Path: {filepath}");
                     wm.Write(fi);
                 }
 

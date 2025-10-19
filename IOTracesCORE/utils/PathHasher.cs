@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -9,24 +10,46 @@ namespace IOTracesCORE.utils
 {
     internal class PathHasher
     {
-        public static string HashDirectoryPath(string fullPath, string rootBase, int hashLen = 16)
+        public static string HashDirectoryPath(string fullPath, string rootBase, int keepLevels = 2, int hashLen = 16)
         {
-            string root = Path.GetPathRoot(fullPath) ?? "";
+            fullPath = Path.GetFullPath(fullPath);
+            rootBase = Path.GetFullPath(rootBase);
+
+            if (!fullPath.StartsWith(rootBase, StringComparison.OrdinalIgnoreCase))
+                return fullPath;
+
             string relative = Path.GetRelativePath(rootBase, fullPath);
 
-            var hashedSegments = relative
-                .Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(seg => Hash(seg, hashLen));
+            var segments = relative.Split(
+                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                StringSplitOptions.RemoveEmptyEntries
+            );
 
-            return Path.Combine(root, Path.Combine(hashedSegments.ToArray()));
+            var transformed = segments
+                .Select((seg, i) => i < keepLevels ? seg : Hash(seg, hashLen))
+                .ToArray();
+
+            return transformed.Length == 0
+                ? rootBase.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                : Path.Combine(rootBase, Path.Combine(transformed));
         }
+
 
         public static string HashFilePath(string fileFullPath, string rootBase, bool anonymous, int hashLen = 16)
         {
             string dir = Path.GetDirectoryName(fileFullPath) ?? "";
-            dir = anonymous ? HashDirectoryPath(dir, rootBase, hashLen) : dir;
-            string file = Path.GetFileName(fileFullPath);
 
+            if (anonymous)
+            {
+                dir = HashDirectoryPath(
+                    fullPath: dir,
+                    rootBase: rootBase,
+                    keepLevels: 2,
+                    hashLen: hashLen
+                );
+            }
+
+            string file = Path.GetFileName(fileFullPath);
             string name = Path.GetFileNameWithoutExtension(file);
             string ext = Path.GetExtension(file);
 
