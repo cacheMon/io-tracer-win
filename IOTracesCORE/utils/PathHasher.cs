@@ -34,10 +34,17 @@ namespace IOTracesCORE.utils
                 : Path.Combine(rootBase, Path.Combine(transformed));
         }
 
+        public static string HashFileName(string filename, int hashLen = 16)
+        {
+            string name = Path.GetFileNameWithoutExtension(filename);
+            string ext = Path.GetExtension(filename);
+            string hashedName = Hash(name, hashLen) + ext;
+            return hashedName;
+        }
 
         public static string HashFilePath(string fileFullPath, string rootBase, bool anonymous, int hashLen = 16)
         {
-            string dir = Path.GetDirectoryName(fileFullPath) ?? "";
+            string dir = Path.GetDirectoryName(fileFullPath) ?? fileFullPath;
 
             if (anonymous)
             {
@@ -53,11 +60,12 @@ namespace IOTracesCORE.utils
             string name = Path.GetFileNameWithoutExtension(file);
             string ext = Path.GetExtension(file);
 
+
             string hashedName = Hash(name, hashLen) + ext;
             return Path.Combine(dir, hashedName);
         }
 
-        private static string Hash(string s, int len)
+        public static string Hash(string s, int len)
         {
             using var sha = SHA256.Create();
             byte[] bytes = Encoding.UTF8.GetBytes(s);
@@ -68,5 +76,6 @@ namespace IOTracesCORE.utils
 
             return (len > 0 && len < sb.Length) ? sb.ToString(0, len) : sb.ToString();
         }
+
     }
 }

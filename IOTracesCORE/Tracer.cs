@@ -36,10 +36,10 @@ namespace IOTracesCORE
 
         public Tracer(bool anonymouse, string outputPath = ".\\output")
         {
-            wm = new WriterManager(outputPath);
+            wm = new WriterManager(outputPath, anonymouse);
             fsHandler = new FilesystemHandlers(wm);
             dsHandler = new DiskHandlers(wm);
-            psHandler = new ProcessSnapper(wm);
+            psHandler = new ProcessSnapper(wm, anonymouse);
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
             systemSnapper = new SystemSnapper(wm);
         }

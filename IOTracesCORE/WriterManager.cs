@@ -1,4 +1,5 @@
 ﻿using IOTracesCORE.trace;
+using IOTracesCORE.utils;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.AccessControl;
@@ -24,9 +25,10 @@ namespace IOTracesCORE
 
         private readonly static int maxKB = 500000;
         private readonly static int maxSnapKB = 1000000;
+        private bool is_anonymous;
         public static int amount_compressed_file = 0;
 
-        public WriterManager(string dirpath)
+        public WriterManager(string dirpath, bool is_anonymous)
         {
             amount_compressed_file = 0;
 
@@ -42,8 +44,7 @@ namespace IOTracesCORE
             mr_filepath = GenerateFilePath("mr");
             process_snap_filepath = GenerateFilePath("process");
             fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
-
-            
+            this.is_anonymous = is_anonymous; 
         }
 
         public void InitiateDirectory()
@@ -135,7 +136,14 @@ namespace IOTracesCORE
             string operation_type = EscapeCsvField(data.Op);
             int pid = data.Pid;
             string process_name = EscapeCsvField(data.Comm);
-            string filename = EscapeCsvField(data.Filename);
+            string or_fp = Path.GetFileName(data.Filename.Trim('"'));
+            string filename = EscapeCsvField(or_fp);
+            if (is_anonymous)
+            {
+                filename = EscapeCsvField(PathHasher.HashFileName(or_fp));
+            }
+            //Debug.WriteLine(filename);
+
             int size = data.TraceSize;
             if (process_name.Equals("IOTracesCORE"))
             {
