@@ -14,12 +14,14 @@ namespace IOTracesCORE
         private string fs_filepath;
         private string ds_filepath;
         private string mr_filepath;
+        private string nw_filepath;
         private string fs_snap_filepath;
         private string process_snap_filepath;
 
         private readonly StringBuilder fs_sb;
         private readonly StringBuilder ds_sb;
         private readonly StringBuilder mr_sb;
+        private readonly StringBuilder nw_sb;
         private readonly StringBuilder fs_snap_sb;
         private readonly StringBuilder process_snap_sb;
 
@@ -35,6 +37,7 @@ namespace IOTracesCORE
             fs_sb = new StringBuilder();
             ds_sb = new StringBuilder();
             mr_sb = new StringBuilder();
+            nw_sb = new StringBuilder();
             fs_snap_sb = new StringBuilder();
             process_snap_sb = new StringBuilder();
 
@@ -42,6 +45,7 @@ namespace IOTracesCORE
             fs_filepath = GenerateFilePath("fs");
             ds_filepath = GenerateFilePath("ds");
             mr_filepath = GenerateFilePath("mr");
+            nw_filepath = GenerateFilePath("nw");
             process_snap_filepath = GenerateFilePath("process");
             fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
             this.is_anonymous = is_anonymous; 
@@ -52,6 +56,7 @@ namespace IOTracesCORE
             string? fs_folder = Path.GetDirectoryName(fs_filepath) ?? throw new Exception("Invalid directory path.");
             string? ds_folder = Path.GetDirectoryName(ds_filepath) ?? throw new Exception("Invalid directory path.");
             string? mr_folder = Path.GetDirectoryName(mr_filepath) ?? throw new Exception("Invalid directory path.");
+            string? nw_folder = Path.GetDirectoryName(nw_filepath) ?? throw new Exception("Invalid directory path.");
             string? proc_snap_folder = Path.GetDirectoryName(process_snap_filepath) ?? throw new Exception("Invalid directory path.");
             string? fs_snap_folder = Path.GetDirectoryName(fs_snap_filepath) ?? throw new Exception("Invalid directory path.");
             if (!Directory.Exists(fs_folder))
@@ -69,6 +74,10 @@ namespace IOTracesCORE
             if (!Directory.Exists(fs_snap_folder))
             {
                 Directory.CreateDirectory(fs_snap_folder);
+            }
+            if (!Directory.Exists(nw_folder))
+            {
+                Directory.CreateDirectory(nw_folder);
             }
             //if(!Directory.Exists(mr_folder))
             //{
@@ -137,11 +146,7 @@ namespace IOTracesCORE
             int pid = data.Pid;
             string process_name = EscapeCsvField(data.Comm);
             string or_fp = Path.GetFileName(data.Filename.Trim('"'));
-            string filename = EscapeCsvField(or_fp);
-            if (is_anonymous)
-            {
-                filename = EscapeCsvField(PathHasher.HashFileName(or_fp));
-            }
+            string filename = EscapeCsvField(is_anonymous ? PathHasher.HashFileName(or_fp) : or_fp);
             //Debug.WriteLine(filename);
 
             int size = data.TraceSize;
@@ -182,7 +187,37 @@ namespace IOTracesCORE
                 FlushWrite(ds_sb, ds_filepath, "disk");
             }
         }
-        
+
+        public void Write(NetworkTrace data)
+        {
+            if (data.Comm.Equals("IOTracesCORE"))
+            {
+                return;
+            }
+
+            DateTime ts = data.Ts;
+            int pid = data.Pid;
+            string process_name = EscapeCsvField(data.Comm);
+            string saddr = EscapeCsvField(is_anonymous? PathHasher.Hash(data.Saddr, 10) : data.Saddr); 
+            string daddr = EscapeCsvField(is_anonymous? PathHasher.Hash(data.Daddr,10) : data.Daddr);
+            int sport = data.Sport;
+            int dport = data.Dport;
+            int bytes = data.Bytes;
+            string type = EscapeCsvField(data.Type);
+
+            if (process_name.Equals("IOTracesCORE"))
+            {
+                return;
+            }
+
+            nw_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6},{7}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, process_name, saddr, daddr, sport, dport, bytes, type);
+
+            if (IsTimeToFlush(nw_sb))
+            {
+                FlushWrite(nw_sb, nw_filepath, "network");
+            }
+        }
+
         public void Write(MemoryTrace data)
         {
             DateTime ts = data.Ts;
@@ -226,6 +261,10 @@ namespace IOTracesCORE
             {
                 old_fp = fs_snap_filepath;
                 fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
+            } else if (tracetype.Equals("network"))
+            {
+                old_fp = nw_filepath;
+                nw_filepath = GenerateFilePath("nw");
             }
             else
             {
@@ -332,6 +371,7 @@ namespace IOTracesCORE
             FlushWrite(ds_sb, ds_filepath, "disk");
             FlushWrite(process_snap_sb, process_snap_filepath, "process");
             FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+            FlushWrite(nw_sb, nw_filepath, "network");
             //FlushWrite(mr_sb, mr_filepath, "memory");
             WriteStatus();
             CompressRun();

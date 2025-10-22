@@ -13,6 +13,7 @@ namespace IOTracesCORE
         private readonly FilesystemHandlers fsHandler;
         private readonly SystemSnapper systemSnapper;
         private readonly DiskHandlers dsHandler;
+        private readonly NetworkHandlers nwHandler;
         private readonly ProcessSnapper psHandler;
         private readonly FilesystemSnapper fsSnapper;
         private TraceEventSession? session;
@@ -42,6 +43,7 @@ namespace IOTracesCORE
             psHandler = new ProcessSnapper(wm, anonymouse);
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
             systemSnapper = new SystemSnapper(wm);
+            nwHandler = new NetworkHandlers(wm);
         }
 
         private bool ConsoleCtrlHandler(CtrlTypes ctrlType)
@@ -163,7 +165,8 @@ namespace IOTracesCORE
                     session.EnableKernelProvider(
                         KernelTraceEventParser.Keywords.FileIO |
                         KernelTraceEventParser.Keywords.FileIOInit |
-                        KernelTraceEventParser.Keywords.DiskIO
+                        KernelTraceEventParser.Keywords.DiskIO |
+                        KernelTraceEventParser.Keywords.NetworkTCPIP
                     );
 
                     var source = session.Source;
@@ -178,6 +181,15 @@ namespace IOTracesCORE
 
                     kernel.DiskIORead += dsHandler.OnDiskRead;
                     kernel.DiskIOWrite += dsHandler.OnDiskWrite;
+
+                    kernel.TcpIpSend += nwHandler.OnSend;
+                    kernel.TcpIpRecv += nwHandler.OnReceive;
+                    kernel.TcpIpRecvIPV6 += nwHandler.OnReceive;
+                    kernel.TcpIpSendIPV6 += nwHandler.OnSend;
+                    kernel.UdpIpSend += nwHandler.OnSend;
+                    kernel.UdpIpRecv += nwHandler.OnReceive;
+                    kernel.UdpIpRecvIPV6 += nwHandler.OnSend;
+                    kernel.UdpIpSendIPV6 += nwHandler.OnReceive;
 
                     source.Process();
                 }
