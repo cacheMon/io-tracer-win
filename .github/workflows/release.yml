@@ -33,7 +33,7 @@ jobs:
           
     - name: Package
       run: |
-        Compress-Archive -Path ./publish/* -DestinationPath ./IOTracesCORE.zip
+        Compress-Archive -Path ./publish/* -DestinationPath ./winiotracer.zip
         
     - name: Create Release
       uses: softprops/action-gh-release@v1
