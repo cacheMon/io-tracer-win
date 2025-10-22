@@ -1,0 +1,63 @@
+name: CI IOTracesCORE (per-commit)
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64]
+
+    env:
+      CONFIG: Release
+      PROJECT: IOTracesCORE/IOTracesCORE.csproj
+      OUT_DIR: publish\${{ matrix.rid }}
+      ZIP_NAME: IOTracesCORE_${{ matrix.rid }}_${{ github.sha }}.zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+          cache: true
+
+      - name: Restore
+        run: dotnet restore $env:PROJECT
+
+      - name: Publish (${{ matrix.rid }})
+        shell: pwsh
+        run: |
+          dotnet publish $env:PROJECT `
+            -c $env:CONFIG `
+            -r $env:matrix_rid `
+            --self-contained `
+            -o $env:OUT_DIR `
+            /p:PublishSingleFile=true
+        env:
+          matrix_rid: ${{ matrix.rid }}
+
+      - name: Package
+        shell: pwsh
+        run: |
+          if (Test-Path $env:ZIP_NAME) { Remove-Item $env:ZIP_NAME -Force }
+          Compress-Archive -Path "$env:OUT_DIR/*" -DestinationPath "$env:ZIP_NAME"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+          retention-days: 14
