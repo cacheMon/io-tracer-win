@@ -210,7 +210,7 @@ namespace IOTracesCORE
                 return;
             }
 
-            nw_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6},{7}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, process_name, saddr, daddr, sport, dport, bytes, type);
+            nw_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6},{7},{8}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, process_name, saddr, daddr, sport, dport, bytes, type);
 
             if (IsTimeToFlush(nw_sb))
             {
