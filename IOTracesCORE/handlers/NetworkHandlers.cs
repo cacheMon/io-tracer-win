@@ -1,4 +1,5 @@
 ﻿using IOTracesCORE.trace;
+using IOTracesCORE.utils;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
 using System.Collections.Generic;
@@ -20,6 +21,11 @@ namespace IOTracesCORE.handlers
 
         public void OnSend(TcpIpSendTraceData data)
         {
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
+            {
+                return;
+            }
+
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp,
                 data.ProcessID,
@@ -38,6 +44,11 @@ namespace IOTracesCORE.handlers
 
         public void OnSend(TcpIpV6SendTraceData data)
         {
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
+            {
+                return;
+            }
+
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp,
                 data.ProcessID,
@@ -56,6 +67,11 @@ namespace IOTracesCORE.handlers
 
         public void OnSend(UdpIpTraceData data)
         {
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
+            {
+                return;
+            }
+
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp,
                 data.ProcessID,
@@ -72,6 +88,11 @@ namespace IOTracesCORE.handlers
 
         public void OnSend(UpdIpV6TraceData data)
         {
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
+            {
+                return;
+            }
+
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp,
                 data.ProcessID,
@@ -90,6 +111,11 @@ namespace IOTracesCORE.handlers
 
         public void OnReceive(TcpIpTraceData data)
         {
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
+            {
+                return;
+            }
+
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp,
                 data.ProcessID,
@@ -108,6 +134,11 @@ namespace IOTracesCORE.handlers
 
         public void OnReceive(TcpIpV6TraceData data)
         {
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
+            {
+                return;
+            }
+
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp,
                 data.ProcessID,
@@ -126,6 +157,11 @@ namespace IOTracesCORE.handlers
 
         public void OnReceive(UdpIpTraceData data)
         {
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
+            {
+                return;
+            }
+
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp,
                 data.ProcessID,
@@ -144,6 +180,11 @@ namespace IOTracesCORE.handlers
 
         public void OnReceive(UpdIpV6TraceData data)
         {
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
+            {
+                return;
+            }
+
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp,
                 data.ProcessID,
