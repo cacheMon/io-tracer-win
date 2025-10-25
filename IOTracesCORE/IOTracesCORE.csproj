@@ -8,6 +8,7 @@
     <StartupObject>IOTracesCORE.Program</StartupObject>
     <ApplicationIcon>Opera_Glasses_icon-icons.com_54155.ico</ApplicationIcon>
     <UseWindowsForms>True</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
