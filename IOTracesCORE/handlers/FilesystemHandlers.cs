@@ -1,5 +1,6 @@
 ﻿using IOTracesCORE;
 using IOTracesCORE.trace;
+using IOTracesCORE.utils;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
 using System.Collections.Generic;
@@ -20,7 +21,14 @@ namespace IOTracesCORE.handlers
 
         public void OnFileRead(FileIOReadWriteTraceData data)
         {
-            
+
+
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
+
             DateTime ts = data.TimeStamp;
             string operation_type = "read";
             int pid = data.ProcessID;
@@ -35,7 +43,14 @@ namespace IOTracesCORE.handlers
         
         public void OnFileWrite(FileIOReadWriteTraceData data)
         {
-            
+
+
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
+
             DateTime ts = data.TimeStamp;
             string operation_type = "write";
             int pid = data.ProcessID;
@@ -50,6 +65,14 @@ namespace IOTracesCORE.handlers
 
         public void OnFileClose(FileIOSimpleOpTraceData data)
         {
+
+
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
+
             DateTime ts = data.TimeStamp;
             string operation_type = "write";
             int pid = data.ProcessID;
@@ -64,6 +87,14 @@ namespace IOTracesCORE.handlers
 
         public void OnFileCreate(FileIOCreateTraceData data)
         {
+
+
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
+
             DateTime ts = data.TimeStamp;
             string operation_type = "write";
             int pid = data.ProcessID;
@@ -78,6 +109,14 @@ namespace IOTracesCORE.handlers
 
         public void OnFileDelete(FileIOInfoTraceData data)
         {
+
+
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
+
             DateTime ts = data.TimeStamp;
             string operation_type = "write";
             int pid = data.ProcessID;
@@ -92,6 +131,14 @@ namespace IOTracesCORE.handlers
 
         public void OnFileFlush(FileIOSimpleOpTraceData data)
         {
+
+
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
+
             DateTime ts = data.TimeStamp;
             string operation_type = "write";
             int pid = data.ProcessID;

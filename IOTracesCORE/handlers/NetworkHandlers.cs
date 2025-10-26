@@ -21,6 +21,11 @@ namespace IOTracesCORE.handlers
 
         public void OnSend(TcpIpSendTraceData data)
         {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
             if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
             {
                 return;
@@ -44,6 +49,11 @@ namespace IOTracesCORE.handlers
 
         public void OnSend(TcpIpV6SendTraceData data)
         {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
             if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
             {
                 return;
@@ -67,6 +77,11 @@ namespace IOTracesCORE.handlers
 
         public void OnSend(UdpIpTraceData data)
         {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
             if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
             {
                 return;
@@ -88,6 +103,11 @@ namespace IOTracesCORE.handlers
 
         public void OnSend(UpdIpV6TraceData data)
         {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
             if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
             {
                 return;
@@ -111,6 +131,11 @@ namespace IOTracesCORE.handlers
 
         public void OnReceive(TcpIpTraceData data)
         {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
             if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
             {
                 return;
@@ -134,6 +159,11 @@ namespace IOTracesCORE.handlers
 
         public void OnReceive(TcpIpV6TraceData data)
         {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
             if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
             {
                 return;
@@ -157,6 +187,11 @@ namespace IOTracesCORE.handlers
 
         public void OnReceive(UdpIpTraceData data)
         {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
             if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
             {
                 return;
@@ -180,6 +215,11 @@ namespace IOTracesCORE.handlers
 
         public void OnReceive(UpdIpV6TraceData data)
         {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
             if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
             {
                 return;

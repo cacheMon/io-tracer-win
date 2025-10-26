@@ -1,5 +1,6 @@
 ﻿using IOTracesCORE;
 using IOTracesCORE.trace;
+using IOTracesCORE.utils;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
 using System.Collections.Generic;
@@ -20,6 +21,11 @@ namespace IOTracesCORE.handlers
 
         public void OnDiskRead(DiskIOTraceData data)
         {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
             DiskTrace dt = new DiskTrace(
                     ts: data.TimeStamp,
                     pid: data.ProcessID,
@@ -34,6 +40,11 @@ namespace IOTracesCORE.handlers
 
         public void OnDiskWrite(DiskIOTraceData data)
         {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
             DiskTrace dt = new DiskTrace(
                     ts: data.TimeStamp,
                     pid: data.ProcessID,
