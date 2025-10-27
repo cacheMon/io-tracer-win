@@ -1,4 +1,5 @@
-﻿using IOTracesCORE.handlers;
+﻿using IOTracesCORE.cloudstorage;
+using IOTracesCORE.handlers;
 using IOTracesCORE.snapper;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Session;
@@ -120,12 +121,13 @@ namespace IOTracesCORE
                 }
                 return;
             }
+            _ = ObjectStorageHandler.RunAsync();
             string sessionName = "IOTracer";
             CleanupOrphanedSession(sessionName);
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
             wm.InitiateDirectory();
             Console.WriteLine("Starting IOTracer...");
-            Task _ = Task.Run(() => fsSnapper.Run());
+            _ = Task.Run(() => fsSnapper.Run());
             Task __ = Task.Run(() => psHandler.Run());
             Console.WriteLine("Press CTRL + C to exit, or close the console window!");
             systemSnapper.CaptureSpecSnapshot();
