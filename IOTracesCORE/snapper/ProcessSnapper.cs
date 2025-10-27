@@ -70,6 +70,7 @@ FROM Win32_Process";
                         cpuUsage: cpuUsage
                     );
                     wm.Write(pi);
+                    Thread.Sleep(2000);
                 }
             }
         }
