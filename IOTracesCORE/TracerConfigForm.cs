@@ -82,9 +82,9 @@ namespace IOTracesCORE
 
             chkEnableR2 = new CheckBox
             {
-                Text = "Enable R2 Upload",
+                Text = "Enable Automatic Upload",
                 Location = new Point(20, 80),
-                Width = 150,
+                Width = 200,
                 Checked = false
             };
             chkEnableR2.CheckedChanged += ChkEnableR2_CheckedChanged;
