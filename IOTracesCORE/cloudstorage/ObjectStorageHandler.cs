@@ -1,6 +1,7 @@
 ﻿using Amazon.S3;
 using Amazon.S3.Model;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -12,48 +13,67 @@ namespace IOTracesCORE.cloudstorage
 {
     internal class ObjectStorageHandler
     {
-        public ObjectStorageHandler()
-        {
 
+        private R2Client r2Client;
+        private ConcurrentQueue<string> uploadQueue = new();
+        public static int UploadedFiles = 0;
+
+
+        public ObjectStorageHandler(string bucketName, string serviceUrl, string accessKey, string secretKey)
+        {
+            r2Client = new R2Client(bucketName: bucketName, serviceUrl: serviceUrl, accessKey: accessKey, secretKey: secretKey);
         }
 
-        public static async Task RunAsync()
+        public async Task UploadFile(string filepath)
         {
-            var serviceUrl = "http://localhost:9000";   
-            var accessKey = "admin";
-            var secretKey = "password123";
-            var bucketName = "bucket2";             
-            var objectKey = "C:\\Users\\ASUS\\Documents\\todo.txt";               
-            var localPath = "C:\\Users\\ASUS\\Documents\\todo.txt";               
+            FileInfo fi = new FileInfo(filepath);
+            await r2Client.PutObject(fi);
+        }
 
-            var config = new AmazonS3Config
+        public void QueueFile(string filepath)
+        {
+            uploadQueue.Enqueue(filepath);
+        }
+
+
+
+        public async Task UploadWorkerAsync(CancellationToken ct)
+        {
+            while (!ct.IsCancellationRequested)
             {
-                ServiceURL = serviceUrl,
-                ForcePathStyle = true,
-            };
-
-            using var s3 = new AmazonS3Client(accessKey, secretKey, config);
-
-            await using var fileStream = File.OpenRead(localPath);
-
-            var putReq = new PutObjectRequest
-            {
-                BucketName = bucketName,
-                Key = objectKey,
-                InputStream = fileStream,
-                ContentType = "text/plain"
-            };
-
-            try
-            {
-                var putRes = await s3.PutObjectAsync(putReq);
-                Debug.WriteLine("Upload success. ETag: " + putRes.ETag);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("Upload failed: " + ex.Message);
+                if (uploadQueue.Count > 0)
+                {
+                    if(uploadQueue.TryDequeue(out var filepath))
+                    {
+                        Debug.WriteLine($"File queued: {uploadQueue.Count}");
+                        try
+                        {
+                            Debug.WriteLine($"Uploading {filepath}");
+                            await UploadFile(filepath);
+                            Debug.WriteLine($"Uploaded {filepath}");
+                            UploadedFiles++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Error uploading {filepath}: {ex}");
+                            QueueFile(filepath);
+                        }
+                    }
+                    await Task.Delay(500, ct);
+                }
+                else
+                {
+                    await Task.Delay(5000,ct);
+                }
             }
         }
+
+        public void UploadThread(CancellationToken ct)
+        {
+            Debug.WriteLine("uploader thread started");
+            Task.Run(() => UploadWorkerAsync(ct), ct);
+        }
+
     }
         
 }

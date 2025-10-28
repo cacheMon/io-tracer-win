@@ -18,9 +18,9 @@ namespace IOTracesCORE
         private readonly ProcessSnapper psHandler;
         private readonly FilesystemSnapper fsSnapper;
         private TraceEventSession? session;
+        private ObjectStorageHandler objHandler;
+        private bool isUploadAutomatically;
         private volatile bool isShuttingDown = false;
-        private bool anonymouse = false;
-        private CancellationToken cancellationToken;
 
         [DllImport("kernel32.dll")]
         static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate handler, bool add);
@@ -36,9 +36,11 @@ namespace IOTracesCORE
             CTRL_SHUTDOWN_EVENT = 6
         }
 
-        public Tracer(bool anonymouse, string outputPath = ".\\output")
+        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output")
         {
-            wm = new WriterManager(outputPath, anonymouse);
+            objHandler = obj;
+            isUploadAutomatically = upload;
+            wm = new WriterManager(outputPath, anonymouse, upload, objHandler);
             fsHandler = new FilesystemHandlers(wm);
             dsHandler = new DiskHandlers(wm);
             psHandler = new ProcessSnapper(wm, anonymouse);
@@ -110,7 +112,6 @@ namespace IOTracesCORE
 
         public void Trace(CancellationToken cancellationToken = default)
         {
-            this.cancellationToken = cancellationToken;
 
             if (!(TraceEventSession.IsElevated() ?? false))
             {
@@ -121,16 +122,19 @@ namespace IOTracesCORE
                 }
                 return;
             }
-            _ = ObjectStorageHandler.RunAsync();
             string sessionName = "IOTracer";
             CleanupOrphanedSession(sessionName);
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
             wm.InitiateDirectory();
             Console.WriteLine("Starting IOTracer...");
+            Console.WriteLine("IOTracer started, Press CTRL + C to exit, or close the console window!");
             _ = Task.Run(() => fsSnapper.Run());
             Task __ = Task.Run(() => psHandler.Run());
-            Console.WriteLine("Press CTRL + C to exit, or close the console window!");
             systemSnapper.CaptureSpecSnapshot();
+            if (isUploadAutomatically)
+            {
+                objHandler.UploadThread(cancellationToken);
+            }
 
 
             cancellationToken.Register(() =>
