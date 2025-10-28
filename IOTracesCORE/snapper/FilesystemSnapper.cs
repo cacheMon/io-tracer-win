@@ -16,6 +16,7 @@ namespace IOTracesCORE.snapper
         private readonly int hashLen = 16;
         private string scanRoot = "";
         private bool anonymouse;
+        private Random random = new Random();
         public FilesystemSnapper(WriterManager wm, bool anonymouse = false)
         {
             this.wm = wm;
@@ -36,10 +37,10 @@ namespace IOTracesCORE.snapper
             {
                 if (drive.IsReady)
                 {
-                    Console.WriteLine($"Scanning Drive: {drive.Name}");
+                    Debug.WriteLine($"Scanning Drive: {drive.Name}");
                     scanRoot = drive.Name;
                     TraverseDirectory(drive.RootDirectory.FullName);
-                    Console.WriteLine();
+                    Thread.Sleep(500);
                 }
             }
         }
@@ -49,7 +50,7 @@ namespace IOTracesCORE.snapper
             try
             {
                 if (interrupted) return;
-
+                Thread.Sleep(random.Next(500,2000));
                 string[] files = Directory.GetFiles(dirPath);
                 foreach (string file in files)
                 {
