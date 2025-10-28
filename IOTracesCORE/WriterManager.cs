@@ -349,7 +349,7 @@ namespace IOTracesCORE
         public void CompressRun()
         {
             string zipPath = $"{dir_path}_temp.zip";
-            string output_dir = $"{dir_path}_compressed.zip.zst";
+            string output_dir = $"{dir_path}_{PathHasher.deviceId}_compressed.zip.zst";
 
             try
             {
@@ -394,7 +394,7 @@ namespace IOTracesCORE
 
         private string GenerateFilePath(string type)
         {
-            string fs_name = $".\\{type}\\{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
+            string fs_name = $".\\{type}\\{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{PathHasher.deviceId}.csv";
             return Path.Combine(dir_path, fs_name);
         }
 
