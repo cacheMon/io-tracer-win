@@ -1,4 +1,5 @@
-﻿using Microsoft.Win32;
+﻿using IOTracesCORE.cloudstorage;
+using Microsoft.Win32;
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -61,7 +62,7 @@ namespace IOTracesCORE
             var contextMenu = new ContextMenuStrip();
             contextMenu.Items.Add("Show Status", null, (s, e) =>
             {
-                MessageBox.Show($"{WriterManager.amount_compressed_file} batches compressed!", "Status", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show($"{WriterManager.amount_compressed_file} logs created!\n{ObjectStorageHandler.UploadedFiles} logs uploaded", "Status", MessageBoxButtons.OK, MessageBoxIcon.Information);
             });
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Exit", null, OnExitClicked);

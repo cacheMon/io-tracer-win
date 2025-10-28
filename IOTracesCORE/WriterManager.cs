@@ -1,4 +1,5 @@
-﻿using IOTracesCORE.trace;
+﻿using IOTracesCORE.cloudstorage;
+using IOTracesCORE.trace;
 using IOTracesCORE.utils;
 using System.Diagnostics;
 using System.IO.Compression;
@@ -25,12 +26,15 @@ namespace IOTracesCORE
         private readonly StringBuilder fs_snap_sb;
         private readonly StringBuilder process_snap_sb;
 
+        private ObjectStorageHandler obj_storage;
+
         private readonly static int maxKB = 500000;
         private readonly static int maxSnapKB = 1000000;
         private bool is_anonymous;
+        private bool is_upload_automatically;
         public static int amount_compressed_file = 0;
 
-        public WriterManager(string dirpath, bool is_anonymous)
+        public WriterManager(string dirpath, bool is_anonymous, bool upload,ObjectStorageHandler obj)
         {
             amount_compressed_file = 0;
 
@@ -40,6 +44,10 @@ namespace IOTracesCORE
             nw_sb = new StringBuilder();
             fs_snap_sb = new StringBuilder();
             process_snap_sb = new StringBuilder();
+
+            obj_storage = obj;
+            is_upload_automatically = upload;
+
 
             dir_path = $"{dirpath}\\run_{DateTime.UtcNow:yyyyMMdd_HHmmss}";
             fs_filepath = GenerateFilePath("fs");
@@ -278,7 +286,11 @@ namespace IOTracesCORE
 
             sb.Clear();
 
-            CompressFile(old_fp);
+            string compressed_fp = CompressFile(old_fp);
+            if (is_upload_automatically)
+            {
+                obj_storage.QueueFile(compressed_fp);
+            }
             WriteStatus();
         }
 
@@ -306,7 +318,7 @@ namespace IOTracesCORE
                 return sb.Length > limit;
         }
 
-        public static void CompressFile(string filepath)
+        public static string CompressFile(string filepath)
         {
             //Console.WriteLine($"Compressing {filepath}");
             string compressed_fp = $"{filepath}.zst";
@@ -318,6 +330,7 @@ namespace IOTracesCORE
             }
             //Console.WriteLine($"Compressed {filepath} -> {compressed_fp}");
             amount_compressed_file++;
+            
 
             string full_path_old = Path.GetFullPath(filepath);
             if (File.Exists(full_path_old))
@@ -327,14 +340,16 @@ namespace IOTracesCORE
             }
             else
             {
-                Console.WriteLine("File not found.");
+                Debug.WriteLine("File not found.");
             }
+
+            return compressed_fp;
         }
 
         public void CompressRun()
         {
             string zipPath = $"{dir_path}_temp.zip";
-            string output_dir = $"{dir_path}_compressed.zip.zst";
+            string output_dir = $"{dir_path}_{PathHasher.deviceId}_compressed.zip.zst";
 
             try
             {
@@ -379,7 +394,7 @@ namespace IOTracesCORE
 
         private string GenerateFilePath(string type)
         {
-            string fs_name = $".\\{type}\\{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
+            string fs_name = $".\\{type}\\{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{PathHasher.deviceId}.csv";
             return Path.Combine(dir_path, fs_name);
         }
 
