@@ -112,7 +112,6 @@ namespace IOTracesCORE
 
         private static void OnSessionEnding(object sender, SessionEndingEventArgs e)
         {
-            MessageBox.Show($"System shutdown/logoff detected: {e.Reason}", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             cancellationTokenSource?.Cancel();
 
