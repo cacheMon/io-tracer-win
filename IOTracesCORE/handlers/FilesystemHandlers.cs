@@ -74,7 +74,7 @@ namespace IOTracesCORE.handlers
 
 
             DateTime ts = data.TimeStamp;
-            string operation_type = "write";
+            string operation_type = "close";
             int pid = data.ProcessID;
             string process_name = data.ProcessName;
             string filename = data.FileName;
@@ -96,7 +96,7 @@ namespace IOTracesCORE.handlers
 
 
             DateTime ts = data.TimeStamp;
-            string operation_type = "write";
+            string operation_type = "create";
             int pid = data.ProcessID;
             string process_name = data.ProcessName;
             string filename = data.FileName;
@@ -118,7 +118,7 @@ namespace IOTracesCORE.handlers
 
 
             DateTime ts = data.TimeStamp;
-            string operation_type = "write";
+            string operation_type = "delete";
             int pid = data.ProcessID;
             string process_name = data.ProcessName;
             string filename = data.FileName;
@@ -140,7 +140,7 @@ namespace IOTracesCORE.handlers
 
 
             DateTime ts = data.TimeStamp;
-            string operation_type = "write";
+            string operation_type = "flush";
             int pid = data.ProcessID;
             string process_name = data.ProcessName;
             string filename = data.FileName;
