@@ -184,6 +184,8 @@ namespace IOTracesCORE
                     kernel.FileIOCreate += fsHandler.OnFileCreate;
                     kernel.FileIODelete += fsHandler.OnFileDelete;
                     kernel.FileIOFlush += fsHandler.OnFileFlush;
+                    kernel.FileIODirEnum += fsHandler.OnFileDirEnum;
+                    kernel.FileIOQueryInfo += fsHandler.OnFileIoQuery;
 
                     kernel.DiskIORead += dsHandler.OnDiskRead;
                     kernel.DiskIOWrite += dsHandler.OnDiskWrite;

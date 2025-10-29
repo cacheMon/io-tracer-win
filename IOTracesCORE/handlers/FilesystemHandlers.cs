@@ -40,7 +40,7 @@ namespace IOTracesCORE.handlers
 
             wm.Write(fs_trace);
         }
-        
+
         public void OnFileWrite(FileIOReadWriteTraceData data)
         {
 
@@ -131,8 +131,6 @@ namespace IOTracesCORE.handlers
 
         public void OnFileFlush(FileIOSimpleOpTraceData data)
         {
-
-
             if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
             {
                 return;
@@ -149,6 +147,47 @@ namespace IOTracesCORE.handlers
             FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
 
             wm.Write(fs_trace);
+        }
+
+        public void OnFileDirEnum(FileIODirEnumTraceData data)
+        {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
+
+            DateTime ts = data.TimeStamp;
+            string operation_type = "getdirentry";
+            int pid = data.ProcessID;
+            string process_name = data.ProcessName;
+            string filename = data.FileName;
+            int size = 0;
+
+            FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
+
+            wm.Write(fs_trace);
+        }
+
+        public void OnFileIoQuery(FileIOInfoTraceData data)
+        {
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
+            {
+                return;
+            }
+
+
+            DateTime ts = data.TimeStamp;
+            string operation_type = "stat";
+            int pid = data.ProcessID;
+            string process_name = data.ProcessName;
+            string filename = data.FileName;
+            int size = 0;
+
+            FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
+
+            wm.Write(fs_trace);
+
         }
     }
 }
