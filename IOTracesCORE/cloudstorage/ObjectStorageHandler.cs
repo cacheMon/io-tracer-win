@@ -19,9 +19,9 @@ namespace IOTracesCORE.cloudstorage
         public static int UploadedFiles = 0;
 
 
-        public ObjectStorageHandler(string bucketName, string serviceUrl, string accessKey, string secretKey)
+        public ObjectStorageHandler()
         {
-            r2Client = new R2Client(bucketName: bucketName, serviceUrl: serviceUrl, accessKey: accessKey, secretKey: secretKey);
+            r2Client = new ();
         }
 
         public async Task UploadFile(string filepath)
@@ -35,7 +35,29 @@ namespace IOTracesCORE.cloudstorage
             uploadQueue.Enqueue(filepath);
         }
 
-
+        public async Task ClearQueue()
+        {
+            Debug.WriteLine("Clearing upload queue");
+            while (uploadQueue.Count > 0)
+            {
+                if (uploadQueue.TryDequeue(out var filepath))
+                {
+                    Debug.WriteLine($"File queued: {uploadQueue.Count}");
+                    try
+                    {
+                        Debug.WriteLine($"Uploading {filepath}");
+                        await UploadFile(filepath);
+                        Debug.WriteLine($"Uploaded {filepath}");
+                        UploadedFiles++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Error uploading {filepath}: {ex}");
+                        QueueFile(filepath);
+                    }
+                }
+            }
+        }
 
         public async Task UploadWorkerAsync(CancellationToken ct)
         {

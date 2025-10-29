@@ -28,7 +28,7 @@ namespace IOTracesCORE
 
         private ObjectStorageHandler obj_storage;
 
-        private readonly static int maxKB = 500000;
+        private readonly static int maxKB = 20000000;
         private readonly static int maxSnapKB = 1000000;
         private bool is_anonymous;
         private bool is_upload_automatically;
@@ -314,8 +314,7 @@ namespace IOTracesCORE
             {
                 limit = maxKB;
             }
-
-                return sb.Length > limit;
+            return sb.Length > limit;
         }
 
         public static string CompressFile(string filepath)
@@ -380,17 +379,24 @@ namespace IOTracesCORE
             FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
         }
 
-        public void CompressAll()
+        public async Task CompressAllAsync()
         {
+            Debug.WriteLine("Compressing all remaining data...");
+
             FlushWrite(fs_sb, fs_filepath, "filesystem");
             FlushWrite(ds_sb, ds_filepath, "disk");
             FlushWrite(process_snap_sb, process_snap_filepath, "process");
             FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
             FlushWrite(nw_sb, nw_filepath, "network");
-            //FlushWrite(mr_sb, mr_filepath, "memory");
+            Debug.WriteLine("Flushed all StringBuilders.");
+
             WriteStatus();
+
+            await obj_storage.ClearQueue();
+
             CompressRun();
         }
+
 
         private string GenerateFilePath(string type)
         {

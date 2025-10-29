@@ -1,58 +1,53 @@
 ﻿using Amazon.S3;
 using Amazon.S3.Model;
+using IOTracesCORE.utils;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
+using static System.Net.WebRequestMethods;
 
 namespace IOTracesCORE.cloudstorage
 {
     internal class R2Client
     {
-        private string BucketName;
-        private string ServiceUrl;
-        private string AccessKey;
-        private string SecretKey;
+        static readonly HttpClient http = new HttpClient();
 
-        public R2Client(string bucketName, string serviceUrl, string accessKey, string secretKey)
-        {
-            BucketName = bucketName;
-            ServiceUrl = serviceUrl;
-            AccessKey = accessKey;
-            SecretKey = secretKey;
-        }
+        private string EndpointUrl = "https://io-tracer-worker.1a1a11a.workers.dev";
+
+ 
+
         public async Task PutObject(FileInfo file)
         {
-
-            var objectKey = file.Name;
-            var localPath = file.FullName;
-
-            var config = new AmazonS3Config
-            {
-                ServiceURL = ServiceUrl,
-                ForcePathStyle = true,
-            };
-
-            using var s3 = new AmazonS3Client(AccessKey, SecretKey, config);
-            await using var fs = File.OpenRead(localPath);
-
-            var putReq = new PutObjectRequest
-            {
-                BucketName = BucketName,
-                Key = objectKey,
-                FilePath = localPath,
-                DisablePayloadSigning = true,
-                DisableDefaultChecksumValidation = true
-            };
-
             try
             {
-                var putRes = await s3.PutObjectAsync(putReq);
+                var response = await http.GetAsync($"{EndpointUrl}/{PathHasher.deviceId}/{file.Name}");
+                response.EnsureSuccessStatusCode();
+
+                var presignedUrl = await response.Content.ReadAsStringAsync();
+                presignedUrl = presignedUrl.Trim('"');
+
+                //Debug.WriteLine("presigned URL: " + presignedUrl);
+
+                using var fileStream = System.IO.File.OpenRead(file.FullName);
+                var uploadRequest = new HttpRequestMessage(HttpMethod.Put, presignedUrl)
+                {
+                    Content = new StreamContent(fileStream)
+                };
+
+
+                var uploadResponse = await http.SendAsync(uploadRequest);
+                uploadResponse.EnsureSuccessStatusCode();
+
+                Debug.WriteLine($"{file.FullName} successfully uploaded");
+
             }
             catch (Exception)
             {
+                Debug.WriteLine($"{file.FullName} failed to upload");
                 throw;
             }
         }

@@ -73,29 +73,30 @@ namespace IOTracesCORE
             if (!isShuttingDown)
             {
                 isShuttingDown = true;
-                CleanupAndExit();
+                CleanupAndExitAsync().GetAwaiter().GetResult();
             }
 
             return true;
         }
 
-        private void CleanupAndExit()
+        private async Task CleanupAndExitAsync()
         {
             try
             {
-                Console.WriteLine("Performing cleanup operations...");
+                Debug.WriteLine("Performing cleanup operations...");
 
                 if (session != null)
                 {
                     session.Dispose();
                     session = null;
                 }
+
                 fsSnapper.Stop();
                 psHandler.Stop();
 
-                Thread.Sleep(10000);
+                await Task.Delay(1000);
 
-                wm.CompressAll();
+                await wm.CompressAllAsync();
 
                 Console.WriteLine("Cleanup completed successfully.");
             }
@@ -109,6 +110,7 @@ namespace IOTracesCORE
                 Environment.Exit(0);
             }
         }
+
 
         public void Trace(CancellationToken cancellationToken = default)
         {
@@ -164,7 +166,7 @@ namespace IOTracesCORE
                             Console.WriteLine("\nCtrl+C pressed. Cleaning up...");
                             e.Cancel = true;
                             isShuttingDown = true;
-                            CleanupAndExit();
+                            CleanupAndExitAsync().GetAwaiter().GetResult();
                         }
                     };
 
@@ -207,7 +209,7 @@ namespace IOTracesCORE
                 Debug.WriteLine($"An error occurred during tracing: {ex.Message}");
                 if (!isShuttingDown)
                 {
-                    CleanupAndExit();
+                    CleanupAndExitAsync().GetAwaiter().GetResult();
                 }
             }
             finally
@@ -237,7 +239,7 @@ namespace IOTracesCORE
                 pleaseWaitForm.Controls.Add(label);
                 pleaseWaitForm.Show();
                 Application.DoEvents();
-                CleanupAndExit();
+                CleanupAndExitAsync().GetAwaiter().GetResult();
                 pleaseWaitForm.Close();
                 pleaseWaitForm.Dispose();
             }
