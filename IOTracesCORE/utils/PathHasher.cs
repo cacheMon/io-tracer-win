@@ -14,7 +14,7 @@ namespace IOTracesCORE.utils
         public static string machineGuid = Microsoft.Win32.Registry.GetValue(
             @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography", "MachineGuid", ""
         )?.ToString() ?? "unknown";
-        public static string deviceId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(machineGuid))).Substring(0,8);
+        public static string deviceId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(machineGuid))).Substring(0,16);
         public static string HashDirectoryPath(string fullPath, string rootBase, int keepLevels = 2, int hashLen = 16)
         {
             fullPath = Path.GetFullPath(fullPath);
