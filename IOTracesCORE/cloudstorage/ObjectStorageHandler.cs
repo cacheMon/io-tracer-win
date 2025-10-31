@@ -28,6 +28,7 @@ namespace IOTracesCORE.cloudstorage
         {
             FileInfo fi = new FileInfo(filepath);
             await r2Client.PutObject(fi);
+            File.Delete(filepath);
         }
 
         public void QueueFile(string filepath)

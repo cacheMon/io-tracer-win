@@ -302,6 +302,12 @@ namespace IOTracesCORE
             {
                 writer.Write(input);
             }
+
+            if (is_upload_automatically)
+            {
+                obj_storage.QueueFile(out_path);
+            }
+
         }
 
         private static bool IsTimeToFlush(StringBuilder sb, bool isSnap = false)
@@ -347,6 +353,11 @@ namespace IOTracesCORE
 
         public void CompressRun()
         {
+            if (is_upload_automatically)
+            {
+                Directory.Delete(dir_path, true);
+                return;
+            }
             string zipPath = $"{dir_path}_temp.zip";
             string output_dir = $"{dir_path}_{PathHasher.deviceId}_compressed.zip.zst";
 
