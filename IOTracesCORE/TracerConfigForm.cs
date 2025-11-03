@@ -78,7 +78,7 @@ namespace IOTracesCORE
 
             chkEnableUpload = new CheckBox
             {
-                Text = "Enable automatic upload",
+                Text = "Enable auto upload",
                 Location = new Point(20, 95),
                 Width = 250,
                 Checked = false
