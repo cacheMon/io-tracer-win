@@ -29,12 +29,10 @@ namespace IOTracesCORE
         [STAThread]
         static void Main(string[] args)
         {
-            // Velopack: Handle app installation/updates FIRST
             try
             {
                 VelopackApp.Build()
                     .OnFirstRun((v) => {
-                        // This runs on first install
                         Debug.WriteLine($"First run of version {v}");
                         MessageBox.Show(
                             $"Welcome to IO Traces Core v{v}!\n\n" +
@@ -43,10 +41,9 @@ namespace IOTracesCORE
                             "Installation Complete",
                             MessageBoxButtons.OK,
                             MessageBoxIcon.Information);
-                        return;
+                        Environment.Exit(0);
                     })
                     .OnAfterUpdateFastCallback((v) => {
-                        // This runs after an update (before the app UI starts)
                         Debug.WriteLine($"Updated to version {v}");
                     })
                     .Run();
@@ -54,7 +51,6 @@ namespace IOTracesCORE
             catch (Exception ex)
             {
                 Debug.WriteLine($"Velopack initialization error: {ex.Message}");
-                // Continue anyway - app can still run without update functionality
             }
 
             using (WindowsIdentity identity = WindowsIdentity.GetCurrent())

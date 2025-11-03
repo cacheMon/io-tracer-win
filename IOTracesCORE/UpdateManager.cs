@@ -15,7 +15,6 @@ namespace IOTracesCORE
         private readonly Velopack.UpdateManager? _updateManager;
         private bool _isCheckingForUpdates = false;
 
-        // Replace with your GitHub repository information
         private const string GITHUB_REPO_URL = "https://github.com/raflyhangga/auto-update-io-tracer-win";
         private const string UPDATE_URL = $"{GITHUB_REPO_URL}/releases/latest/download";
 
@@ -23,7 +22,6 @@ namespace IOTracesCORE
         {
             try
             {
-                // Initialize Velopack with GitHub source
                 _updateManager = new Velopack.UpdateManager(
                     new GithubSource(GITHUB_REPO_URL, null, false)
                 );
@@ -41,10 +39,6 @@ namespace IOTracesCORE
 
         public bool IsUpdateManagerAvailable => _updateManager != null;
 
-        /// <summary>
-        /// Check for updates with optional UI feedback
-        /// </summary>
-        /// <param name="silent">If true, only show UI when update is available</param>
         public async Task CheckForUpdatesAsync(bool silent = true)
         {
             if (_updateManager == null)
@@ -134,14 +128,12 @@ namespace IOTracesCORE
 
             try
             {
-                // Show progress dialog
                 loadingDialog = new LoadingDialog("Downloading update... This may take a few moments.");
                 loadingDialog.Show();
                 Application.DoEvents();
 
                 Debug.WriteLine("Downloading update...");
 
-                // Download the update
                 await _updateManager.DownloadUpdatesAsync(updateInfo);
 
                 Debug.WriteLine("Update downloaded successfully");
@@ -150,7 +142,6 @@ namespace IOTracesCORE
                 loadingDialog.Dispose();
                 loadingDialog = null;
 
-                // Ask user to restart
                 var result = MessageBox.Show(
                     "Update downloaded successfully!\n\n" +
                     "The application needs to restart to complete the installation.\n\n" +
@@ -164,10 +155,8 @@ namespace IOTracesCORE
                 {
                     Debug.WriteLine("Applying update and restarting...");
 
-                    // Apply update and restart
                     _updateManager.ApplyUpdatesAndRestart(updateInfo);
 
-                    // The app will exit and restart here
                 }
                 else
                 {
@@ -196,19 +185,13 @@ namespace IOTracesCORE
             }
         }
 
-        /// <summary>
-        /// Check for updates silently on application startup (with delay)
-        /// </summary>
+
         public async Task CheckForUpdatesOnStartupAsync()
         {
-            // Wait a bit after startup before checking (don't slow down app launch)
-            await Task.Delay(10000); // 10 seconds
+            await Task.Delay(10000);
             await CheckForUpdatesAsync(silent: true);
         }
 
-        /// <summary>
-        /// Get current application version
-        /// </summary>
         public string GetCurrentVersion()
         {
             if (_updateManager == null)
