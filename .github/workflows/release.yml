@@ -79,7 +79,7 @@ jobs:
         }
       shell: pwsh
     
-    - name: Package with Velopack
+    - name: Package & Release with Velopack
       run: |
         $version = "${{ steps.version.outputs.VERSION }}"
         Write-Host "Packaging version: $version"
@@ -102,53 +102,4 @@ jobs:
           --tag $version `
           --token ${{ secrets.GITHUB_TOKEN }}
       shell: pwsh
-    
-    - name: Rename setup file
-      run: |
-        $oldName = "IOTracesCore-win-Setup.exe"
-        $newName = "IOTracesCore-Setup.exe"
-        $oldPath = ".\Releases\$oldName"
-        $newPath = ".\Releases\$newName"
-        
-        if (Test-Path $oldPath) {
-          Move-Item -Path $oldPath -Destination $newPath -Force
-          Write-Host "Renamed setup file: $oldName -> $newName"
-        } else {
-          Write-Host "Setup file not found at expected location"
-          Write-Host "Contents of Releases folder:"
-          Get-ChildItem .\Releases
-        }
-      shell: pwsh
-    
-    - name: Verify release files
-      run: |
-        if (Test-Path ".\Releases") {
-          Write-Host "Release files created:"
-          Get-ChildItem .\Releases -Recurse | Select-Object FullName, Length
-        } else {
-          Write-Host "ERROR: Releases directory not found!"
-          exit 1
-        }
-      shell: pwsh
-    
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          Releases/RELEASES
-          Releases/*.nupkg
-          Releases/IOTracesCore-Setup.exe
-        draft: false
-        prerelease: false
-        generate_release_notes: true
-        body: |
-          ## IO Traces Core v${{ steps.version.outputs.VERSION }}
-          
-          ### Installation
-          Download and run the `IOTracesCore-Setup.exe` installer.
-          
-          ### Updates
-          If you already have IO Traces Core installed, the application will automatically notify you of this update.
-          
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
