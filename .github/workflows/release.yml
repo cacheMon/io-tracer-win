@@ -95,7 +95,7 @@ jobs:
           --icon .\IOTracesCORE\Opera_Glasses_icon-icons.com_54155.ico
           
         vpk upload github `
-          --repoUrl https://github.com/${{ github.event.repository.name }} `
+          --repoUrl https://github.com/${{ github.repository }} `
           --publish `
           --releaseName "IO Traces $version" `
           --tag $version
