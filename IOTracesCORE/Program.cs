@@ -43,6 +43,7 @@ namespace IOTracesCORE
                             "Installation Complete",
                             MessageBoxButtons.OK,
                             MessageBoxIcon.Information);
+                        return;
                     })
                     .OnAfterUpdateFastCallback((v) => {
                         // This runs after an update (before the app UI starts)
