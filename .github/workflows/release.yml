@@ -98,7 +98,8 @@ jobs:
           --repoUrl https://github.com/${{ github.repository }} `
           --publish `
           --releaseName "IO Traces $version" `
-          --tag $version
+          --tag $version `
+          --token ${{ secrets.GITHUB_TOKEN }}
       shell: pwsh
     
     - name: Rename setup file
