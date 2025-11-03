@@ -89,14 +89,31 @@ jobs:
           --mainExe IOTracesCORE.exe `
           --packTitle "IO Traces Core" `
           --packAuthors "YourName" `
-          --icon .\IOTracesCORE\Opera_Glasses_icon-icons.com_54155.ico
+          --icon .\IOTracesCORE\Opera_Glasses_icon-icons.com_54155.ico 
+      shell: pwsh
+    
+    - name: Rename setup file
+      run: |
+        $oldName = "IOTracesCore-win-Setup.exe"
+        $newName = "IOTracesCore-Setup.exe"
+        $oldPath = ".\Releases\$oldName"
+        $newPath = ".\Releases\$newName"
+        
+        if (Test-Path $oldPath) {
+          Move-Item -Path $oldPath -Destination $newPath -Force
+          Write-Host "Renamed setup file: $oldName -> $newName"
+        } else {
+          Write-Host "Setup file not found at expected location"
+          Write-Host "Contents of Releases folder:"
+          Get-ChildItem .\Releases
+        }
       shell: pwsh
     
     - name: Verify release files
       run: |
         if (Test-Path ".\Releases") {
           Write-Host "Release files created:"
-          Get-ChildItem .\Releases -Recurse | Select-Object FullName
+          Get-ChildItem .\Releases -Recurse | Select-Object FullName, Length
         } else {
           Write-Host "ERROR: Releases directory not found!"
           exit 1
@@ -107,9 +124,12 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          Releases/*
+          Releases/RELEASES
+          Releases/*.nupkg
+          Releases/IOTracesCore-Setup.exe
         draft: false
         prerelease: false
+        generate_release_notes: true
         body: |
           ## IO Traces Core v${{ steps.version.outputs.VERSION }}
           
@@ -120,7 +140,12 @@ jobs:
           If you already have IO Traces Core installed, the application will automatically notify you of this update.
           
           ### Requirements
-          - Windows 10/11
+          - Windows 10/11 (x64)
           - Administrator privileges
+          
+          ### Files
+          - `IOTracesCore-Setup.exe` - Full installer
+          - `IOTracesCore-${{ steps.version.outputs.VERSION }}-full.nupkg` - Update package
+          - `RELEASES` - Release metadata (required for auto-updates)
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
