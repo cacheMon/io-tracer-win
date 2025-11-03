@@ -23,16 +23,37 @@ jobs:
     - name: Extract version from tag
       id: version
       run: |
-        $version = "${{ github.ref_name }}".TrimStart('v')
+        $tag = "${{ github.ref_name }}"
+        $version = $tag.TrimStart('v')
+        
+        # Ensure version has 3 parts (MAJOR.MINOR.PATCH)
+        $parts = $version.Split('.')
+        if ($parts.Length -eq 2) {
+          $version = "$version.0"
+        } elseif ($parts.Length -eq 1) {
+          $version = "$version.0.0"
+        }
+        
+        Write-Host "Extracted version: $version"
         echo "VERSION=$version" >> $env:GITHUB_OUTPUT
       shell: pwsh
     
     - name: Update version in csproj
       run: |
-        $content = Get-Content .\IOTracesCORE\IOTracesCORE.csproj
-        $content = $content -replace '<Version>.*</Version>', "<Version>${{ steps.version.outputs.VERSION }}</Version>"
-        Set-Content .\IOTracesCORE\IOTracesCORE.csproj $content
+        $version = "${{ steps.version.outputs.VERSION }}"
+        Write-Host "Setting version to: $version"
+        
+        $csprojPath = ".\IOTracesCORE\IOTracesCORE.csproj"
+        $content = Get-Content $csprojPath -Raw
+        $content = $content -replace '<Version>[\d\.]+</Version>', "<Version>$version</Version>"
+        Set-Content $csprojPath $content
+        
+        Write-Host "Updated csproj content:"
+        Get-Content $csprojPath | Select-String -Pattern '<Version>'
       shell: pwsh
+    
+    - name: Restore dependencies
+      run: dotnet restore .\IOTracesCORE\IOTracesCORE.csproj
     
     - name: Build
       run: |
@@ -40,18 +61,46 @@ jobs:
           -c Release `
           -r win-x64 `
           --self-contained `
-          -p:PublishSingleFile=false
+          -p:PublishSingleFile=false `
+          -p:IncludeNativeLibrariesForSelfExtract=true
+      shell: pwsh
+    
+    - name: Verify build output
+      run: |
+        $publishDir = ".\IOTracesCORE\bin\Release\net8.0-windows\win-x64\publish"
+        if (Test-Path $publishDir) {
+          Write-Host "Build output exists"
+          Get-ChildItem $publishDir | Select-Object Name
+        } else {
+          Write-Host "ERROR: Build output directory not found!"
+          exit 1
+        }
       shell: pwsh
     
     - name: Package with Velopack
       run: |
+        $version = "${{ steps.version.outputs.VERSION }}"
+        Write-Host "Packaging version: $version"
+        
         vpk pack `
           --packId IOTracesCore `
-          --packVersion ${{ steps.version.outputs.VERSION }} `
+          --packVersion $version `
           --packDir .\IOTracesCORE\bin\Release\net8.0-windows\win-x64\publish `
           --mainExe IOTracesCORE.exe `
           --packTitle "IO Traces Core" `
+          --packAuthors "YourName" `
           --icon .\IOTracesCORE\Opera_Glasses_icon-icons.com_54155.ico
+      shell: pwsh
+    
+    - name: Verify release files
+      run: |
+        if (Test-Path ".\Releases") {
+          Write-Host "Release files created:"
+          Get-ChildItem .\Releases -Recurse | Select-Object FullName
+        } else {
+          Write-Host "ERROR: Releases directory not found!"
+          exit 1
+        }
       shell: pwsh
     
     - name: Create Release
@@ -61,5 +110,17 @@ jobs:
           Releases/*
         draft: false
         prerelease: false
+        body: |
+          ## IO Traces Core v${{ steps.version.outputs.VERSION }}
+          
+          ### Installation
+          Download and run the `IOTracesCore-Setup.exe` installer.
+          
+          ### Updates
+          If you already have IO Traces Core installed, the application will automatically notify you of this update.
+          
+          ### Requirements
+          - Windows 10/11
+          - Administrator privileges
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
