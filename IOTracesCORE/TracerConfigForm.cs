@@ -87,7 +87,7 @@ namespace IOTracesCORE
 
             lblStatus = new Label
             {
-                Text = "Upload disabled. Traces will be stored locally.",
+                Text = "Upload disabled, Traces will be stored locally.",
                 Location = new Point(20, 125),
                 Width = 450,
                 ForeColor = Color.Orange
