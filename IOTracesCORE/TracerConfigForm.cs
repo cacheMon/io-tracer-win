@@ -78,7 +78,7 @@ namespace IOTracesCORE
 
             chkEnableUpload = new CheckBox
             {
-                Text = "Enable automatic upload",
+                Text = "Enable auto upload",
                 Location = new Point(20, 95),
                 Width = 250,
                 Checked = false
@@ -87,7 +87,7 @@ namespace IOTracesCORE
 
             lblStatus = new Label
             {
-                Text = "Uploads disabled. Traces will be stored locally.",
+                Text = "Upload disabled, Traces will be stored locally.",
                 Location = new Point(20, 125),
                 Width = 450,
                 ForeColor = Color.Orange
