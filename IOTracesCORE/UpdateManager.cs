@@ -15,7 +15,7 @@ namespace IOTracesCORE
         private readonly Velopack.UpdateManager? _updateManager;
         private bool _isCheckingForUpdates = false;
 
-        private const string GITHUB_REPO_URL = "https://github.com/raflyhangga/auto-update-io-tracer-win";
+        private const string GITHUB_REPO_URL = "https://github.com/cacheMon/io-tracer-win";
         private const string UPDATE_URL = $"{GITHUB_REPO_URL}/releases/latest/download";
 
         private UpdateManager()
