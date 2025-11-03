@@ -1,6 +1,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -81,6 +82,8 @@ jobs:
       run: |
         $version = "${{ steps.version.outputs.VERSION }}"
         Write-Host "Packaging version: $version"
+
+        vpk download github --repoUrl https://github.com/${{ github.repository }}
         
         vpk pack `
           --packId IOTracesCore `
@@ -89,7 +92,14 @@ jobs:
           --mainExe IOTracesCORE.exe `
           --packTitle "IO Traces Core" `
           --packAuthors "YourName" `
-          --icon .\IOTracesCORE\Opera_Glasses_icon-icons.com_54155.ico 
+          --icon .\IOTracesCORE\Opera_Glasses_icon-icons.com_54155.ico
+          
+        vpk upload github `
+          --repoUrl https://github.com/${{ github.repository }} `
+          --publish `
+          --releaseName "IO Traces $version" `
+          --tag $version `
+          --token ${{ secrets.GITHUB_TOKEN }}
       shell: pwsh
     
     - name: Rename setup file
