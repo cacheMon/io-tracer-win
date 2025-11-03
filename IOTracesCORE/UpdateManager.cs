@@ -16,7 +16,7 @@ namespace IOTracesCORE
         private bool _isCheckingForUpdates = false;
 
         // Replace with your GitHub repository information
-        private const string GITHUB_REPO_URL = "https://github.com/YOUR_USERNAME/YOUR_REPO_NAME";
+        private const string GITHUB_REPO_URL = "https://github.com/raflyhangga/auto-update-io-tracer-win";
         private const string UPDATE_URL = $"{GITHUB_REPO_URL}/releases/latest/download";
 
         private UpdateManager()
