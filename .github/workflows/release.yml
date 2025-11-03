@@ -1,43 +1,65 @@
-name: Release IOTracesCORE
+name: Release
 
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
     
-    permissions:
-      contents: write
-      
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      
+    - uses: actions/checkout@v4
+    
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
-        
+    
+    - name: Install Velopack
+      run: dotnet tool install -g vpk
+    
+    - name: Extract version from tag
+      id: version
+      run: |
+        $version = "${{ github.ref_name }}".TrimStart('v')
+        echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+    
+    - name: Update version in csproj
+      run: |
+        $content = Get-Content .\IOTracesCORE\IOTracesCORE.csproj
+        $content = $content -replace '<Version>.*</Version>', "<Version>${{ steps.version.outputs.VERSION }}</Version>"
+        Set-Content .\IOTracesCORE\IOTracesCORE.csproj $content
+      shell: pwsh
+    
     - name: Build
       run: |
-        dotnet publish IOTracesCORE/IOTracesCORE.csproj `
+        dotnet publish .\IOTracesCORE\IOTracesCORE.csproj `
           -c Release `
           -r win-x64 `
           --self-contained `
-          -o ./publish `
-          /p:PublishSingleFile=true
-          
-    - name: Package
+          -p:PublishSingleFile=false
+      shell: pwsh
+    
+    - name: Package with Velopack
       run: |
-        Compress-Archive -Path ./publish/* -DestinationPath ./winiotracer.zip
-        
+        vpk pack `
+          --packId IOTracesCore `
+          --packVersion ${{ steps.version.outputs.VERSION }} `
+          --packDir .\IOTracesCORE\bin\Release\net8.0-windows\win-x64\publish `
+          --mainExe IOTracesCORE.exe `
+          --packTitle "IO Traces Core" `
+          --icon .\IOTracesCORE\Opera_Glasses_icon-icons.com_54155.ico
+      shell: pwsh
+    
     - name: Create Release
       uses: softprops/action-gh-release@v1
-      if: startsWith(github.ref, 'refs/tags/')
       with:
-        files: winiotracer.zip
-        generate_release_notes: true
+        files: |
+          Releases/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
