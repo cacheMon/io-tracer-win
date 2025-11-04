@@ -188,7 +188,6 @@ namespace IOTracesCORE
 
         public async Task CheckForUpdatesOnStartupAsync()
         {
-            await Task.Delay(10000);
             await CheckForUpdatesAsync(silent: true);
         }
 

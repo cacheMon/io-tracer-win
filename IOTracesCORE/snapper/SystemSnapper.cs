@@ -54,7 +54,7 @@ namespace IOTracesCORE.snapper
                 foreach (var d in disks)
                     sb.AppendLine($"{d.model}  {PrettySize(d.sizeBytes)}");
             }
-            wm.DirectWrite("spec.txt",sb.ToString());
+            wm.DirectWrite($"spec_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt",sb.ToString());
             Console.WriteLine("Capturing system specification complete!");
         }
 

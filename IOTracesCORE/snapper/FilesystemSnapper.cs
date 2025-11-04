@@ -50,7 +50,7 @@ namespace IOTracesCORE.snapper
             try
             {
                 if (interrupted) return;
-                Thread.Sleep(random.Next(500,2000));
+                Thread.Sleep(random.Next(500,900));
                 string[] files = Directory.GetFiles(dirPath);
                 foreach (string file in files)
                 {
