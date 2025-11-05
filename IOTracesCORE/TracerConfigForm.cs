@@ -72,7 +72,7 @@ namespace IOTracesCORE
             chkAnonymous = new CheckBox
             {
                 Location = new Point(130, 63),
-                Checked = true,
+                Checked = false,
                 Width = 20
             };
 
