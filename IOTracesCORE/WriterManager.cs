@@ -2,6 +2,7 @@
 using IOTracesCORE.trace;
 using IOTracesCORE.utils;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Text;
@@ -133,7 +134,8 @@ namespace IOTracesCORE
             ulong virtualSize = pc.VirtualSize;      // bytes
             ulong workingSetSize = pc.WorkingSetSize;    // bytes
             DateTime? creationDate = pc.CreationDate;
-            double procUsage = pc.CpuUsage;
+            string procUsage = pc.CpuUsage.ToString(CultureInfo.InvariantCulture);
+
 
             process_snap_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6},{7}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, name, cmd, virtualSize, workingSetSize, creationDate, procUsage);
             if (IsTimeToFlush(process_snap_sb))

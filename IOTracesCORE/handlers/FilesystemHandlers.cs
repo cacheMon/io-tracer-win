@@ -3,191 +3,89 @@ using IOTracesCORE.trace;
 using IOTracesCORE.utils;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Collections.Concurrent;
 
 namespace IOTracesCORE.handlers
 {
     class FilesystemHandlers
     {
-        private WriterManager wm;
+        private readonly WriterManager wm;
 
-        public FilesystemHandlers(WriterManager old_wm)
+        private readonly ConcurrentDictionary<ulong, string> nameByObj = new();
+
+        public FilesystemHandlers(WriterManager old_wm) => wm = old_wm;
+
+        private static string Clean(string s) => string.IsNullOrEmpty(s) ? "" : s.Trim();
+
+        private string Resolve(ulong fileObject, string eventName)
         {
-            wm = old_wm;
+            var n = Clean(eventName);
+            if (!string.IsNullOrEmpty(n)) return n;
+            return nameByObj.TryGetValue(fileObject, out var cached) ? cached : "";
         }
 
-        public void OnFileRead(FileIOReadWriteTraceData data)
+        private void Emit(DateTime ts, string op, int pid, string proc, string name, int size) =>
+            wm.Write(new FilesystemTrace(ts, op, pid, proc, name, size));
+
+        public void OnFileRead(FileIOReadWriteTraceData d)
         {
-
-
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-
-            DateTime ts = data.TimeStamp;
-            string operation_type = "read";
-            int pid = data.ProcessID;
-            string process_name = data.ProcessName;
-            string filename = data.FileName;
-            int size = data.IoSize;
-
-            FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
-
-            wm.Write(fs_trace);
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            Emit(d.TimeStamp, "read", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.IoSize);
         }
 
-        public void OnFileWrite(FileIOReadWriteTraceData data)
+        public void OnFileWrite(FileIOReadWriteTraceData d)
         {
-
-
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-
-            DateTime ts = data.TimeStamp;
-            string operation_type = "write";
-            int pid = data.ProcessID;
-            string process_name = data.ProcessName;
-            string filename = data.FileName;
-            int size = data.IoSize;
-
-            FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
-
-            wm.Write(fs_trace);
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            Emit(d.TimeStamp, "write", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.IoSize);
         }
 
-        public void OnFileClose(FileIOSimpleOpTraceData data)
+        public void OnFileFlush(FileIOSimpleOpTraceData d)
         {
-
-
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-
-            DateTime ts = data.TimeStamp;
-            string operation_type = "close";
-            int pid = data.ProcessID;
-            string process_name = data.ProcessName;
-            string filename = data.FileName;
-            int size = 0;
-
-            FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
-
-            wm.Write(fs_trace);
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            Emit(d.TimeStamp, "flush", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
         }
 
-        public void OnFileCreate(FileIOCreateTraceData data)
+        public void OnFileIoQuery(FileIOInfoTraceData d)
         {
-
-
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-
-            DateTime ts = data.TimeStamp;
-            string operation_type = "create";
-            int pid = data.ProcessID;
-            string process_name = data.ProcessName;
-            string filename = data.FileName;
-            int size = 0;
-
-            FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
-
-            wm.Write(fs_trace);
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            Emit(d.TimeStamp, "stat", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
         }
 
-        public void OnFileDelete(FileIOInfoTraceData data)
+        public void OnFileDirEnum(FileIODirEnumTraceData d)
         {
-
-
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-
-            DateTime ts = data.TimeStamp;
-            string operation_type = "delete";
-            int pid = data.ProcessID;
-            string process_name = data.ProcessName;
-            string filename = data.FileName;
-            int size = 0;
-
-            FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
-
-            wm.Write(fs_trace);
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            Emit(d.TimeStamp, "getdirentry", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
         }
 
-        public void OnFileFlush(FileIOSimpleOpTraceData data)
+        public void OnFileCreate(FileIOCreateTraceData d)
         {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-
-            DateTime ts = data.TimeStamp;
-            string operation_type = "flush";
-            int pid = data.ProcessID;
-            string process_name = data.ProcessName;
-            string filename = data.FileName;
-            int size = 0;
-
-            FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
-
-            wm.Write(fs_trace);
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            var name = Clean(d.FileName);
+            if (!string.IsNullOrEmpty(name)) nameByObj[d.FileObject] = name;
+            Emit(d.TimeStamp, "create", d.ProcessID, d.ProcessName, name, 0);
         }
 
-        public void OnFileDirEnum(FileIODirEnumTraceData data)
+        public void OnFileDelete(FileIOInfoTraceData d)
         {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-
-            DateTime ts = data.TimeStamp;
-            string operation_type = "getdirentry";
-            int pid = data.ProcessID;
-            string process_name = data.ProcessName;
-            string filename = data.FileName;
-            int size = 0;
-
-            FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
-
-            wm.Write(fs_trace);
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            var name = Resolve(d.FileObject, d.FileName);
+            Emit(d.TimeStamp, "delete", d.ProcessID, d.ProcessName, name, 0);
         }
 
-        public void OnFileIoQuery(FileIOInfoTraceData data)
+        public void OnFileClose(FileIOSimpleOpTraceData d)
         {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            var name = Resolve(d.FileObject, d.FileName);
+            Emit(d.TimeStamp, "close", d.ProcessID, d.ProcessName, name, 0);
+            nameByObj.TryRemove(d.FileObject, out _); // drop mapping after close
+        }
 
-
-            DateTime ts = data.TimeStamp;
-            string operation_type = "stat";
-            int pid = data.ProcessID;
-            string process_name = data.ProcessName;
-            string filename = data.FileName;
-            int size = 0;
-
-            FilesystemTrace fs_trace = new FilesystemTrace(ts, operation_type, pid, process_name, filename, size);
-
-            wm.Write(fs_trace);
-
+        public void OnFileRename(FileIOInfoTraceData d)
+        {
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            var name = Clean(d.FileName);
+            if (!string.IsNullOrEmpty(name)) nameByObj[d.FileObject] = name;
+            Emit(d.TimeStamp, "rename", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
         }
     }
 }
