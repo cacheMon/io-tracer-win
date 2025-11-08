@@ -11,7 +11,7 @@ namespace IOTracesCORE.utils
         private static readonly HashSet<int> excludedPids = new HashSet<int>();
         private static readonly HashSet<string> excludedProcessNames = new HashSet<string>
         {
-            "IOTracesCORE", "RuntimeBroker"
+            "IOTracesCORE", "RuntimeBroker","iotrace"
         };
 
         public static bool ShouldTrace(int pid, string processName)
