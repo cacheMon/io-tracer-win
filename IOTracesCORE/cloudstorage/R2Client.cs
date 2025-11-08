@@ -24,7 +24,18 @@ namespace IOTracesCORE.cloudstorage
         {
             try
             {
-                var response = await http.GetAsync($"{EndpointUrl}/{PathHasher.deviceId}/{file.Name}");
+                var currentVersion = UpdateManager.Instance.GetCurrentVersion();
+                if (
+                    string.IsNullOrWhiteSpace(currentVersion) ||
+                    currentVersion.Equals("unknown", StringComparison.OrdinalIgnoreCase)
+                )
+                {
+                    currentVersion = "dev";
+                } else
+                {
+                    currentVersion = currentVersion.Replace('.', '_');
+                }
+                var response = await http.GetAsync($"{EndpointUrl}/windows_trace/v{currentVersion}/{PathHasher.deviceId}/{file.Name}");
                 response.EnsureSuccessStatusCode();
 
                 var presignedUrl = await response.Content.ReadAsStringAsync();
