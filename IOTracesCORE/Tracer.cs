@@ -114,16 +114,6 @@ namespace IOTracesCORE
 
         public void Trace(CancellationToken cancellationToken = default)
         {
-
-            if (!(TraceEventSession.IsElevated() ?? false))
-            {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    Console.Error.WriteLine("Please run as Administrator. Try again!");
-                    Thread.Sleep(5000);
-                }
-                return;
-            }
             string sessionName = "IOTracer";
             CleanupOrphanedSession(sessionName);
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);

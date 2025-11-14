@@ -1,6 +1,8 @@
 ﻿using IOTracesCORE.cloudstorage;
+using Microsoft.Win32;
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 
@@ -12,6 +14,7 @@ namespace IOTracesCORE
         private Button btnBrowseOutput;
         private CheckBox chkAnonymous;
         private CheckBox chkEnableUpload;
+        private CheckBox chkAutoStart;
         private Label lblOutputPath;
         private Label lblAnonymous;
         private Label lblStatus;
@@ -20,11 +23,15 @@ namespace IOTracesCORE
         private bool isConnectionSafe = false;
         private readonly CancellationToken cancellationToken;
 
+        private const string AutoStartRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        private const string AutoStartValueName = "IOTracesCORE";
+
         public TracerConfigForm(CancellationToken token)
         {
             cancellationToken = token;
             InitializeComponent();
             LoadSavedConfiguration();
+            chkAutoStart.Checked = IsAutoStartEnabled();
         }
 
         private void InitializeComponent()
@@ -85,10 +92,19 @@ namespace IOTracesCORE
             };
             chkEnableUpload.CheckedChanged += ChkEnableUpload_CheckedChanged;
 
+            chkAutoStart = new CheckBox
+            {
+                Text = "Run IO-Tracer at Windows startup",
+                Location = new Point(20, 125),
+                Width = 300,
+                Checked = false
+            };
+            chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
+
             lblStatus = new Label
             {
                 Text = "Upload disabled, Traces will be stored locally.",
-                Location = new Point(20, 125),
+                Location = new Point(20, 155),
                 Width = 450,
                 ForeColor = Color.Orange
             };
@@ -96,7 +112,7 @@ namespace IOTracesCORE
             btnRunTracer = new Button
             {
                 Text = "Start Tracing",
-                Location = new Point(20, 170),
+                Location = new Point(20, 180),
                 Width = 200,
                 Height = 40,
                 Font = new Font("Segoe UI", 10, FontStyle.Bold)
@@ -109,6 +125,7 @@ namespace IOTracesCORE
             this.Controls.Add(lblAnonymous);
             this.Controls.Add(chkAnonymous);
             this.Controls.Add(chkEnableUpload);
+            this.Controls.Add(chkAutoStart);
             this.Controls.Add(lblStatus);
             this.Controls.Add(btnRunTracer);
         }
@@ -163,6 +180,28 @@ namespace IOTracesCORE
             SaveConfiguration();
         }
 
+        private void ChkAutoStart_CheckedChanged(object? sender, EventArgs e)
+        {
+            try
+            {
+                SetAutoStart(chkAutoStart.Checked);
+                SaveConfiguration();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Set autostart failed: " + ex.Message);
+                MessageBox.Show(
+                    "Failed to update auto-start setting:\n" + ex.Message,
+                    "Auto-start",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+                chkAutoStart.CheckedChanged -= ChkAutoStart_CheckedChanged;
+                chkAutoStart.Checked = !chkAutoStart.Checked; 
+                chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
+            }
+        }
+
         private async Task<bool> TestUploadConnection()
         {
             try
@@ -183,6 +222,47 @@ namespace IOTracesCORE
 
         private void BtnRunTracer_Click(object sender, EventArgs e)
         {
+            SaveConfiguration();
+
+            if (!IsAdministrator())
+            {
+                var result = MessageBox.Show(
+                    "Starting tracing needs administrator rights.\n" +
+                    "Restart IO-Tracer as administrator now?",
+                    "Administrator required",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning
+                );
+
+                if (result == DialogResult.No)
+                    return;
+
+                try
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = Application.ExecutablePath,
+                        Arguments = "",     
+                        UseShellExecute = true,
+                        Verb = "runas"       
+                    };
+
+                    Process.Start(psi);
+                    this.Close();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        "Failed to restart as administrator:\n" + ex.Message,
+                        "Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error
+                    );
+                }
+
+                return;
+            }
+
             bool wantUpload = chkEnableUpload.Checked;
             bool finalUpload = wantUpload && isConnectionSafe;
 
@@ -197,8 +277,6 @@ namespace IOTracesCORE
                 if (res == DialogResult.No) return;
                 finalUpload = false;
             }
-
-            SaveConfiguration();
 
             ObjectStorageHandler obj = new();
             RunTracer(txtOutputPath.Text, chkAnonymous.Checked, finalUpload, obj);
@@ -287,6 +365,50 @@ namespace IOTracesCORE
                 lblStatus.Text = "Uploads disabled. Traces will be stored locally.";
                 lblStatus.ForeColor = Color.Orange;
             }
+        }
+
+        private void SetAutoStart(bool enable)
+        {
+            using (var key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryPath, writable: true)
+                           ?? Registry.CurrentUser.CreateSubKey(AutoStartRegistryPath))
+            {
+                if (key == null) throw new InvalidOperationException("Cannot open Run registry key.");
+
+                if (enable)
+                {
+                    key.SetValue(AutoStartValueName, Application.ExecutablePath);
+                }
+                else
+                {
+                    if (key.GetValue(AutoStartValueName) != null)
+                        key.DeleteValue(AutoStartValueName);
+                }
+            }
+        }
+
+        private bool IsAutoStartEnabled()
+        {
+            using (var key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryPath, writable: false))
+            {
+                if (key == null) return false;
+
+                var value = key.GetValue(AutoStartValueName) as string;
+                if (string.IsNullOrWhiteSpace(value)) return false;
+
+                string exe = Application.ExecutablePath;
+                return string.Equals(
+                    value.Trim('"'),
+                    exe,
+                    StringComparison.OrdinalIgnoreCase
+                );
+            }
+        }
+
+        private bool IsAdministrator()
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
         }
 
         public static TracerConfigForm Run(CancellationToken token = default)

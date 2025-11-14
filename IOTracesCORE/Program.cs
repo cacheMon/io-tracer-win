@@ -53,16 +53,6 @@ namespace IOTracesCORE
                 Debug.WriteLine($"Velopack initialization error: {ex.Message}");
             }
 
-            using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
-            {
-                WindowsPrincipal principal = new WindowsPrincipal(identity);
-                isElevated = principal.IsInRole(WindowsBuiltInRole.Administrator);
-                if (!isElevated)
-                {
-                    MessageBox.Show("This application must be run as Administrator.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-            }
 
             var handle = GetConsoleWindow();
             ShowWindow(handle, SW_HIDE);
