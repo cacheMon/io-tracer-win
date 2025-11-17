@@ -137,7 +137,7 @@ namespace IOTracesCORE
             string procUsage = pc.CpuUsage.ToString(CultureInfo.InvariantCulture);
 
 
-            process_snap_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6},{7}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, name, cmd, virtualSize, workingSetSize, creationDate, procUsage);
+            process_snap_sb.AppendFormat("{0},{1},{2},{3},{4},{5},{6},{7}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, name, cmd, creationDate, procUsage, virtualSize , workingSetSize);
             if (IsTimeToFlush(process_snap_sb))
             {
                 FlushWrite(process_snap_sb, process_snap_filepath, "process");
