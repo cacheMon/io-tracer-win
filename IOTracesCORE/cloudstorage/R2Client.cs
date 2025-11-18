@@ -17,8 +17,9 @@ namespace IOTracesCORE.cloudstorage
         static readonly HttpClient http = new HttpClient();
 
         private string EndpointUrl = "https://io-tracer-worker.1a1a11a.workers.dev";
+        private string CurrentDate = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
 
- 
+
 
         public async Task PutObject(FileInfo file)
         {
@@ -35,7 +36,7 @@ namespace IOTracesCORE.cloudstorage
                 {
                     currentVersion = currentVersion.Replace('.', '_');
                 }
-                var response = await http.GetAsync($"{EndpointUrl}/windows_trace/v{currentVersion}/{PathHasher.deviceId}/{file.Name}");
+                var response = await http.GetAsync($"{EndpointUrl}/windows_trace/v{currentVersion}/{PathHasher.deviceId}/{CurrentDate}/{file.Name}");
                 response.EnsureSuccessStatusCode();
 
                 var presignedUrl = await response.Content.ReadAsStringAsync();
