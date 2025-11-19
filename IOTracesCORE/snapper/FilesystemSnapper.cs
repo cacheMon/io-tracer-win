@@ -55,7 +55,7 @@ namespace IOTracesCORE.snapper
                 foreach (string file in files)
                 {
                     FileInfo fileInfo = new FileInfo(file);
-                    string filepath = PathHasher.HashFilePath(fileInfo.FullName, scanRoot, anonymouse ,hashLen);
+                    string filepath = anonymouse ? PathHasher.HashFilePath(fileInfo.FullName, scanRoot, anonymouse ,hashLen) : fileInfo.FullName;
                     FilesystemInfo fi = new FilesystemInfo(
                         path: filepath.Replace("\\", "/"), 
                         size: fileInfo.Length, 
