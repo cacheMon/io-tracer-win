@@ -1,8 +1,13 @@
-﻿using System;
+﻿using CsvHelper;
+using CsvHelper.Configuration;
+using IOTracesCORE.utils;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace IOTracesCORE.trace
 {
@@ -18,6 +23,9 @@ namespace IOTracesCORE.trace
         public int Bytes { get; set; }
         public string Type { get; set; }
 
+        private readonly StringWriter buffer = new StringWriter();
+        private readonly CsvWriter csv;
+
         public NetworkTrace(DateTime ts, int pid, string comm, string saddr, string daddr, int sport, int dport, int bytes, string type)
         {
             Ts = ts;
@@ -29,6 +37,29 @@ namespace IOTracesCORE.trace
             this.Dport = dport;
             this.Bytes = bytes;
             this.Type = type;
+
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            {
+                NewLine = "\n"
+            };
+
+            this.csv = new CsvWriter(buffer, config);
+        }
+
+        public string FormatAsCsv(bool is_anonymous)
+        {
+            buffer.GetStringBuilder().Clear();
+            csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            csv.WriteField(Pid);
+            csv.WriteField(Comm);
+            csv.WriteField(is_anonymous ? PathHasher.Hash(Saddr, 10) : Saddr);
+            csv.WriteField(is_anonymous ? PathHasher.Hash(Daddr, 10) : Daddr);
+            csv.WriteField(Sport);
+            csv.WriteField(Dport);
+            csv.WriteField(Bytes);
+            csv.WriteField(Type);
+            csv.NextRecord();
+            return buffer.ToString();
         }
 
         public override string ToString()

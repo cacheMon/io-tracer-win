@@ -1,7 +1,11 @@
-﻿using System;
+﻿using CsvHelper;
+using CsvHelper.Configuration;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Management;
+using System.Security.Policy;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -9,6 +13,7 @@ namespace IOTracesCORE.trace
 {
     internal class ProcessInfo
     {
+        public DateTime ts = DateTime.Now;
         public uint ProcessId { get; set; }
         public string Name { get; set; }
         public string CommandLine { get; set; }
@@ -17,6 +22,9 @@ namespace IOTracesCORE.trace
         public DateTime? CreationDate { get; set; }
 
         public double CpuUsage { get; set; } // percentage
+
+        private readonly StringWriter buffer = new StringWriter();
+        private readonly CsvWriter csv;
 
         public ProcessInfo(
             uint processId,
@@ -35,12 +43,35 @@ namespace IOTracesCORE.trace
                 WorkingSetSize = workingSetSize;
                 CreationDate = creationDate;
                 CpuUsage = cpuUsage;
+
+                var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+                {
+                    NewLine = "\n"
+                };
+
+                this.csv = new CsvWriter(buffer, config);
+        }
+
+        public string FormatAsCsv()
+        {
+            buffer.GetStringBuilder().Clear();
+            csv.WriteField(ts.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            csv.WriteField(ProcessId);
+            csv.WriteField(Name);
+            csv.WriteField(CommandLine);
+            csv.WriteField(CreationDate?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "");
+            csv.WriteField(CpuUsage);
+            csv.WriteField(VirtualSize);
+            csv.WriteField(WorkingSetSize);
+            csv.NextRecord();
+            return buffer.ToString();
         }
 
         public override string ToString()
         {
             return $"{ProcessId}: {Name} (WS: {WorkingSetSize / 1024 / 1024} MB)";
         }
+
 
     }
 }
