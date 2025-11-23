@@ -100,7 +100,7 @@ jobs:
       run: |
         $version = "${{ steps.version.outputs.VERSION }}"
         $releasesDir = ".\Releases"
-        $zipPath = ".\IOTracer-v$version-installer.zip"
+        $zipPath = ".\IOTracer-win-installer.zip"
         
         if (Test-Path $releasesDir) {
           Write-Host "Contents of Releases folder:"
@@ -126,7 +126,7 @@ jobs:
           --token ${{ secrets.GITHUB_TOKEN }}
         
         # Upload the ZIP as well
-        gh release upload $version IOTracer-v$version-installer.zip
+        gh release upload $version IOTracer-win-installer.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       shell: pwsh
