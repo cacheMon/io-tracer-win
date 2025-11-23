@@ -115,6 +115,6 @@ jobs:
 
     - name: Upload ZIP to same release
       run: |
-        gh release upload ${{ github.ref_name }} IOTracer-v${{ steps.version.outputs.VERSION }}-portable.zip
+        gh release upload ${{ steps.version.outputs.VERSION }} IOTracer-v${{ steps.version.outputs.VERSION }}-portable.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
