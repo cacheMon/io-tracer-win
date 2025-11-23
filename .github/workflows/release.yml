@@ -79,11 +79,11 @@ jobs:
         }
       shell: pwsh
     
-    - name: Package & Release with Velopack
+    - name: Package with Velopack
       run: |
         $version = "${{ steps.version.outputs.VERSION }}"
         Write-Host "Packaging version: $version"
-
+    
         vpk download github --repoUrl https://github.com/${{ github.repository }}
         
         vpk pack `
@@ -94,12 +94,39 @@ jobs:
           --packTitle "IO Tracer" `
           --packAuthors "cacheMon" `
           --icon .\IOTracesCORE\Opera_Glasses_icon-icons.com_54155.ico
+      shell: pwsh
+    
+    - name: Create ZIP of Velopack installer
+      run: |
+        $version = "${{ steps.version.outputs.VERSION }}"
+        $releasesDir = ".\Releases"
+        $zipPath = ".\IOTracer-v$version-installer.zip"
+        
+        if (Test-Path $releasesDir) {
+          Write-Host "Contents of Releases folder:"
+          Get-ChildItem $releasesDir | Select-Object Name
           
+          Compress-Archive -Path "$releasesDir\*" -DestinationPath $zipPath
+          Write-Host "Created installer ZIP: $zipPath"
+        } else {
+          Write-Host "ERROR: Releases directory not found!"
+          exit 1
+        }
+      shell: pwsh
+    
+    - name: Upload to GitHub Release
+      run: |
+        $version = "${{ steps.version.outputs.VERSION }}"
+        
         vpk upload github `
           --repoUrl https://github.com/${{ github.repository }} `
           --publish `
           --releaseName "IO Tracer $version" `
           --tag $version `
           --token ${{ secrets.GITHUB_TOKEN }}
+        
+        # Upload the ZIP as well
+        gh release upload $version IOTracer-v$version-installer.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       shell: pwsh
-
