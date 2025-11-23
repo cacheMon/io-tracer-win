@@ -78,6 +78,16 @@ jobs:
           exit 1
         }
       shell: pwsh
+
+    - name: Create ZIP package
+      run: |
+        $version = "${{ steps.version.outputs.VERSION }}"
+        $publishDir = ".\IOTracesCORE\bin\Release\net8.0-windows\win-x64\publish"
+        $zipPath = ".\IOTracer-v$version-portable.zip"
+        
+        Compress-Archive -Path "$publishDir\*" -DestinationPath $zipPath
+        Write-Host "Created portable ZIP: $zipPath"
+      shell: pwsh
     
     - name: Package & Release with Velopack
       run: |
@@ -103,3 +113,8 @@ jobs:
           --token ${{ secrets.GITHUB_TOKEN }}
       shell: pwsh
 
+    - name: Upload ZIP to same release
+      run: |
+        gh release upload ${{ github.ref_name }} IOTracer-v${{ steps.version.outputs.VERSION }}-portable.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
