@@ -390,7 +390,7 @@ namespace IOTracesCORE
         {
             using (var key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryPath, writable: false))
             {
-                if (key == null) return false;
+                if (key == null) return true;
 
                 var value = key.GetValue(AutoStartValueName) as string;
                 if (string.IsNullOrWhiteSpace(value)) return false;
