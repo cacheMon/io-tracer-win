@@ -78,15 +78,22 @@ jobs:
           exit 1
         }
       shell: pwsh
-
-    - name: Create ZIP package
+    
+    - name: Package with Velopack
       run: |
         $version = "${{ steps.version.outputs.VERSION }}"
-        $publishDir = ".\IOTracesCORE\bin\Release\net8.0-windows\win-x64\publish"
-        $zipPath = ".\IOTracer-v$version-portable.zip"
+        Write-Host "Packaging version: $version"
+    
+        vpk download github --repoUrl https://github.com/${{ github.repository }}
         
-        Compress-Archive -Path "$publishDir\*" -DestinationPath $zipPath
-        Write-Host "Created portable ZIP: $zipPath"
+        vpk pack `
+          --packId IOTracer `
+          --packVersion $version `
+          --packDir .\IOTracesCORE\bin\Release\net8.0-windows\win-x64\publish `
+          --mainExe IOTracesCORE.exe `
+          --packTitle "IO Tracer" `
+          --packAuthors "cacheMon" `
+          --icon .\IOTracesCORE\Opera_Glasses_icon-icons.com_54155.ico
       shell: pwsh
     
     - name: Create ZIP of Velopack installer
@@ -106,7 +113,7 @@ jobs:
           exit 1
         }
       shell: pwsh
-
+    
     - name: Upload to GitHub Release
       run: |
         $version = "${{ steps.version.outputs.VERSION }}"
