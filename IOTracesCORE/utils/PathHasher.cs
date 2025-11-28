@@ -47,8 +47,10 @@ namespace IOTracesCORE.utils
             return hashedName;
         }
 
-        public static string HashFilePath(string fileFullPath, string rootBase, bool anonymous, int hashLen = 16)
+        public static string HashFilePath(string fileFullPath, string rootBase, bool anonymous, int hashLen = 16, int keepLevels = 2)
         {
+            if (string.IsNullOrEmpty(fileFullPath))
+                return fileFullPath;
             string dir = Path.GetDirectoryName(fileFullPath) ?? fileFullPath;
 
             if (anonymous)
@@ -56,7 +58,7 @@ namespace IOTracesCORE.utils
                 dir = HashDirectoryPath(
                     fullPath: dir,
                     rootBase: rootBase,
-                    keepLevels: 2,
+                    keepLevels: keepLevels,
                     hashLen: hashLen
                 );
             }

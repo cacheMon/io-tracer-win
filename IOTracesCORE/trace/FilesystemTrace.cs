@@ -3,7 +3,9 @@ using CsvHelper.Configuration;
 using IOTracesCORE.utils;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -29,7 +31,22 @@ namespace IOTracesCORE.trace
             csv.WriteField(Op);
             csv.WriteField(Pid);
             csv.WriteField(Comm);
-            csv.WriteField(is_anonymous ? PathHasher.HashFileName(Filename) : Filename);
+            if (is_anonymous)
+            {
+                try
+                {
+                    string root = Path.GetPathRoot(Filename) ?? "/";
+                    csv.WriteField(PathHasher.HashFilePath(Filename, root, true, 16));
+                }
+                catch (Exception)
+                {
+                    csv.WriteField(Filename);
+                }
+            }
+            else
+            {
+                csv.WriteField(Filename);
+            }
             csv.WriteField(TraceSize);
             csv.NextRecord();
             return buffer.ToString();

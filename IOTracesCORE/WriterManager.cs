@@ -188,7 +188,6 @@ namespace IOTracesCORE
                 return;
             }
 
-            Debug.WriteLine(data.FormatAsCsv());
             nw_sb.Append(data.FormatAsCsv());
 
             if (IsTimeToFlush(nw_sb))
