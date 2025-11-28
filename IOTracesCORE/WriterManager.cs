@@ -181,21 +181,15 @@ namespace IOTracesCORE
                 return;
             }
 
-            DateTime ts = data.Ts;
-            int pid = data.Pid;
             string process_name = EscapeCsvField(data.Comm);
-            string saddr = EscapeCsvField(is_anonymous? PathHasher.Hash(data.Saddr, 10) : data.Saddr); 
-            string daddr = EscapeCsvField(is_anonymous? PathHasher.Hash(data.Daddr,10) : data.Daddr);
-            int sport = data.Sport;
-            int dport = data.Dport;
-            int bytes = data.Bytes;
-            string type = EscapeCsvField(data.Type);
 
             if (process_name.Equals("IOTracesCORE"))
             {
                 return;
             }
-            nw_sb.Append(data.FormatAsCsv(is_anonymous));
+
+            Debug.WriteLine(data.FormatAsCsv());
+            nw_sb.Append(data.FormatAsCsv());
 
             if (IsTimeToFlush(nw_sb))
             {

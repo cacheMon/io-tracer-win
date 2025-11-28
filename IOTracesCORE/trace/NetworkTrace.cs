@@ -46,14 +46,14 @@ namespace IOTracesCORE.trace
             this.csv = new CsvWriter(buffer, config);
         }
 
-        public string FormatAsCsv(bool is_anonymous)
+        public string FormatAsCsv()
         {
             buffer.GetStringBuilder().Clear();
             csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.fff"));
             csv.WriteField(Pid);
             csv.WriteField(Comm);
-            csv.WriteField(is_anonymous ? PathHasher.Hash(Saddr, 10) : Saddr);
-            csv.WriteField(is_anonymous ? PathHasher.Hash(Daddr, 10) : Daddr);
+            csv.WriteField(Saddr);
+            csv.WriteField(Daddr);
             csv.WriteField(Sport);
             csv.WriteField(Dport);
             csv.WriteField(Bytes);
