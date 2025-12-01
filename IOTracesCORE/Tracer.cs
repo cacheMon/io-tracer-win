@@ -170,17 +170,32 @@ namespace IOTracesCORE
                     var source = session.Source;
                     var kernel = source.Kernel;
 
-                    kernel.FileIORead += fsHandler.OnFileRead;
-                    kernel.FileIOWrite += fsHandler.OnFileWrite;
-                    kernel.FileIOClose += fsHandler.OnFileClose;
-                    kernel.FileIOCreate += fsHandler.OnFileCreate;
-                    kernel.FileIODelete += fsHandler.OnFileDelete;
-                    kernel.FileIOFlush += fsHandler.OnFileFlush;
-                    kernel.FileIODirEnum += fsHandler.OnFileDirEnum;
-                    kernel.FileIOQueryInfo += fsHandler.OnFileIoQuery;
-                    kernel.FileIORename += fsHandler.OnFileRename;
+                    kernel.FileIORead += fsHandler.OnRead;
+                    kernel.FileIOWrite += fsHandler.OnWrite;
+                    kernel.FileIOClose += fsHandler.OnClose;
+                    kernel.FileIOCreate += fsHandler.OnCreate;
+                    kernel.FileIODelete += fsHandler.OnDelete;
+                    kernel.FileIOFlush += fsHandler.OnFlush;
+                    kernel.FileIODirEnum += fsHandler.OnDirEnum;
+                    kernel.FileIOQueryInfo += fsHandler.OnQuery;
+                    kernel.FileIORename += fsHandler.OnRename;
+                    kernel.FileIOCleanup += fsHandler.OnCleanup;
+                    kernel.FileIODirNotify += fsHandler.OnDirNotify;
+                    kernel.FileIOFileCreate += fsHandler.OnFileCreate;
+                    kernel.FileIOFileDelete += fsHandler.OnFileDelete;
+                    kernel.FileIOFileRundown += fsHandler.OnFileRundown;
+                    kernel.FileIOFSControl += fsHandler.OnFSControl;
+                    kernel.FileIOMapFile += fsHandler.OnMapFile;
+                    kernel.FileIOMapFileDCStart += fsHandler.OnMapFileDCStart;
+                    kernel.FileIOMapFileDCStop += fsHandler.OnMapFileDCStop;
+                    kernel.FileIOName += fsHandler.OnName;
+                    kernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
+                    kernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
+                    kernel.FileIOSetInfo += fsHandler.OnSetInfo;
+                    kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
 
                     kernel.DiskIORead += dsHandler.OnDiskRead;
+
                     kernel.DiskIOWrite += dsHandler.OnDiskWrite;
 
                     kernel.TcpIpSend += nwHandler.OnSend;
