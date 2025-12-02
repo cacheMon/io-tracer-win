@@ -13,7 +13,7 @@ namespace IOTracesCORE.trace
 {
     internal class ProcessInfo
     {
-        public DateTime ts = DateTime.Now;
+        public DateTime Ts { get; set; }
         public uint ProcessId { get; set; }
         public string Name { get; set; }
         public string CommandLine { get; set; }
@@ -27,6 +27,7 @@ namespace IOTracesCORE.trace
         private readonly CsvWriter csv;
 
         public ProcessInfo(
+            DateTime ts,
             uint processId,
             string name,
             string commandLine,
@@ -36,6 +37,7 @@ namespace IOTracesCORE.trace
             double cpuUsage
         )
             {
+                Ts = ts;
                 ProcessId = processId;
                 Name = name;
                 CommandLine = commandLine;
@@ -55,7 +57,7 @@ namespace IOTracesCORE.trace
         public string FormatAsCsv()
         {
             buffer.GetStringBuilder().Clear();
-            csv.WriteField(ts.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.fff"));
             csv.WriteField(ProcessId);
             csv.WriteField(Name);
             csv.WriteField(CommandLine);

@@ -266,7 +266,13 @@ namespace IOTracesCORE
 
         public void DirectWrite(string file_out_path ,string input)
         {
-            string out_path = $"{dir_path}\\{file_out_path}";
+            string out_path = $"{dir_path}\\system_spec\\{file_out_path}";
+
+            string? dir = Path.GetDirectoryName(out_path);
+            if (!Directory.Exists(dir) && (dir != null))
+            {
+                Directory.CreateDirectory(dir);
+            }
 
             using (var writer = new StreamWriter(out_path, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             {

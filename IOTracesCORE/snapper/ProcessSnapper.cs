@@ -44,6 +44,8 @@ SELECT ProcessId, Name, CommandLine, VirtualSize,
        WorkingSetSize, CreationDate, Status
 FROM Win32_Process";
 
+            DateTime dateTime = DateTime.Now;
+
             using (var searcher = new ManagementObjectSearcher(procQuery))
             using (var results = searcher.Get())
             {
@@ -60,6 +62,7 @@ FROM Win32_Process";
                     }
 
                     ProcessInfo pi = new(
+                        ts: dateTime,
                         processId: pid,
                         name: (string)mo["Name"],
                         commandLine: commandLine,
