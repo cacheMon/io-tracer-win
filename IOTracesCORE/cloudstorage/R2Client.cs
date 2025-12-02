@@ -36,13 +36,15 @@ namespace IOTracesCORE.cloudstorage
                 {
                     currentVersion = currentVersion.Replace('.', '_');
                 }
-                var response = await http.GetAsync($"{EndpointUrl}/windows_trace/v{currentVersion}/{PathHasher.deviceId}/{CurrentDate}/{file.Name}");
+
+                string dir_name = file.DirectoryName ?? "unknown_dir";
+                string trace_type = Path.GetFileName(file.DirectoryName) ?? "unknown_type";
+                var response = await http.GetAsync($"{EndpointUrl}/windows_trace/v{currentVersion}/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}");
                 response.EnsureSuccessStatusCode();
 
                 var presignedUrl = await response.Content.ReadAsStringAsync();
                 presignedUrl = presignedUrl.Trim('"');
 
-                //Debug.WriteLine("presigned URL: " + presignedUrl);
 
                 using var fileStream = System.IO.File.OpenRead(file.FullName);
                 var uploadRequest = new HttpRequestMessage(HttpMethod.Put, presignedUrl)
