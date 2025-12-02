@@ -21,61 +21,29 @@ namespace IOTracesCORE.handlers
         public void OnMemoryTransitionFault(MemoryPageFaultTraceData data)
         {
             MemoryTrace mt = new MemoryTrace(
-                    ts: data.TimeStamp,
-                    pid: data.ProcessID,
-                    comm: data.ProcessName,
-                    type: "MemoryTransitionFault"
-                );
-
+                ts: data.TimeStamp,
+                pid: data.ProcessID,
+                comm: data.ProcessName,
+                virtualAddress: data.VirtualAddress,
+                type: "transition_fault"
+            );
             wm.Write(mt);
         }
 
         public void OnMemoryDemandZeroFault(MemoryPageFaultTraceData data)
         {
-            MemoryTrace mt = new MemoryTrace(
-                ts: data.TimeStamp,
-                pid: data.ProcessID,
-                comm: data.ProcessName,
-                type: "MemoryDemandZeroFault"
-            );
-
-            wm.Write(mt);
         }
 
         public void OnMemoryCopyOnWrite(MemoryPageFaultTraceData data)
         {
-            MemoryTrace mt = new MemoryTrace(
-                ts: data.TimeStamp,
-                pid: data.ProcessID,
-                comm: data.ProcessName,
-                type: "MemoryCopyOnWrite"
-            );
-
-            wm.Write(mt);
         }
 
         public void OnMemoryGuardMemory(MemoryPageFaultTraceData data)
         {
-            MemoryTrace mt = new MemoryTrace(
-                ts: data.TimeStamp,
-                pid: data.ProcessID,
-                comm: data.ProcessName,
-                type: "MemoryGuardMemory"
-            );
-
-            wm.Write(mt);
         }
 
         public void OnMemoryAccessViolation(MemoryPageFaultTraceData data)
         {
-            MemoryTrace mt = new MemoryTrace(
-                ts: data.TimeStamp,
-                pid: data.ProcessID,
-                comm: data.ProcessName,
-                type: "MemoryAccessViolation"
-            );
-
-            wm.Write(mt);
         }
 
         public void OnMemoryHardFault(MemoryHardFaultTraceData data)
@@ -84,34 +52,18 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "MemoryHardFault"
+                virtualAddress: data.VirtualAddress,
+                type: "hard_fault"
             );
-
             wm.Write(mt);
         }
 
         public void OnVirtualMemAlloc(VirtualAllocTraceData data)
         {
-            MemoryTrace mt = new MemoryTrace(
-                ts: data.TimeStamp,
-                pid: data.ProcessID,
-                comm: data.ProcessName,
-                type: "VirtualMemAlloc"
-            );
-
-            wm.Write(mt);
         }
 
         public void OnVirtualMemFree(VirtualAllocTraceData data)
         {
-            MemoryTrace mt = new MemoryTrace(
-                ts: data.TimeStamp,
-                pid: data.ProcessID,
-                comm: data.ProcessName,
-                type: "VirtualMemFree"
-            );
-
-            wm.Write(mt);
         }
     }
 }

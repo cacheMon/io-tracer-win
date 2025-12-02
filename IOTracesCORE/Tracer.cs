@@ -16,6 +16,7 @@ namespace IOTracesCORE
         private readonly DiskHandlers dsHandler;
         private readonly NetworkHandlers nwHandler;
         private readonly ProcessSnapper psHandler;
+        private readonly MemoryHandlers mrHandler;
         private readonly FilesystemSnapper fsSnapper;
         private TraceEventSession? session;
         private ObjectStorageHandler objHandler;
@@ -43,6 +44,7 @@ namespace IOTracesCORE
             wm = new WriterManager(outputPath, anonymouse, upload, objHandler);
             fsHandler = new FilesystemHandlers(wm);
             dsHandler = new DiskHandlers(wm);
+            mrHandler = new MemoryHandlers(wm);
             psHandler = new ProcessSnapper(wm, anonymouse);
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
             systemSnapper = new SystemSnapper(wm);
@@ -164,7 +166,9 @@ namespace IOTracesCORE
                         KernelTraceEventParser.Keywords.FileIO |
                         KernelTraceEventParser.Keywords.FileIOInit |
                         KernelTraceEventParser.Keywords.DiskIO |
-                        KernelTraceEventParser.Keywords.NetworkTCPIP
+                        KernelTraceEventParser.Keywords.NetworkTCPIP | 
+                        KernelTraceEventParser.Keywords.Memory |
+                        KernelTraceEventParser.Keywords.MemoryHardFaults
                     );
 
                     var source = session.Source;
@@ -195,8 +199,10 @@ namespace IOTracesCORE
                     kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
 
                     kernel.DiskIORead += dsHandler.OnDiskRead;
-
                     kernel.DiskIOWrite += dsHandler.OnDiskWrite;
+
+                    kernel.MemoryHardFault += mrHandler.OnMemoryHardFault;
+                    kernel.MemoryTransitionFault += mrHandler.OnMemoryTransitionFault;
 
                     kernel.TcpIpSend += nwHandler.OnSend;
                     kernel.TcpIpRecv += nwHandler.OnReceive;
@@ -249,6 +255,11 @@ namespace IOTracesCORE
                 pleaseWaitForm.Close();
                 pleaseWaitForm.Dispose();
             }
+        }
+
+        private void Kernel_MemoryHardFault(Microsoft.Diagnostics.Tracing.Parsers.Kernel.MemoryHardFaultTraceData obj)
+        {
+            throw new NotImplementedException();
         }
 
         private void CleanupOrphanedSession(string sessionName)

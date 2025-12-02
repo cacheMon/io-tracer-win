@@ -88,10 +88,10 @@ namespace IOTracesCORE
             {
                 Directory.CreateDirectory(nw_folder);
             }
-            //if(!Directory.Exists(mr_folder))
-            //{
-            //    Directory.CreateDirectory(mr_folder);
-            //}
+            if (!Directory.Exists(mr_folder))
+            {
+                Directory.CreateDirectory(mr_folder);
+            }
             Console.WriteLine("File output: {0}", this.dir_path);
         }
 
@@ -198,16 +198,16 @@ namespace IOTracesCORE
 
         public void Write(MemoryTrace data)
         {
-            DateTime ts = data.Ts;
-            int pid = data.Pid;
-            string process_name = EscapeCsvField(data.Comm);
-            string type = EscapeCsvField(data.Type);
 
-            mr_sb.AppendFormat("{0},{1},{2},{3}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, process_name, type);
+            if (data.Comm.Equals("IOTracesCORE"))
+            {
+                return;
+            }
 
+            mr_sb.Append(data.FormatAsCsv());
             if (IsTimeToFlush(mr_sb))
             {
-                FlushWrite(mr_sb, mr_filepath, "memory");
+                FlushWrite(mr_sb, mr_filepath, "cache");
             }
         }
 
@@ -225,7 +225,7 @@ namespace IOTracesCORE
                 old_fp = ds_filepath;
                 ds_filepath = GenerateFilePath("ds");
             }
-            else if (tracetype.Equals("memory"))
+            else if (tracetype.Equals("cache"))
             {
                 old_fp = mr_filepath;
                 mr_filepath = GenerateFilePath("mr");
@@ -368,6 +368,7 @@ namespace IOTracesCORE
             FlushWrite(ds_sb, ds_filepath, "disk");
             FlushWrite(process_snap_sb, process_snap_filepath, "process");
             FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+            FlushWrite(mr_sb, mr_filepath, "cache");
             FlushWrite(nw_sb, nw_filepath, "network");
             Debug.WriteLine("Flushed all StringBuilders.");
 
