@@ -1,6 +1,7 @@
 ﻿using IOTracesCORE.cloudstorage;
 using IOTracesCORE.handlers;
 using IOTracesCORE.snapper;
+using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Session;
 using System.Diagnostics;
@@ -206,6 +207,18 @@ namespace IOTracesCORE
                     kernel.UdpIpRecv += nwHandler.OnReceive;
                     kernel.UdpIpRecvIPV6 += nwHandler.OnSend;
                     kernel.UdpIpSendIPV6 += nwHandler.OnReceive;
+
+                    kernel.All += (TraceEvent data) =>
+                    {
+                        if (data.TaskName != "FileIO") return;
+
+                        if ((int)data.Opcode == 76)
+                        {
+                            //Debug.WriteLine("Universal FileIO Operation End event captured.");
+                            //Debug.WriteLine(data.OpcodeName);
+                            fsHandler.OnUniversalEnd(data);
+                        }
+                    };
 
                     source.Process();
                 }

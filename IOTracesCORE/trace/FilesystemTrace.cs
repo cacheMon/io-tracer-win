@@ -20,6 +20,7 @@ namespace IOTracesCORE.trace
         public string Comm { get; set; }
         public string Filename { get; set; }
         public int TraceSize { get; set; }
+        public double Latency { get; set; }
 
         private readonly StringWriter buffer = new StringWriter();
         private readonly CsvWriter csv;
@@ -48,6 +49,7 @@ namespace IOTracesCORE.trace
                 csv.WriteField(Filename);
             }
             csv.WriteField(TraceSize);
+            csv.WriteField(Latency);
             csv.NextRecord();
             return buffer.ToString();
         }
@@ -58,7 +60,8 @@ namespace IOTracesCORE.trace
                 int pid, 
                 string comm, 
                 string filename, 
-                int size
+                int size,
+                double latency
             )
         {
             Ts = ts;
@@ -67,6 +70,7 @@ namespace IOTracesCORE.trace
             Comm = string.IsNullOrEmpty(comm) ? "" : comm;
             Filename = string.IsNullOrEmpty(filename) ? "" : filename;
             TraceSize = size;
+            Latency = latency;
 
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
