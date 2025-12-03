@@ -30,9 +30,18 @@ namespace IOTracesCORE
         {
             cancellationToken = token;
             InitializeComponent();
+
             LoadSavedConfiguration();
+
+            if (!File.Exists(ConfigPath))
+            {
+                chkEnableUpload.Checked = true;
+                ChkEnableUpload_CheckedChanged(this, EventArgs.Empty);
+            }
+
             chkAutoStart.Checked = IsAutoStartEnabled();
         }
+
 
         private void InitializeComponent()
         {

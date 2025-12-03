@@ -21,7 +21,9 @@ namespace IOTracesCORE.trace
         public ulong WorkingSetSize { get; set; }    // bytes
         public DateTime? CreationDate { get; set; }
 
-        public double CpuUsage { get; set; } // percentage
+        public double CpuUsage_5s { get; set; }
+        public double CpuUsage_2m { get; set; }
+        public double CpuUsage_1h { get; set; }
 
         private readonly StringWriter buffer = new StringWriter();
         private readonly CsvWriter csv;
@@ -34,7 +36,9 @@ namespace IOTracesCORE.trace
             ulong virtualSize,
             ulong workingSetSize,
             DateTime? creationDate,
-            double cpuUsage
+            double cpuUsage_5s,
+            double cpuUsage_2m,
+            double cpuUsage_1h
         )
             {
                 Ts = ts;
@@ -44,9 +48,11 @@ namespace IOTracesCORE.trace
                 VirtualSize = virtualSize;
                 WorkingSetSize = workingSetSize;
                 CreationDate = creationDate;
-                CpuUsage = cpuUsage;
+                CpuUsage_2m = cpuUsage_2m;
+                CpuUsage_5s = cpuUsage_5s;
+                CpuUsage_1h = cpuUsage_1h;
 
-                var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
                 {
                     NewLine = "\n"
                 };
@@ -62,7 +68,9 @@ namespace IOTracesCORE.trace
             csv.WriteField(Name);
             csv.WriteField(CommandLine);
             csv.WriteField(CreationDate?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "");
-            csv.WriteField(CpuUsage);
+            csv.WriteField(CpuUsage_5s);
+            csv.WriteField(CpuUsage_2m);
+            csv.WriteField(CpuUsage_1h);
             csv.WriteField(VirtualSize);
             csv.WriteField(WorkingSetSize);
             csv.NextRecord();
