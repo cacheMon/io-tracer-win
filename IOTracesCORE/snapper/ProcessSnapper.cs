@@ -1,4 +1,5 @@
-﻿using IOTracesCORE.trace;
+﻿using CsvHelper;
+using IOTracesCORE.trace;
 using IOTracesCORE.utils;
 using System;
 using System.Collections.Generic;
@@ -127,6 +128,9 @@ FROM Win32_Process";
                     {
                         creation = null;
                     }
+
+                    if (ProcessFilter.ShouldTrace(pid, name) == false)
+                        continue;
 
                     var pi = new ProcessInfo(
                         ts: DateTime.Now,
