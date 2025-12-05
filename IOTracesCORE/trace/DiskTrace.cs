@@ -11,7 +11,7 @@ namespace IOTracesCORE.trace
 {
     class DiskTrace
     {
-        public DiskTrace(DateTime ts, int pid, string comm, long sector, string operation, int traceSize)
+        public DiskTrace(DateTime ts, int pid, string comm, long sector, string operation, int traceSize, double latency)
         {
             Ts = ts;
             Pid = pid;
@@ -19,6 +19,7 @@ namespace IOTracesCORE.trace
             Sector = sector;
             Operation = operation;
             TraceSize = traceSize;
+            Latency = latency;
 
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -38,6 +39,7 @@ namespace IOTracesCORE.trace
             csv.WriteField(Sector);
             csv.WriteField(Operation);
             csv.WriteField(TraceSize);
+            csv.WriteField(Latency);
             csv.NextRecord();
             return buffer.ToString();
         }
@@ -52,6 +54,7 @@ namespace IOTracesCORE.trace
         public long Sector { get; set; }
         public string Operation { get; set; }
         public int TraceSize { get; set; }
+        public double Latency { get; set; }
 
-    }
+        }
 }

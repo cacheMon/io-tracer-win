@@ -165,6 +165,7 @@ namespace IOTracesCORE
                         KernelTraceEventParser.Keywords.FileIO |
                         KernelTraceEventParser.Keywords.FileIOInit |
                         KernelTraceEventParser.Keywords.DiskIO |
+                        KernelTraceEventParser.Keywords.DiskIOInit |
                         KernelTraceEventParser.Keywords.NetworkTCPIP
                     );
 
@@ -196,7 +197,8 @@ namespace IOTracesCORE
                     kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
 
                     kernel.DiskIORead += dsHandler.OnDiskRead;
-
+                    kernel.DiskIOReadInit += dsHandler.OnDiskInit;
+                    kernel.DiskIOWriteInit += dsHandler.OnDiskInit;
                     kernel.DiskIOWrite += dsHandler.OnDiskWrite;
 
                     kernel.TcpIpSend += nwHandler.OnSend;
