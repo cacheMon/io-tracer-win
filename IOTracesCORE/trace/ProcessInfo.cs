@@ -67,12 +67,12 @@ namespace IOTracesCORE.trace
             csv.WriteField(ProcessId);
             csv.WriteField(Name);
             csv.WriteField(CommandLine);
+            csv.WriteField(VirtualSize);
+            csv.WriteField(WorkingSetSize);
             csv.WriteField(CreationDate?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "");
             csv.WriteField(CpuUsage_5s);
             csv.WriteField(CpuUsage_2m);
             csv.WriteField(CpuUsage_1h);
-            csv.WriteField(VirtualSize);
-            csv.WriteField(WorkingSetSize);
             csv.NextRecord();
             return buffer.ToString();
         }

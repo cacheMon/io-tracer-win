@@ -191,7 +191,7 @@ namespace IOTracesCORE
                     kernel.FileIOMapFileDCStart += fsHandler.OnMapFileDCStart;
                     kernel.FileIOMapFileDCStop += fsHandler.OnMapFileDCStop;
                     kernel.FileIOName += fsHandler.OnName;
-                    kernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
+                    //kernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
                     kernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
                     kernel.FileIOSetInfo += fsHandler.OnSetInfo;
                     kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;

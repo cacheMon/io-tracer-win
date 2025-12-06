@@ -123,35 +123,35 @@ namespace IOTracesCORE.handlers
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             //Emit(d.TimeStamp, "read", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.IoSize);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "READ", d.FileName, d.FileObject, d.IoSize);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "read", d.FileName, d.FileObject, d.IoSize);
         }
 
         public void OnWrite(FileIOReadWriteTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             //Emit(d.TimeStamp, "write", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.IoSize);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "WRITE", d.FileName, d.FileObject, d.IoSize);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "write", d.FileName, d.FileObject, d.IoSize);
         }
 
         public void OnFlush(FileIOSimpleOpTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             //Emit(d.TimeStamp, "flush", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "FLUSH", d.FileName, d.FileObject);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "flush", d.FileName, d.FileObject);
         }
 
         public void OnQuery(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             //Emit(d.TimeStamp, "query", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "QUERY", d.FileName, d.FileObject);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "query", d.FileName, d.FileObject);
         }
 
         public void OnDirEnum(FileIODirEnumTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             //Emit(d.TimeStamp, "dir_enum", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "DIR_ENUM", d.FileName, d.FileObject);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "dir_enum", d.FileName, d.FileObject);
         }
 
         public void OnCreate(FileIOCreateTraceData d)
@@ -160,7 +160,7 @@ namespace IOTracesCORE.handlers
             var name = Clean(d.FileName);
             if (!string.IsNullOrEmpty(name)) nameByObj[d.FileObject] = name;
             //Emit(d.TimeStamp, "create", d.ProcessID, d.ProcessName, name, 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "CREATE", d.FileName, d.FileObject);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "create", d.FileName, d.FileObject);
         }
 
         public void OnFileCreate(FileIONameTraceData d)
@@ -176,7 +176,7 @@ namespace IOTracesCORE.handlers
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileObject, d.FileName);
             //Emit(d.TimeStamp, "delete", d.ProcessID, d.ProcessName, name, 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "DELETE", d.FileName, d.FileObject);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "delete", d.FileName, d.FileObject);
         }
 
         public void OnFileDelete(FileIONameTraceData d)
@@ -192,7 +192,7 @@ namespace IOTracesCORE.handlers
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileObject, d.FileName);
             //Emit(d.TimeStamp, "close", d.ProcessID, d.ProcessName, name, 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "CLOSE", d.FileName, d.FileObject);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "close", d.FileName, d.FileObject);
             nameByObj.TryRemove(d.FileObject, out _); // drop mapping after close
         }
 
@@ -202,21 +202,21 @@ namespace IOTracesCORE.handlers
             var name = Clean(d.FileName);
             if (!string.IsNullOrEmpty(name)) nameByObj[d.FileObject] = name;
             //Emit(d.TimeStamp, "rename", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "RENAME", d.FileName, d.FileObject);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "rename", d.FileName, d.FileObject);
         }
 
         public void OnCleanup(FileIOSimpleOpTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             //Emit(d.TimeStamp, "cleanup", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "CLEANUP", d.FileName, d.FileObject);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "cleanup", d.FileName, d.FileObject);
         }
 
         public void OnDirNotify(FileIODirEnumTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             //Emit(d.TimeStamp, "dir_notify", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "DIR_NOTIFY", d.FileName, d.FileObject);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "dir_notify", d.FileName, d.FileObject);
         }
 
         public void OnFileRundown(FileIONameTraceData d)
@@ -231,7 +231,7 @@ namespace IOTracesCORE.handlers
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             //Emit(d.TimeStamp, "fs_control", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "FS_CONTROL", d.FileName, d.FileObject);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "fs_control", d.FileName, d.FileObject);
         }
 
         public void OnMapFile(MapFileTraceData d)
@@ -271,7 +271,7 @@ namespace IOTracesCORE.handlers
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = "";
             //Emit(d.TimeStamp, "operation_end", d.ProcessID, d.ProcessName, name, 0);
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "name", name);
+            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "operation_end", name);
         }
 
         public void OnQueryInfo(FileIOInfoTraceData d)
