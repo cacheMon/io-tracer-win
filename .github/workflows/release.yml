@@ -1,132 +1,43 @@
-name: Release
+name: Release IOTracesCORE
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
-    permissions: write-all
     runs-on: windows-latest
     
+    permissions:
+      contents: write
+      
     steps:
-    - uses: actions/checkout@v4
-    
+    - name: Checkout
+      uses: actions/checkout@v4
+      
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
-    
-    - name: Install Velopack
-      run: dotnet tool install -g vpk
-    
-    - name: Extract version from tag
-      id: version
-      run: |
-        $tag = "${{ github.ref_name }}"
-        $version = $tag.TrimStart('v')
         
-        # Ensure version has 3 parts (MAJOR.MINOR.PATCH)
-        $parts = $version.Split('.')
-        if ($parts.Length -eq 2) {
-          $version = "$version.0"
-        } elseif ($parts.Length -eq 1) {
-          $version = "$version.0.0"
-        }
-        
-        Write-Host "Extracted version: $version"
-        echo "VERSION=$version" >> $env:GITHUB_OUTPUT
-      shell: pwsh
-    
-    - name: Update version in csproj
-      run: |
-        $version = "${{ steps.version.outputs.VERSION }}"
-        Write-Host "Setting version to: $version"
-        
-        $csprojPath = ".\IOTracesCORE\IOTracesCORE.csproj"
-        $content = Get-Content $csprojPath -Raw
-        $content = $content -replace '<Version>[\d\.]+</Version>', "<Version>$version</Version>"
-        Set-Content $csprojPath $content
-        
-        Write-Host "Updated csproj content:"
-        Get-Content $csprojPath | Select-String -Pattern '<Version>'
-      shell: pwsh
-    
-    - name: Restore dependencies
-      run: dotnet restore .\IOTracesCORE\IOTracesCORE.csproj
-    
     - name: Build
       run: |
-        dotnet publish .\IOTracesCORE\IOTracesCORE.csproj `
+        dotnet publish IOTracesCORE/IOTracesCORE.csproj `
           -c Release `
           -r win-x64 `
           --self-contained `
-          -p:PublishSingleFile=false `
-          -p:IncludeNativeLibrariesForSelfExtract=true
-      shell: pwsh
-    
-    - name: Verify build output
-      run: |
-        $publishDir = ".\IOTracesCORE\bin\Release\net8.0-windows\win-x64\publish"
-        if (Test-Path $publishDir) {
-          Write-Host "Build output exists"
-          Get-ChildItem $publishDir | Select-Object Name
-        } else {
-          Write-Host "ERROR: Build output directory not found!"
-          exit 1
-        }
-      shell: pwsh
-    
-    - name: Package with Velopack
-      run: |
-        $version = "${{ steps.version.outputs.VERSION }}"
-        Write-Host "Packaging version: $version"
-    
-        vpk download github --repoUrl https://github.com/${{ github.repository }}
-        
-        vpk pack `
-          --packId IOTracer `
-          --packVersion $version `
-          --packDir .\IOTracesCORE\bin\Release\net8.0-windows\win-x64\publish `
-          --mainExe IOTracesCORE.exe `
-          --packTitle "IO Tracer" `
-          --packAuthors "cacheMon" `
-          --icon .\IOTracesCORE\Opera_Glasses_icon-icons.com_54155.ico
-      shell: pwsh
-    
-    - name: Create ZIP of Velopack installer
-      run: |
-        $version = "${{ steps.version.outputs.VERSION }}"
-        $releasesDir = ".\Releases"
-        $zipPath = ".\IOTracer-win-installer.zip"
-        
-        if (Test-Path $releasesDir) {
-          Write-Host "Contents of Releases folder:"
-          Get-ChildItem $releasesDir | Select-Object Name
+          -o ./publish `
+          /p:PublishSingleFile=true
           
-          Compress-Archive -Path "$releasesDir\*" -DestinationPath $zipPath
-          Write-Host "Created installer ZIP: $zipPath"
-        } else {
-          Write-Host "ERROR: Releases directory not found!"
-          exit 1
-        }
-      shell: pwsh
-    
-    - name: Upload to GitHub Release
+    - name: Package
       run: |
-        $version = "${{ steps.version.outputs.VERSION }}"
+        Compress-Archive -Path ./publish/* -DestinationPath ./winiotracer.zip
         
-        vpk upload github `
-          --repoUrl https://github.com/${{ github.repository }} `
-          --publish `
-          --releaseName "IO Tracer $version" `
-          --tag $version `
-          --token ${{ secrets.GITHUB_TOKEN }}
-        
-        # Upload the ZIP as well
-        gh release upload $version IOTracer-win-installer.zip
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      shell: pwsh
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: winiotracer.zip
+        generate_release_notes: true
