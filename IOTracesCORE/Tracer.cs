@@ -191,7 +191,6 @@ namespace IOTracesCORE
                     kernel.FileIOMapFileDCStart += fsHandler.OnMapFileDCStart;
                     kernel.FileIOMapFileDCStop += fsHandler.OnMapFileDCStop;
                     kernel.FileIOName += fsHandler.OnName;
-                    //kernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
                     kernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
                     kernel.FileIOSetInfo += fsHandler.OnSetInfo;
                     kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
@@ -210,17 +209,6 @@ namespace IOTracesCORE
                     kernel.UdpIpRecvIPV6 += nwHandler.OnSend;
                     kernel.UdpIpSendIPV6 += nwHandler.OnReceive;
 
-                    kernel.All += (TraceEvent data) =>
-                    {
-                        if (data.TaskName != "FileIO") return;
-
-                        if ((int)data.Opcode == 76)
-                        {
-                            //Debug.WriteLine("Universal FileIO Operation End event captured.");
-                            //Debug.WriteLine(data.OpcodeName);
-                            fsHandler.OnUniversalEnd(data);
-                        }
-                    };
 
                     source.Process();
                 }
