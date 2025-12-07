@@ -44,7 +44,7 @@ namespace IOTracesCORE
             var iconStream = assembly.GetManifestResourceStream("IOTracesCORE.Opera_Glasses_icon-icons.com_54155.ico");
             var icon = iconStream != null ? new Icon(iconStream) : SystemIcons.Application;
 
-            var currentVersion = "vRelease";
+            string currentVersion = VersionManager.Instance.GetCurrentVersion();
             trayIcon = new NotifyIcon
             {
                 Icon = icon,
