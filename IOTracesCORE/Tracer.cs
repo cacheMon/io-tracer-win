@@ -1,6 +1,7 @@
 ﻿using IOTracesCORE.cloudstorage;
 using IOTracesCORE.handlers;
 using IOTracesCORE.snapper;
+using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Session;
 using System.Diagnostics;
@@ -164,6 +165,7 @@ namespace IOTracesCORE
                         KernelTraceEventParser.Keywords.FileIO |
                         KernelTraceEventParser.Keywords.FileIOInit |
                         KernelTraceEventParser.Keywords.DiskIO |
+                        KernelTraceEventParser.Keywords.DiskIOInit |
                         KernelTraceEventParser.Keywords.NetworkTCPIP
                     );
 
@@ -189,13 +191,13 @@ namespace IOTracesCORE
                     kernel.FileIOMapFileDCStart += fsHandler.OnMapFileDCStart;
                     kernel.FileIOMapFileDCStop += fsHandler.OnMapFileDCStop;
                     kernel.FileIOName += fsHandler.OnName;
-                    kernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
                     kernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
                     kernel.FileIOSetInfo += fsHandler.OnSetInfo;
                     kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
 
                     kernel.DiskIORead += dsHandler.OnDiskRead;
-
+                    kernel.DiskIOReadInit += dsHandler.OnDiskInit;
+                    kernel.DiskIOWriteInit += dsHandler.OnDiskInit;
                     kernel.DiskIOWrite += dsHandler.OnDiskWrite;
 
                     kernel.TcpIpSend += nwHandler.OnSend;
@@ -206,6 +208,7 @@ namespace IOTracesCORE
                     kernel.UdpIpRecv += nwHandler.OnReceive;
                     kernel.UdpIpRecvIPV6 += nwHandler.OnSend;
                     kernel.UdpIpSendIPV6 += nwHandler.OnReceive;
+
 
                     source.Process();
                 }

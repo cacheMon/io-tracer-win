@@ -1,17 +1,20 @@
 ﻿using IOTracesCORE;
 using IOTracesCORE.trace;
 using IOTracesCORE.utils;
+using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Xml.Linq;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace IOTracesCORE.handlers
 {
     class FilesystemHandlers
     {
         private readonly WriterManager wm;
-
+            
         private readonly ConcurrentDictionary<ulong, string> nameByObj = new();
 
         public FilesystemHandlers(WriterManager old_wm) => wm = old_wm;
@@ -27,6 +30,7 @@ namespace IOTracesCORE.handlers
 
         private void Emit(DateTime ts, string op, int pid, string proc, string name, int size) =>
             wm.Write(new FilesystemTrace(ts, op, pid, proc, name, size));
+
 
         public void OnRead(FileIOReadWriteTraceData d)
         {
@@ -63,35 +67,31 @@ namespace IOTracesCORE.handlers
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Clean(d.FileName);
             if (!string.IsNullOrEmpty(name)) nameByObj[d.FileObject] = name;
-            Emit(d.TimeStamp, "create", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "create", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
         }
 
         public void OnFileCreate(FileIONameTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "file_create", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "file_create", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnDelete(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Resolve(d.FileObject, d.FileName);
-            Emit(d.TimeStamp, "delete", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "delete", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
         }
 
         public void OnFileDelete(FileIONameTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "file_delete", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "file_delete", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnClose(FileIOSimpleOpTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Resolve(d.FileObject, d.FileName);
-            Emit(d.TimeStamp, "close", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "close", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
             nameByObj.TryRemove(d.FileObject, out _); // drop mapping after close
         }
 
@@ -118,8 +118,7 @@ namespace IOTracesCORE.handlers
         public void OnFileRundown(FileIONameTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "file_rundown", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "file_rundown", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnFSControl(FileIOInfoTraceData d)
@@ -131,36 +130,25 @@ namespace IOTracesCORE.handlers
         public void OnMapFile(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "map_file", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "map_file", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnMapFileDCStart(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "map_file_dc_start", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "map_file_dc_start", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnMapFileDCStop(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "map_file_dc_stop", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "map_file_dc_stop", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnName(FileIONameTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "name", d.ProcessID, d.ProcessName, name, 0);
-        }
-
-        public void OnOperationEnd(FileIOOpEndTraceData d)
-        {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = "";
-            Emit(d.TimeStamp, "operation_end", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "name", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnQueryInfo(FileIOInfoTraceData d)
@@ -178,8 +166,7 @@ namespace IOTracesCORE.handlers
         public void OnUnmapFile(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "unmap_file", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "unmap_file", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
     }
 }
