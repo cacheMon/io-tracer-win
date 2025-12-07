@@ -73,28 +73,24 @@ namespace IOTracesCORE.handlers
         public void OnFileCreate(FileIONameTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "file_create", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "file_create", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnDelete(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Resolve(d.FileObject, d.FileName);
             Emit(d.TimeStamp, "delete", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
         }
 
         public void OnFileDelete(FileIONameTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "file_delete", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "file_delete", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnClose(FileIOSimpleOpTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Resolve(d.FileObject, d.FileName);
             Emit(d.TimeStamp, "close", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
             nameByObj.TryRemove(d.FileObject, out _); // drop mapping after close
         }
@@ -122,8 +118,7 @@ namespace IOTracesCORE.handlers
         public void OnFileRundown(FileIONameTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "file_rundown", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "file_rundown", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnFSControl(FileIOInfoTraceData d)
@@ -135,29 +130,25 @@ namespace IOTracesCORE.handlers
         public void OnMapFile(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "map_file", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "map_file", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnMapFileDCStart(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "map_file_dc_start", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "map_file_dc_start", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnMapFileDCStop(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "map_file_dc_stop", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "map_file_dc_stop", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnName(FileIONameTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "name", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "name", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnQueryInfo(FileIOInfoTraceData d)
@@ -175,8 +166,7 @@ namespace IOTracesCORE.handlers
         public void OnUnmapFile(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = Clean(d.FileName);
-            Emit(d.TimeStamp, "unmap_file", d.ProcessID, d.ProcessName, name, 0);
+            Emit(d.TimeStamp, "unmap_file", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
         }
     }
 }
