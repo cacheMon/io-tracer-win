@@ -21,12 +21,6 @@ namespace IOTracesCORE.handlers
 
         private static string Clean(string s) => string.IsNullOrEmpty(s) ? "" : s.Trim();
 
-        private static Dictionary<ulong, double> _activeRequests = new Dictionary<ulong, double>();
-        private static Dictionary<ulong, string> _requestTypes = new Dictionary<ulong, string>();
-        private static Dictionary<ulong, ulong> _requestFileObjects = new Dictionary<ulong, ulong>(); 
-        private static Dictionary<ulong, string> _requestNames = new Dictionary<ulong, string>();   
-        private static Dictionary<ulong, long> _requestSizes = new Dictionary<ulong, long>();
-
         private string Resolve(ulong fileObject, string eventName)
         {
             var n = Clean(eventName);
