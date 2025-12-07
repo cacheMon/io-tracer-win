@@ -25,7 +25,7 @@ namespace IOTracesCORE.cloudstorage
         {
             try
             {
-                var currentVersion = UpdateManager.Instance.GetCurrentVersion();
+                var currentVersion = VersionManager.Instance.GetCurrentVersion();
                 if (
                     string.IsNullOrWhiteSpace(currentVersion) ||
                     currentVersion.Equals("unknown", StringComparison.OrdinalIgnoreCase)

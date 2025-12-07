@@ -29,31 +29,6 @@ namespace IOTracesCORE
         [STAThread]
         static void Main(string[] args)
         {
-            try
-            {
-                VelopackApp.Build()
-                    .OnFirstRun((v) => {
-                        Debug.WriteLine($"First run of version {v}");
-                        MessageBox.Show(
-                            $"Welcome to IO Traces Core v{v}!\n\n" +
-                            "The application has been installed successfully.\n\n" +
-                            "Note: This application requires Administrator privileges to run.",
-                            "Installation Complete",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Information);
-                        Environment.Exit(0);
-                    })
-                    .OnAfterUpdateFastCallback((v) => {
-                        Debug.WriteLine($"Updated to version {v}");
-                    })
-                    .Run();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Velopack initialization error: {ex.Message}");
-            }
-
-
             var handle = GetConsoleWindow();
             ShowWindow(handle, SW_HIDE);
 
@@ -69,7 +44,7 @@ namespace IOTracesCORE
             var iconStream = assembly.GetManifestResourceStream("IOTracesCORE.Opera_Glasses_icon-icons.com_54155.ico");
             var icon = iconStream != null ? new Icon(iconStream) : SystemIcons.Application;
 
-            var currentVersion = UpdateManager.Instance.GetCurrentVersion();
+            var currentVersion = "vRelease";
             trayIcon = new NotifyIcon
             {
                 Icon = icon,
@@ -90,10 +65,6 @@ namespace IOTracesCORE
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             });
-            contextMenu.Items.Add("Check for Updates", null, async (s, e) =>
-            {
-                await UpdateManager.Instance.CheckForUpdatesAsync(silent: false);
-            });
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Exit", null, OnExitClicked);
 
@@ -108,12 +79,6 @@ namespace IOTracesCORE
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             };
-
-            // Check for updates on startup (in background, non-blocking)
-            if (UpdateManager.Instance.IsUpdateManagerAvailable)
-            {
-                _ = UpdateManager.Instance.CheckForUpdatesOnStartupAsync();
-            }
 
             var form = TracerConfigForm.Run(cancellationTokenSource.Token);
             form.FormClosed += (_, __) => { cancellationTokenSource?.Cancel(); };
