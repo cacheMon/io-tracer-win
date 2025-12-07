@@ -27,29 +27,6 @@ namespace IOTracesCORE.handlers
         private static Dictionary<ulong, string> _requestNames = new Dictionary<ulong, string>();   
         private static Dictionary<ulong, long> _requestSizes = new Dictionary<ulong, long>();
 
-        private static void TrackStart(
-        ulong irpPtr,
-        double timeStamp,
-        string type,
-        string fileName,
-        ulong fileObject = 0,
-        long size = 0)
-        {
-            if (irpPtr == 0) return;
-            lock (_activeRequests)
-            {
-                if (!_activeRequests.ContainsKey(irpPtr))
-                    {
-                        _activeRequests[irpPtr] = timeStamp;
-                        _requestTypes[irpPtr] = type;
-                        _requestFileObjects[irpPtr] = fileObject;
-                        _requestNames[irpPtr] = string.IsNullOrEmpty(fileName) ? "" : fileName.Trim();
-                        _requestSizes[irpPtr] = size;
-                    }
-                }
-        }
-
-
         private string Resolve(ulong fileObject, string eventName)
         {
             var n = Clean(eventName);
@@ -187,13 +164,6 @@ namespace IOTracesCORE.handlers
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Clean(d.FileName);
             Emit(d.TimeStamp, "name", d.ProcessID, d.ProcessName, name, 0);
-        }
-
-        public void OnOperationEnd(FileIOOpEndTraceData d)
-        {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            var name = "";
-            TrackStart(d.IrpPtr, d.TimeStampRelativeMSec, "operation_end", name);
         }
 
         public void OnQueryInfo(FileIOInfoTraceData d)
