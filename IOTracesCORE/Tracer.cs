@@ -1,6 +1,7 @@
 ﻿using IOTracesCORE.cloudstorage;
 using IOTracesCORE.handlers;
 using IOTracesCORE.snapper;
+using IOTracesCORE.utils;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Session;
@@ -41,7 +42,7 @@ namespace IOTracesCORE
         {
             objHandler = obj;
             isUploadAutomatically = upload;
-            wm = new WriterManager(outputPath, anonymouse, upload, objHandler);
+            wm = new WriterManager($"{outputPath}\\{PathHasher.deviceId}", anonymouse, upload, objHandler);
             fsHandler = new FilesystemHandlers(wm);
             dsHandler = new DiskHandlers(wm);
             psHandler = new ProcessSnapper(wm, anonymouse);

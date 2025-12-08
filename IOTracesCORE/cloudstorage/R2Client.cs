@@ -39,7 +39,7 @@ namespace IOTracesCORE.cloudstorage
 
                 string dir_name = file.DirectoryName ?? "unknown_dir";
                 string trace_type = Path.GetFileName(file.DirectoryName) ?? "unknown_type";
-                var response = await http.GetAsync($"{EndpointUrl}/windows_trace/v{currentVersion}/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}");
+                var response = await http.GetAsync($"{EndpointUrl}/windows_trace/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}");
                 response.EnsureSuccessStatusCode();
 
                 var presignedUrl = await response.Content.ReadAsStringAsync();

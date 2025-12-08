@@ -50,7 +50,7 @@ namespace IOTracesCORE
             is_upload_automatically = upload;
 
 
-            dir_path = $"{dirpath}\\run_{DateTime.UtcNow:yyyyMMdd_HHmmss}";
+            dir_path = $"{dirpath}\\{DateTime.UtcNow:yyyyMMdd_HHmmss}";
             fs_filepath = GenerateFilePath("fs");
             ds_filepath = GenerateFilePath("ds");
             mr_filepath = GenerateFilePath("mr");
@@ -335,7 +335,7 @@ namespace IOTracesCORE
                 return;
             }
             string zipPath = $"{dir_path}_temp.zip";
-            string output_dir = $"{dir_path}_{PathHasher.deviceId}_compressed.zip.zst";
+            string output_dir = $"{dir_path}.zip.zst";
 
             try
             {
