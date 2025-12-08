@@ -42,7 +42,7 @@ namespace IOTracesCORE
         {
             objHandler = obj;
             isUploadAutomatically = upload;
-            wm = new WriterManager($"{outputPath}\\{PathHasher.deviceId}", anonymouse, upload, objHandler);
+            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler);
             fsHandler = new FilesystemHandlers(wm);
             dsHandler = new DiskHandlers(wm);
             psHandler = new ProcessSnapper(wm, anonymouse);
