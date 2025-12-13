@@ -378,38 +378,86 @@ namespace IOTracesCORE
 
         private void SetAutoStart(bool enable)
         {
-            using (var key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryPath, writable: true)
-                           ?? Registry.CurrentUser.CreateSubKey(AutoStartRegistryPath))
+            try
             {
-                if (key == null) throw new InvalidOperationException("Cannot open Run registry key.");
+                string taskName = "IOTracesCORE_AutoStart";
+                string exePath = Application.ExecutablePath;
 
                 if (enable)
                 {
-                    key.SetValue(AutoStartValueName, Application.ExecutablePath);
+                    string arguments = $@"/Create /TN ""{taskName}"" /TR ""\""{exePath}\"""" /SC ONLOGON /RL HIGHEST /F";
+
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = "schtasks.exe",
+                        Arguments = arguments,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+
+                    using (var process = Process.Start(psi))
+                    {
+                        process?.WaitForExit();
+                        if (process?.ExitCode != 0)
+                        {
+                            string error = process.StandardError.ReadToEnd();
+                            throw new InvalidOperationException($"Failed to create scheduled task: {error}");
+                        }
+                    }
                 }
                 else
                 {
-                    if (key.GetValue(AutoStartValueName) != null)
-                        key.DeleteValue(AutoStartValueName);
+                    string arguments = $@"/Delete /TN ""{taskName}"" /F";
+
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = "schtasks.exe",
+                        Arguments = arguments,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+
+                    using (var process = Process.Start(psi))
+                    {
+                        process?.WaitForExit();
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to manage auto-start: {ex.Message}", ex);
             }
         }
 
         private bool IsAutoStartEnabled()
         {
-            using (var key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryPath, writable: false))
+            try
             {
-                if (key == null) return true;
+                string taskName = "IOTracesCORE_AutoStart";
 
-                var value = key.GetValue(AutoStartValueName) as string;
-                if (string.IsNullOrWhiteSpace(value)) return false;
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "schtasks.exe",
+                    Arguments = $@"/Query /TN ""{taskName}""",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
 
-                string exe = Application.ExecutablePath;
-                return string.Equals(
-                    value.Trim('"'),
-                    exe,
-                    StringComparison.OrdinalIgnoreCase
-                );
+                using (var process = Process.Start(psi))
+                {
+                    process?.WaitForExit();
+                    return process?.ExitCode == 0;
+                }
+            }
+            catch
+            {
+                return false;
             }
         }
 
