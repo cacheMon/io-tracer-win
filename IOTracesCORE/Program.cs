@@ -1,4 +1,5 @@
 ﻿using IOTracesCORE.cloudstorage;
+using IOTracesCORE.utils;
 using Microsoft.Win32;
 using System;
 using System.Diagnostics;
@@ -44,6 +45,8 @@ namespace IOTracesCORE
             var iconStream = assembly.GetManifestResourceStream("IOTracesCORE.Opera_Glasses_icon-icons.com_54155.ico");
             var icon = iconStream != null ? new Icon(iconStream) : SystemIcons.Application;
 
+            ConfigClasses.LoadTracemetaConfiguration();
+
             string currentVersion = VersionManager.Instance.GetCurrentVersion();
             trayIcon = new NotifyIcon
             {
@@ -57,10 +60,13 @@ namespace IOTracesCORE
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Show Status", null, (s, e) =>
             {
+                TimeSpan Total_current_session = WriterManager.active_session;
+                TimeSpan Total_trace_duration = WriterManager.trace_duration;
                 MessageBox.Show(
                     $"Version: {currentVersion}\n" +
-                    $"Logs Created: {WriterManager.amount_compressed_file}\n" +
-                    $"Logs Uploaded: {ObjectStorageHandler.UploadedFiles}",
+                    $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
+                    $"Active session elapsed (HH:MM:SS): {Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
+                    $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours",
                     "Status",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);

@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using static IOTracesCORE.utils.ConfigClasses;
 
 namespace IOTracesCORE
 {
@@ -33,7 +34,7 @@ namespace IOTracesCORE
 
             LoadSavedConfiguration();
 
-            if (!File.Exists(ConfigPath))
+            if (!File.Exists(AppConfigPath))
             {
                 chkEnableUpload.Checked = true;
                 ChkEnableUpload_CheckedChanged(this, EventArgs.Empty);
@@ -316,17 +317,6 @@ namespace IOTracesCORE
             });
         }
 
-        private class PersistedConfig
-        {
-            public string OutputPath { get; set; } = "";
-            public bool Anonymous { get; set; }
-            public bool UploadEnabled { get; set; }
-        }
-
-        private string ConfigPath =>
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                         "IOTracer", "config.json.enc");
-
         private void SaveConfiguration()
         {
             try
@@ -335,14 +325,14 @@ namespace IOTracesCORE
                 {
                     OutputPath = txtOutputPath.Text,
                     Anonymous = chkAnonymous.Checked,
-                    UploadEnabled = chkEnableUpload.Checked
+                    UploadEnabled = chkEnableUpload.Checked,
                 };
 
                 string json = JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented = true });
                 byte[] encrypted = ProtectedData.Protect(
                     Encoding.UTF8.GetBytes(json), null, DataProtectionScope.CurrentUser);
-                Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
-                File.WriteAllBytes(ConfigPath, encrypted);
+                Directory.CreateDirectory(Path.GetDirectoryName(AppConfigPath)!);
+                File.WriteAllBytes(AppConfigPath, encrypted);
             }
             catch (Exception ex) { Debug.WriteLine("Save config failed: " + ex.Message); }
         }
@@ -351,9 +341,10 @@ namespace IOTracesCORE
         {
             try
             {
-                if (!File.Exists(ConfigPath)) return;
+                Debug.Write($"Receiving config from: {AppConfigPath}");
+                if (!File.Exists(AppConfigPath)) return;
 
-                byte[] encrypted = File.ReadAllBytes(ConfigPath);
+                byte[] encrypted = File.ReadAllBytes(AppConfigPath);
                 byte[] decrypted = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
                 string json = Encoding.UTF8.GetString(decrypted);
                 var cfg = JsonSerializer.Deserialize<PersistedConfig>(json);

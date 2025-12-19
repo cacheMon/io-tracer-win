@@ -34,6 +34,9 @@ namespace IOTracesCORE
         private bool is_anonymous;
         private bool is_upload_automatically;
         public static int amount_compressed_file = 0;
+        public static int disk_event_counter = 0;
+        public static TimeSpan active_session = TimeSpan.FromSeconds(0);
+        public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
 
         public WriterManager(string dirpath, bool is_anonymous, bool upload,ObjectStorageHandler obj)
         {
@@ -58,6 +61,8 @@ namespace IOTracesCORE
             process_snap_filepath = GenerateFilePath("process");
             fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
             this.is_anonymous = is_anonymous; 
+
+            StartEventRateDetector();
         }
 
         public void InitiateDirectory()
@@ -93,6 +98,32 @@ namespace IOTracesCORE
             //    Directory.CreateDirectory(mr_folder);
             //}
             Console.WriteLine("File output: {0}", this.dir_path);
+        }
+
+        private void StartEventRateDetector()
+        {
+            Debug.WriteLine("Starting event rate detector thread...");
+            Thread eventRateThread = new(EventRateDetector)
+            {
+                IsBackground = true
+            };
+            eventRateThread.Start();
+        }
+
+        private void EventRateDetector()
+        {
+            while (true)
+            {
+                int initial_count = disk_event_counter;
+                Thread.Sleep(1000);
+                int final_count = disk_event_counter;
+                int events_in_interval = final_count - initial_count;
+                disk_event_counter = 0;
+                //Debug.WriteLine($"Rate: {events_in_interval}");
+                if (events_in_interval > 100) { 
+                    active_session += TimeSpan.FromSeconds(1);
+                }   
+            }
         }
 
         private static string EscapeCsvField(string field)
@@ -145,6 +176,7 @@ namespace IOTracesCORE
             {
                 return;
             }
+            //event_counter += 1;
             fs_sb.Append(data.FormatAsCsv(is_anonymous));
             if (IsTimeToFlush(fs_sb))
             {
@@ -165,7 +197,7 @@ namespace IOTracesCORE
             {
                 return;
             }
-
+            disk_event_counter += 1;
             ds_sb.Append(data.FormatAsCsv());
 
             if (IsTimeToFlush(ds_sb))
@@ -187,7 +219,7 @@ namespace IOTracesCORE
             {
                 return;
             }
-
+            //event_counter += 1;
             nw_sb.Append(data.FormatAsCsv());
 
             if (IsTimeToFlush(nw_sb))
@@ -361,10 +393,6 @@ namespace IOTracesCORE
             Directory.Delete(dir_path, true);
         }
 
-        public void FlushSnapper()
-        {
-            FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
-        }
 
         public async Task CompressAllAsync()
         {
@@ -380,6 +408,7 @@ namespace IOTracesCORE
             WriteStatus();
 
             await obj_storage.ClearQueue();
+            ConfigClasses.SaveTracemetaConfiguration(active_session + trace_duration);
 
             CompressRun();
         }
