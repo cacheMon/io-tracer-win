@@ -21,6 +21,7 @@ namespace IOTracesCORE.utils
         public class TraceMetadata
         {
             public long TraceDuration { get; set; }
+            public long FileEventsCount { get; set; }
         }
 
         public static string AppConfigPath =>
@@ -31,14 +32,15 @@ namespace IOTracesCORE.utils
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                          "IOTracer", "trace_metadata.json.enc");
 
-        public static void SaveTracemetaConfiguration(TimeSpan trace_active)
+        public static void SaveTracemetaConfiguration(TimeSpan trace_active, long file_events)
         {
             try
             {
                 Debug.WriteLine($"Saving a session of {trace_active.TotalSeconds} seconds");
                 var cfg = new TraceMetadata
                 {
-                    TraceDuration = (long)trace_active.TotalSeconds
+                    TraceDuration = (long)trace_active.TotalSeconds,
+                    FileEventsCount = file_events
                 };
 
                 string json = JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented = true });
@@ -65,7 +67,9 @@ namespace IOTracesCORE.utils
                 if (cfg == null) return;
 
                 WriterManager.trace_duration = TimeSpan.FromSeconds(cfg.TraceDuration);
+                WriterManager.file_event_counter += (int)cfg.FileEventsCount;
                 Debug.WriteLine($"Loaded a session of {cfg.TraceDuration} seconds");
+                Debug.WriteLine($"Loaded {cfg.FileEventsCount} file events");
             }
             catch (Exception ex)
             {

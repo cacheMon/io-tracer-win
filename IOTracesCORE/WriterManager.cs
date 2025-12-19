@@ -35,6 +35,7 @@ namespace IOTracesCORE
         private bool is_upload_automatically;
         public static int amount_compressed_file = 0;
         public static int disk_event_counter = 0;
+        public static int file_event_counter = 0;
         public static TimeSpan active_session = TimeSpan.FromSeconds(0);
         public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
 
@@ -176,6 +177,7 @@ namespace IOTracesCORE
             {
                 return;
             }
+            file_event_counter += 1;
             //event_counter += 1;
             fs_sb.Append(data.FormatAsCsv(is_anonymous));
             if (IsTimeToFlush(fs_sb))
@@ -408,7 +410,7 @@ namespace IOTracesCORE
             WriteStatus();
 
             await obj_storage.ClearQueue();
-            ConfigClasses.SaveTracemetaConfiguration(active_session + trace_duration);
+            ConfigClasses.SaveTracemetaConfiguration(active_session + trace_duration, file_event_counter);
 
             CompressRun();
         }
