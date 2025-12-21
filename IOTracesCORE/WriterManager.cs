@@ -313,6 +313,8 @@ namespace IOTracesCORE
                 writer.Write(input);
             }
 
+            amount_compressed_file++;
+
             if (is_upload_automatically)
             {
                 obj_storage.QueueFile(out_path);

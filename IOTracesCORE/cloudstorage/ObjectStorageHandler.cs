@@ -17,6 +17,8 @@ namespace IOTracesCORE.cloudstorage
         private R2Client r2Client;
         private ConcurrentQueue<string> uploadQueue = new();
         public static int UploadedFiles = 0;
+        private TimeSpan LastActiveHours = TimeSpan.FromSeconds(0);   
+        public static int LastFileEvent;
 
 
         public ObjectStorageHandler()
@@ -26,9 +28,16 @@ namespace IOTracesCORE.cloudstorage
 
         public async Task UploadFile(string filepath)
         {
+            double deltaSeconds = WriterManager.active_session.TotalSeconds - LastActiveHours.TotalSeconds;
+            int deltaFileEvent = WriterManager.file_event_counter - LastFileEvent;
+            Debug.WriteLine($"Uploading file with delta seconds: {deltaSeconds}, delta file events: {deltaFileEvent}");
+
             FileInfo fi = new FileInfo(filepath);
-            await r2Client.PutObject(fi);
+            await r2Client.PutObject(fi, (int)deltaSeconds, deltaFileEvent);
             File.Delete(filepath);
+
+            LastFileEvent = WriterManager.file_event_counter;  
+            LastActiveHours = WriterManager.active_session;
         }
 
         public void QueueFile(string filepath)

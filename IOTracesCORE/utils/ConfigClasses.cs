@@ -1,4 +1,5 @@
-﻿using System;
+﻿using IOTracesCORE.cloudstorage;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -68,6 +69,7 @@ namespace IOTracesCORE.utils
 
                 WriterManager.trace_duration = TimeSpan.FromSeconds(cfg.TraceDuration);
                 WriterManager.file_event_counter += (int)cfg.FileEventsCount;
+                ObjectStorageHandler.LastFileEvent = (int)cfg.FileEventsCount;
                 Debug.WriteLine($"Loaded a session of {cfg.TraceDuration} seconds");
                 Debug.WriteLine($"Loaded {cfg.FileEventsCount} file events");
             }
