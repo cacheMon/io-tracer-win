@@ -72,6 +72,14 @@ namespace IOTracesCORE
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             });
+            contextMenu.Items.Add("Check Rewards", null, (s, e) =>
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = $"https://io-tracer-reward.vercel.app/{PathHasher.deviceId}",
+                    UseShellExecute = true
+                });
+            });
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Exit", null, OnExitClicked);
 
