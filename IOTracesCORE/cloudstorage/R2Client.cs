@@ -25,6 +25,8 @@ namespace IOTracesCORE.cloudstorage
         {
             try
             {
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+
                 var currentVersion = VersionManager.Instance.GetCurrentVersion();
                 if (
                     string.IsNullOrWhiteSpace(currentVersion) ||
@@ -67,11 +69,10 @@ namespace IOTracesCORE.cloudstorage
                 };
 
 
-                var uploadResponse = await http.SendAsync(uploadRequest);
+                var uploadResponse = await http.SendAsync(uploadRequest, cts.Token);
                 uploadResponse.EnsureSuccessStatusCode();
 
                 Debug.WriteLine($"{file.FullName} successfully uploaded");
-
             }
             catch (Exception)
             {

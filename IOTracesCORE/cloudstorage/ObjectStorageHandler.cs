@@ -63,7 +63,7 @@ namespace IOTracesCORE.cloudstorage
                     catch (Exception ex)
                     {
                         Debug.WriteLine($"Error uploading {filepath}: {ex}");
-                        QueueFile(filepath);
+                        //QueueFile(filepath);
                     }
                 }
             }
