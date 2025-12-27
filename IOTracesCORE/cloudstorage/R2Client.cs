@@ -21,7 +21,7 @@ namespace IOTracesCORE.cloudstorage
 
 
 
-        public async Task PutObject(FileInfo file, int deltaSeconds, int deltaFileEvent)
+        public async Task PutObject(FileInfo file)
         {
             try
             {
@@ -49,9 +49,9 @@ namespace IOTracesCORE.cloudstorage
 
                 Debug.WriteLine(endpoint);
 
-                request.Headers.Add("X-Active-Delta-Seconds", deltaSeconds.ToString());
-                request.Headers.Add("X-File-Events-Delta-Collected", deltaFileEvent.ToString());
-                request.Headers.Add("X-Computer-Id", PathHasher.deviceId);
+                //request.Headers.Add("X-Active-Delta-Seconds", deltaSeconds.ToString());
+                //request.Headers.Add("X-File-Events-Delta-Collected", deltaFileEvent.ToString());
+                //request.Headers.Add("X-Computer-Id", PathHasher.deviceId);
 
                 var response = await http.SendAsync(request);
                 response.EnsureSuccessStatusCode();

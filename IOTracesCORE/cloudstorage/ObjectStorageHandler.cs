@@ -28,12 +28,12 @@ namespace IOTracesCORE.cloudstorage
 
         public async Task UploadFile(string filepath)
         {
-            double deltaSeconds = WriterManager.active_session.TotalSeconds - LastActiveHours.TotalSeconds;
-            int deltaFileEvent = WriterManager.file_event_counter - LastFileEvent;
-            Debug.WriteLine($"Uploading file with delta seconds: {deltaSeconds}, delta file events: {deltaFileEvent}");
+            //double deltaSeconds = WriterManager.active_session.TotalSeconds - LastActiveHours.TotalSeconds;
+            //int deltaFileEvent = WriterManager.file_event_counter - LastFileEvent;
+            //Debug.WriteLine($"Uploading file with delta seconds: {deltaSeconds}, delta file events: {deltaFileEvent}");
 
             FileInfo fi = new FileInfo(filepath);
-            await r2Client.PutObject(fi, (int)deltaSeconds, deltaFileEvent);
+            await r2Client.PutObject(fi);
             File.Delete(filepath);
 
             LastFileEvent = WriterManager.file_event_counter;  

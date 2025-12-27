@@ -63,7 +63,7 @@ namespace IOTracesCORE
                 TimeSpan Total_current_session = WriterManager.active_session;
                 TimeSpan Total_trace_duration = WriterManager.trace_duration;
                 MessageBox.Show(
-                    $"Version: {currentVersion}\n" +
+                    $"Computer ID: {PathHasher.deviceId}\n" +
                     $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
                     $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n\n" +
                     $"Active session elapsed (HH:MM:SS): {Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
@@ -71,14 +71,6 @@ namespace IOTracesCORE
                     "Status",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
-            });
-            contextMenu.Items.Add("Check Rewards", null, (s, e) =>
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = $"https://io-tracer-reward.vercel.app/{PathHasher.deviceId}",
-                    UseShellExecute = true
-                });
             });
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Exit", null, OnExitClicked);
