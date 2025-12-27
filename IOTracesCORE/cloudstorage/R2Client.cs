@@ -25,6 +25,8 @@ namespace IOTracesCORE.cloudstorage
         {
             try
             {
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+
                 var currentVersion = VersionManager.Instance.GetCurrentVersion();
                 if (
                     string.IsNullOrWhiteSpace(currentVersion) ||
@@ -39,7 +41,21 @@ namespace IOTracesCORE.cloudstorage
 
                 string dir_name = file.DirectoryName ?? "unknown_dir";
                 string trace_type = Path.GetFileName(file.DirectoryName) ?? "unknown_type";
-                var response = await http.GetAsync($"{EndpointUrl}/windows_trace/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}");
+
+                var endpoint = $"{EndpointUrl}/windows_trace/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}";
+
+                var request = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    endpoint
+                );
+
+                Debug.WriteLine(endpoint);
+
+                //request.Headers.Add("X-Active-Delta-Seconds", deltaSeconds.ToString());
+                //request.Headers.Add("X-File-Events-Delta-Collected", deltaFileEvent.ToString());
+                //request.Headers.Add("X-Computer-Id", PathHasher.deviceId);
+
+                var response = await http.SendAsync(request);
                 response.EnsureSuccessStatusCode();
 
                 var presignedUrl = await response.Content.ReadAsStringAsync();
@@ -53,11 +69,10 @@ namespace IOTracesCORE.cloudstorage
                 };
 
 
-                var uploadResponse = await http.SendAsync(uploadRequest);
+                var uploadResponse = await http.SendAsync(uploadRequest, cts.Token);
                 uploadResponse.EnsureSuccessStatusCode();
 
                 Debug.WriteLine($"{file.FullName} successfully uploaded");
-
             }
             catch (Exception)
             {
