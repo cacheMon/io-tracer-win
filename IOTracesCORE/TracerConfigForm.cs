@@ -1,4 +1,5 @@
 ﻿using IOTracesCORE.cloudstorage;
+using IOTracesCORE.utils;
 using Microsoft.Win32;
 using System.Diagnostics;
 using System.Security.Cryptography;
@@ -20,6 +21,7 @@ namespace IOTracesCORE
         private Label lblAnonymous;
         private Label lblStatus;
         private Button btnRunTracer;
+        private TextBox txtInfo;
 
         private bool isConnectionSafe = false;
         private readonly CancellationToken cancellationToken;
@@ -52,6 +54,18 @@ namespace IOTracesCORE
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
+
+            txtInfo = new TextBox
+            {
+                Text = $"Device: {PathHasher.deviceId}",
+                Location = new Point(345, 65),
+                Width = 450,
+                ForeColor = Color.Gray,
+                ReadOnly = true,
+                BorderStyle = BorderStyle.None,
+                BackColor = this.BackColor,
+                TabStop = false
+            };
 
             lblOutputPath = new Label
             {
@@ -111,6 +125,7 @@ namespace IOTracesCORE
             };
             chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
 
+
             lblStatus = new Label
             {
                 Text = "Upload disabled, Traces will be stored locally.",
@@ -138,6 +153,7 @@ namespace IOTracesCORE
             this.Controls.Add(chkAutoStart);
             this.Controls.Add(lblStatus);
             this.Controls.Add(btnRunTracer);
+            this.Controls.Add(txtInfo);
         }
 
         private void BtnBrowseOutput_Click(object sender, EventArgs e)
