@@ -76,16 +76,25 @@ namespace IOTracesCORE
             contextMenu.Items.Add("Exit", null, OnExitClicked);
 
             trayIcon.ContextMenuStrip = contextMenu;
-
-            trayIcon.DoubleClick += (s, e) =>
+            trayIcon.MouseUp += (s, e) =>
             {
+                if (e.Button != MouseButtons.Left)
+                    return;
+
+                TimeSpan Total_current_session = WriterManager.active_session;
+                TimeSpan Total_trace_duration = WriterManager.trace_duration;
+
                 MessageBox.Show(
-                    $"IO Traces Core v{currentVersion} is running!\n\n" +
-                    "Right-click the tray icon for more options.",
-                    "Info",
+                    $"Computer ID: {PathHasher.deviceId}\n" +
+                    $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
+                    $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n\n" +
+                    $"Active session elapsed (HH:MM:SS): {Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
+                    $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours",
+                    "Status",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             };
+
 
             var form = TracerConfigForm.Run(cancellationTokenSource.Token);
             form.FormClosed += (_, __) => { cancellationTokenSource?.Cancel(); };
