@@ -29,8 +29,11 @@ namespace IOTracesCORE
 
         private ObjectStorageHandler obj_storage;
 
-        private readonly static int maxKB = 20000000;
-        private readonly static int maxSnapKB = 1000000;
+        private const double MEMORY_PRESSURE_RATIO = 0.01; 
+        private const long ABSOLUTE_MAX_BYTES = 256L * 1024 * 1024; // 256 MB
+        private static readonly TimeSpan MIN_FLUSH_INTERVAL = TimeSpan.FromSeconds(10);
+        private static DateTime _lastFlushUtc = DateTime.UtcNow;
+
         private bool is_anonymous;
         private bool is_upload_automatically;
         public static int amount_compressed_file = 0;
@@ -282,7 +285,7 @@ namespace IOTracesCORE
             {
                 return;
             }
-
+            _lastFlushUtc = DateTime.UtcNow;
             using (var writer = new StreamWriter(old_fp, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             {
                 writer.Write(sb);
@@ -324,16 +327,30 @@ namespace IOTracesCORE
 
         private static bool IsTimeToFlush(StringBuilder sb, bool isSnap = false)
         {
-            int limit = 0;
+            long sbBytes = sb.Length * sizeof(char);
+
+            var gcInfo = GC.GetGCMemoryInfo();
+            long availableMemory = gcInfo.TotalAvailableMemoryBytes;
+
+            long adaptiveLimit = (long)(availableMemory * MEMORY_PRESSURE_RATIO);
+
             if (isSnap)
+                adaptiveLimit /= 4;
+
+            adaptiveLimit = Math.Min(adaptiveLimit, ABSOLUTE_MAX_BYTES);
+
+            if (sbBytes >= adaptiveLimit)
+                return true;
+
+            if (DateTime.UtcNow - _lastFlushUtc >= MIN_FLUSH_INTERVAL &&
+                sbBytes > adaptiveLimit / 4)
             {
-                limit = maxSnapKB;
-            } else
-            {
-                limit = maxKB;
+                return true;
             }
-            return sb.Length > limit;
+
+            return false;
         }
+
 
         public static string CompressFile(string filepath)
         {
