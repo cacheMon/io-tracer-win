@@ -293,10 +293,16 @@ namespace IOTracesCORE
 
             sb.Clear();
 
-            string compressed_fp = CompressFile(old_fp);
-            if (is_upload_automatically)
+            try
             {
-                obj_storage.QueueFile(compressed_fp);
+                string compressed_fp = CompressFile(old_fp);
+                if (is_upload_automatically)
+                {
+                    obj_storage.QueueFile(compressed_fp);
+                }
+            } catch (Exception ex)
+            {
+                Debug.WriteLine($"Error compressing file {old_fp}: {ex.Message}");
             }
             WriteStatus();
         }
@@ -354,31 +360,35 @@ namespace IOTracesCORE
 
         public static string CompressFile(string filepath)
         {
-            //Console.WriteLine($"Compressing {filepath}");
-            string compressed_fp = $"{filepath}.zst";
-            using (var input = File.OpenRead(filepath))
-            using (var output = File.Create(compressed_fp))
-            using (var compressor = new CompressionStream(output))
+            try
             {
-                input.CopyTo(compressor);
-            }
-            //Console.WriteLine($"Compressed {filepath} -> {compressed_fp}");
-            amount_compressed_file++;
-            
+                if (!File.Exists(filepath))
+                {
+                    throw new FileNotFoundException("Input file does not exist.", filepath);
+                }
 
-            string full_path_old = Path.GetFullPath(filepath);
-            if (File.Exists(full_path_old))
-            {
-                File.Delete(full_path_old);
-                //Console.WriteLine("File deleted successfully.");
-            }
-            else
-            {
-                Debug.WriteLine("File not found.");
-            }
+                string compressed_fp = $"{filepath}.zst";
 
-            return compressed_fp;
+                using (var input = File.OpenRead(filepath))
+                using (var output = File.Create(compressed_fp))
+                using (var compressor = new CompressionStream(output))
+                {
+                    input.CopyTo(compressor);
+                }
+
+                amount_compressed_file++;
+
+                File.Delete(Path.GetFullPath(filepath));
+
+                return compressed_fp;
+            }
+            catch
+            {
+                throw;
+            }
         }
+
+
 
         public void CompressRun()
         {
@@ -387,11 +397,18 @@ namespace IOTracesCORE
                 Directory.Delete(dir_path, true);
                 return;
             }
+
             string zipPath = $"{dir_path}_temp.zip";
             string output_dir = $"{dir_path}.zip.zst";
 
             try
             {
+                if (!Directory.Exists(dir_path))
+                {
+                    Debug.WriteLine($"Directory not found: {dir_path}");
+                    return;
+                }
+
                 ZipFile.CreateFromDirectory(dir_path, zipPath);
 
                 byte[] zipData = File.ReadAllBytes(zipPath);
@@ -402,17 +419,29 @@ namespace IOTracesCORE
                     File.WriteAllBytes(output_dir, compressedData.ToArray());
                 }
 
-                File.Delete(zipPath);
+                Debug.WriteLine($"Compressed entire run to {output_dir}");
+
+                Directory.Delete(dir_path, true);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"An error occurred during compression: {ex.Message}");
-                return;
+                Debug.WriteLine($"Compression failed: {ex.Message}");
             }
-
-            Console.WriteLine($"Compressed entire run to {output_dir}");
-            Directory.Delete(dir_path, true);
+            finally
+            {
+                try
+                {
+                    if (File.Exists(zipPath))
+                    {
+                        File.Delete(zipPath);
+                    }
+                }
+                catch
+                {
+                }
+            }
         }
+
 
 
         public async Task CompressAllAsync()
