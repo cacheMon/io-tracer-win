@@ -143,23 +143,27 @@ namespace IOTracer
         public void CompressWrite(string tracetype)
         {
             string old_fp;
+            string new_fp;
             string compressed_fp;
             if (tracetype.Equals("filesystem"))
             {
                 old_fp = fs_filepath;
                 fs_filepath = GenerateFilePath("fs");
+                new_fp = fs_filepath;
                 FlushWrite(fs_sb, old_fp);
             }
             else if (tracetype.Equals("disk"))
             {
                 old_fp = ds_filepath;
                 ds_filepath = GenerateFilePath("ds");
+                new_fp = ds_filepath;
                 FlushWrite(ds_sb, old_fp);
             }
             else if (tracetype.Equals("memory"))
             {
                 old_fp = mr_filepath;
                 mr_filepath = GenerateFilePath("mr");
+                new_fp = mr_filepath;
                 FlushWrite(mr_sb, old_fp);
             }
             else
@@ -170,7 +174,7 @@ namespace IOTracer
 
 
 
-            Console.WriteLine($"Writing to new file: {fs_filepath}");
+            Console.WriteLine($"Writing to new file: {new_fp}");
 
             Console.WriteLine($"Compressing {old_fp}");
             using (var input = File.OpenRead(old_fp))
