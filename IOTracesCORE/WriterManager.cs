@@ -366,10 +366,9 @@ namespace IOTracesCORE
             amount_compressed_file++;
             
 
-            string full_path_old = Path.GetFullPath(filepath);
-            if (File.Exists(full_path_old))
+            if (File.Exists(filepath))
             {
-                File.Delete(full_path_old);
+                File.Delete(filepath);
                 //Console.WriteLine("File deleted successfully.");
             }
             else

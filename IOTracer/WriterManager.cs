@@ -186,10 +186,9 @@ namespace IOTracer
             Console.WriteLine($"Compressed {old_fp} → {compressed_fp}");
             amount_compressed_file++;
 
-            string full_path_old = Path.GetFullPath(old_fp);
-            if (File.Exists(full_path_old))
+            if (File.Exists(old_fp))
             {
-                File.Delete(full_path_old);
+                File.Delete(old_fp);
                 Console.WriteLine("File deleted successfully.");
             }
             else
