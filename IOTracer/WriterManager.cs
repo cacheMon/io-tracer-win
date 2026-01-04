@@ -143,7 +143,7 @@ namespace IOTracer
         public void CompressWrite(string tracetype)
         {
             string old_fp;
-            string new_fp;
+            string new_fp = null;
             string compressed_fp;
             if (tracetype.Equals("filesystem"))
             {
