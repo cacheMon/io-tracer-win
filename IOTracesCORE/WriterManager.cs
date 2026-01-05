@@ -71,32 +71,20 @@ namespace IOTracesCORE
 
         public void InitiateDirectory()
         {
+            EnsureDirectoryExists(dir_path);
             string? fs_folder = Path.GetDirectoryName(fs_filepath) ?? throw new Exception("Invalid directory path.");
             string? ds_folder = Path.GetDirectoryName(ds_filepath) ?? throw new Exception("Invalid directory path.");
             string? mr_folder = Path.GetDirectoryName(mr_filepath) ?? throw new Exception("Invalid directory path.");
             string? nw_folder = Path.GetDirectoryName(nw_filepath) ?? throw new Exception("Invalid directory path.");
             string? proc_snap_folder = Path.GetDirectoryName(process_snap_filepath) ?? throw new Exception("Invalid directory path.");
             string? fs_snap_folder = Path.GetDirectoryName(fs_snap_filepath) ?? throw new Exception("Invalid directory path.");
-            if (!Directory.Exists(fs_folder))
-            {
-                Directory.CreateDirectory(fs_folder);
-            }
-            if (!Directory.Exists(ds_folder))
-            {
-                Directory.CreateDirectory(ds_folder);
-            }
-            if (!Directory.Exists(proc_snap_folder))
-            {
-                Directory.CreateDirectory(proc_snap_folder);
-            }
-            if (!Directory.Exists(fs_snap_folder))
-            {
-                Directory.CreateDirectory(fs_snap_folder);
-            }
-            if (!Directory.Exists(nw_folder))
-            {
-                Directory.CreateDirectory(nw_folder);
-            }
+
+
+            EnsureDirectoryExists(fs_folder);
+            EnsureDirectoryExists(ds_folder);
+            EnsureDirectoryExists(proc_snap_folder);
+            EnsureDirectoryExists(fs_snap_folder);
+            EnsureDirectoryExists(nw_folder);
             //if(!Directory.Exists(mr_folder))
             //{
             //    Directory.CreateDirectory(mr_folder);
@@ -312,9 +300,9 @@ namespace IOTracesCORE
             string out_path = $"{dir_path}\\system_spec\\{file_out_path}";
 
             string? dir = Path.GetDirectoryName(out_path);
-            if (!Directory.Exists(dir) && (dir != null))
+            if (!string.IsNullOrEmpty(dir))
             {
-                Directory.CreateDirectory(dir);
+                EnsureDirectoryExists(dir);
             }
 
             using (var writer = new StreamWriter(out_path, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
@@ -442,7 +430,21 @@ namespace IOTracesCORE
             }
         }
 
+        private static void EnsureDirectoryExists(string path)
+        {
+            if (Directory.Exists(path))
+                return;
 
+            if (File.Exists(path))
+            {
+                Debug.WriteLine($"Warning: File exists at directory path '{path}', renaming...");
+                string backupPath = path + ".backup_" + DateTime.UtcNow.Ticks;
+                File.Move(path, backupPath);
+                Debug.WriteLine($"Moved conflicting file to: {backupPath}");
+            }
+
+            Directory.CreateDirectory(path);
+        }
 
         public async Task CompressAllAsync()
         {

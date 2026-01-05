@@ -310,8 +310,7 @@ namespace IOTracesCORE
 
         private void RunTracer(string outputPath, bool anonymous, bool upload, ObjectStorageHandler obj)
         {
-            if (!Directory.Exists(outputPath))
-                Directory.CreateDirectory(outputPath);
+            EnsureOutputDirectoryExists(outputPath);
 
             this.Hide();
             this.ShowInTaskbar = false;
@@ -477,5 +476,34 @@ namespace IOTracesCORE
 
         public static TracerConfigForm Run(CancellationToken token = default)
             => new TracerConfigForm(token);
+
+        private static void EnsureOutputDirectoryExists(string path)
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                    return;
+
+                if (File.Exists(path))
+                {
+                    Debug.WriteLine($"Warning: File exists at directory path '{path}', renaming...");
+                    string backupPath = path + ".backup_" + DateTime.UtcNow.Ticks;
+                    File.Move(path, backupPath);
+                    Debug.WriteLine($"Moved conflicting file to: {backupPath}");
+                }
+
+                Directory.CreateDirectory(path);
+            }
+            catch (IOException ex)
+            {
+                Debug.WriteLine($"IO error creating directory '{path}': {ex.Message}");
+                throw new InvalidOperationException($"Cannot create directory '{path}'. A file may exist with this name.", ex);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Debug.WriteLine($"Access denied creating directory '{path}': {ex.Message}");
+                throw new InvalidOperationException($"Access denied when creating directory '{path}'. Please check permissions.", ex);
+            }
+        }
     }
 }
