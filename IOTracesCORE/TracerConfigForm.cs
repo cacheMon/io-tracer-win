@@ -50,117 +50,132 @@ namespace IOTracesCORE
 
         private void InitializeComponent()
         {
-            this.Text = "IO-Tracer Configuration";
-            this.Width = 520;
-            this.Height = 280;
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
+            Text = "IO-Tracer Configuration";
+            ClientSize = new Size(520, 200);
+            StartPosition = FormStartPosition.CenterScreen;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
 
-            txtInfo = new TextBox
+            var root = new TableLayoutPanel
             {
-                Text = $"Device: {PathHasher.deviceId}",
-                Location = new Point(345, 65),
-                Width = 450,
-                ForeColor = Color.Gray,
-                ReadOnly = true,
-                BorderStyle = BorderStyle.None,
-                BackColor = this.BackColor,
-                TabStop = false
+                Dock = DockStyle.Fill,
+                Padding = new Padding(16),
+                RowCount = 6,
+                ColumnCount = 1
             };
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); 
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); 
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); 
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); 
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); 
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); 
+            Controls.Add(root);
+
+            var outputLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                ColumnCount = 3,
+                AutoSize = true
+            };
+            outputLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+            outputLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            outputLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
 
             lblOutputPath = new Label
             {
-                Text = "Output Path:",
-                Location = new Point(20, 25),
-                Width = 100
+                Text = "Output path",
+                TextAlign = ContentAlignment.MiddleLeft,
+                Dock = DockStyle.Fill
             };
 
             txtOutputPath = new TextBox
             {
-                Location = new Point(130, 22),
-                Width = 280,
+                Dock = DockStyle.Fill,
                 Text = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                    "WorkloadTrace"
-                )
+                    "WorkloadTrace")
             };
 
             btnBrowseOutput = new Button
             {
                 Text = "Browse…",
-                Location = new Point(420, 21),
-                Width = 70,
-                Height = 25
+                Dock = DockStyle.Fill
             };
             btnBrowseOutput.Click += BtnBrowseOutput_Click;
 
-            lblAnonymous = new Label
-            {
-                Text = "Anonymous:",
-                Location = new Point(20, 65),
-                Width = 100
-            };
+            outputLayout.Controls.Add(lblOutputPath, 0, 0);
+            outputLayout.Controls.Add(txtOutputPath, 1, 0);
+            outputLayout.Controls.Add(btnBrowseOutput, 2, 0);
+            root.Controls.Add(outputLayout);
 
             chkAnonymous = new CheckBox
             {
-                Location = new Point(130, 63),
-                Checked = false,
-                Width = 20
+                Text = "Anonymous mode",
+                AutoSize = true,
+                Margin = new Padding(0, 12, 0, 0)
             };
-
-            chkEnableUpload = new CheckBox
-            {
-                Text = "Enable auto upload",
-                Location = new Point(20, 95),
-                Width = 250,
-                Checked = false
-            };
-            chkEnableUpload.CheckedChanged += ChkEnableUpload_CheckedChanged;
+            root.Controls.Add(chkAnonymous);
 
             chkAutoStart = new CheckBox
             {
                 Text = "Run IO-Tracer at Windows startup",
-                Location = new Point(20, 125),
-                Width = 300,
-                Checked = false
+                AutoSize = true,
+                Margin = new Padding(0, 6, 0, 0)
             };
             chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
-
+            root.Controls.Add(chkAutoStart);
 
             lblStatus = new Label
             {
-                Text = "Upload disabled, Traces will be stored locally.",
-                Location = new Point(20, 155),
-                Width = 450,
-                ForeColor = Color.Orange
+                Text = "Initializing upload…",
+                AutoSize = true,
+                ForeColor = Color.Gray,
+                Margin = new Padding(0, 12, 0, 0)
+            };
+            root.Controls.Add(lblStatus);
+
+            var bottomLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2
+            };
+            bottomLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            bottomLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+            txtInfo = new TextBox
+            {
+                Text = $"Device: {PathHasher.deviceId}",
+                ReadOnly = true,
+                BorderStyle = BorderStyle.None,
+                ForeColor = Color.Gray,
+                BackColor = BackColor,
+                Dock = DockStyle.Fill,
+                TabStop = false
             };
 
             btnRunTracer = new Button
             {
                 Text = "Start Tracing",
-                Location = new Point(20, 180),
-                Width = 200,
-                Height = 40,
+                Width = 160,
+                Height = 38,
                 Font = new Font("Segoe UI", 10, FontStyle.Bold)
             };
             btnRunTracer.Click += BtnRunTracer_Click;
 
-            this.Controls.Add(lblOutputPath);
-            this.Controls.Add(txtOutputPath);
-            this.Controls.Add(btnBrowseOutput);
-            this.Controls.Add(lblAnonymous);
-            this.Controls.Add(chkAnonymous);
-            this.Controls.Add(chkEnableUpload);
-            this.Controls.Add(chkAutoStart);
-            this.Controls.Add(lblStatus);
-            this.Controls.Add(btnRunTracer);
-            this.Controls.Add(txtInfo);
+            bottomLayout.Controls.Add(txtInfo, 0, 0);
+            bottomLayout.Controls.Add(btnRunTracer, 1, 0);
+            root.Controls.Add(bottomLayout);
 
-            chkEnableUpload.Visible = false;
-            chkEnableUpload.Enabled = false;
-
+            chkEnableUpload = new CheckBox
+            {
+                Checked = true,
+                Visible = false,
+                Enabled = false
+            };
+            chkEnableUpload.CheckedChanged += ChkEnableUpload_CheckedChanged;
+            Controls.Add(chkEnableUpload);
         }
+
 
         private void BtnBrowseOutput_Click(object sender, EventArgs e)
         {
