@@ -35,6 +35,8 @@ namespace IOTracesCORE
             InitializeComponent();
 
             LoadSavedConfiguration();
+            chkEnableUpload.Checked = true;
+            ChkEnableUpload_CheckedChanged(this, EventArgs.Empty);
 
             if (!File.Exists(AppConfigPath))
             {
@@ -154,6 +156,10 @@ namespace IOTracesCORE
             this.Controls.Add(lblStatus);
             this.Controls.Add(btnRunTracer);
             this.Controls.Add(txtInfo);
+
+            chkEnableUpload.Visible = false;
+            chkEnableUpload.Enabled = false;
+
         }
 
         private void BtnBrowseOutput_Click(object sender, EventArgs e)
@@ -371,7 +377,7 @@ namespace IOTracesCORE
                     : cfg.OutputPath;
 
                 chkAnonymous.Checked = cfg.Anonymous;
-                chkEnableUpload.Checked = cfg.UploadEnabled;
+                chkEnableUpload.Checked = true;
             }
             catch (Exception ex)
             {
