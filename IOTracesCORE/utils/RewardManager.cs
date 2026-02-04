@@ -12,7 +12,7 @@ namespace IOTracesCORE.utils
         private static RewardManager? _instance;
         private static readonly object _lock = new object();
 
-        private const string REWARD_CODE = "R3D33MC0D3";
+        private const string REWARD_CODE = "CKXDRTBX";
         private const string MARKER_FILENAME = "reward_unlocked.marker";
 
         private bool _isUnlocked;
