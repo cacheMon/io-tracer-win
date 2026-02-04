@@ -42,7 +42,7 @@ namespace IOTracesCORE.cloudstorage
                 string dir_name = file.DirectoryName ?? "unknown_dir";
                 string trace_type = Path.GetFileName(file.DirectoryName) ?? "unknown_type";
 
-                var endpoint = $"{EndpointUrl}/windows_trace/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}";
+                var endpoint = $"{EndpointUrl}/windows_trace_v2/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}";
 
                 var request = new HttpRequestMessage(
                     HttpMethod.Get,

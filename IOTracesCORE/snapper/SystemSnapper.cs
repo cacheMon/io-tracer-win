@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Management;
+using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace IOTracesCORE.snapper
@@ -10,18 +13,29 @@ namespace IOTracesCORE.snapper
     internal class SystemSnapper
     {
         private readonly WriterManager wm;
-        public SystemSnapper(WriterManager wm) { 
+        private static readonly HttpClient httpClient = new HttpClient() { Timeout = TimeSpan.FromSeconds(10) };
+
+        public SystemSnapper(WriterManager wm)
+        {
             this.wm = wm;
         }
+
         public void CaptureSpecSnapshot()
         {
             StringBuilder sb = new();
             Console.WriteLine("Capturing system specification...");
+
+            
+
             // --- OS / Machine ---
             var (osCaption, osVersion, osBuild) = GetOsInfo();
             sb.AppendLine($"System: {osCaption}");
             sb.AppendLine($"Version: {osVersion} (Build {osBuild})");
             sb.AppendLine($"Machine: {Environment.Is64BitOperatingSystem switch { true => "x64", false => "x86" }}");
+
+            // --- Location (IP-based) ---
+            string countryCode = GetCountryCodeFromIp();
+            sb.AppendLine($"Country: {countryCode}");
             sb.AppendLine();
 
             // --- CPU ---
@@ -54,12 +68,67 @@ namespace IOTracesCORE.snapper
                 foreach (var d in disks)
                     sb.AppendLine($"{d.model}  {PrettySize(d.sizeBytes)}");
             }
-            wm.DirectWrite($"spec_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt",sb.ToString());
+            wm.DirectWrite($"spec_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt", sb.ToString());
             Console.WriteLine("Capturing system specification complete!");
         }
 
+        private string GetCountryCodeFromIp()
+        {
+            try
+            {
+                string url = "http://ip-api.com/json/?fields=status,countryCode";
 
-         (string caption, string version, string build) GetOsInfo()
+                var task = Task.Run(async () => await httpClient.GetStringAsync(url));
+
+                if (task.Wait(TimeSpan.FromSeconds(8)))
+                {
+                    using var doc = JsonDocument.Parse(task.Result);
+                    var root = doc.RootElement;
+
+                    if (root.TryGetProperty("status", out var status) && status.GetString() == "success")
+                    {
+                        if (root.TryGetProperty("countryCode", out var cc))
+                        {
+                            string code = cc.GetString() ?? "XX";
+                            Debug.WriteLine($"Geolocation resolved: {code}");
+                            return code;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"IP geolocation failed (ip-api): {ex.Message}");
+            }
+
+            try
+            {
+                string url = "https://ipinfo.io/json";
+
+                var task = Task.Run(async () => await httpClient.GetStringAsync(url));
+
+                if (task.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    using var doc = JsonDocument.Parse(task.Result);
+                    var root = doc.RootElement;
+
+                    if (root.TryGetProperty("country", out var cc))
+                    {
+                        string code = cc.GetString() ?? "XX";
+                        Debug.WriteLine($"Geolocation resolved (fallback): {code}");
+                        return code;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Fallback IP geolocation failed: {ex.Message}");
+            }
+
+            return "XX";
+        }
+
+        (string caption, string version, string build) GetOsInfo()
         {
             using var mos = new ManagementObjectSearcher("SELECT Caption,Version,BuildNumber FROM Win32_OperatingSystem");
             using var results = mos.Get();
@@ -69,7 +138,7 @@ namespace IOTracesCORE.snapper
                     mo?["BuildNumber"]?.ToString() ?? "");
         }
 
-         (string name, int physicalCores, int logicalCores, int? maxMhz) GetCpuInfo()
+        (string name, int physicalCores, int logicalCores, int? maxMhz) GetCpuInfo()
         {
             using var mos = new ManagementObjectSearcher("SELECT Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed FROM Win32_Processor");
             using var results = mos.Get();
@@ -85,16 +154,16 @@ namespace IOTracesCORE.snapper
                 if (int.TryParse(mo["NumberOfCores"]?.ToString(), out var cores)) physSum += cores;
                 if (int.TryParse(mo["NumberOfLogicalProcessors"]?.ToString(), out var logs)) logSum += logs;
                 if (int.TryParse(mo["MaxClockSpeed"]?.ToString(), out var mhz))
-                    maxMhz = Math.Max(maxMhz ?? 0, mhz); // take the highest across sockets
+                    maxMhz = Math.Max(maxMhz ?? 0, mhz);
             }
 
-            if (physSum == 0) physSum = logSum; // fallback
+            if (physSum == 0) physSum = logSum;
             if (logSum == 0) logSum = Environment.ProcessorCount;
 
             return (name, physSum, logSum, maxMhz);
         }
 
-         (double totalGb, double freeGb) GetMemoryInfo()
+        (double totalGb, double freeGb) GetMemoryInfo()
         {
             using var mos = new ManagementObjectSearcher("SELECT TotalVisibleMemorySize,FreePhysicalMemory FROM Win32_OperatingSystem");
             using var results = mos.Get();
@@ -111,7 +180,7 @@ namespace IOTracesCORE.snapper
             return (0, 0);
         }
 
-         string[] GetGpuNames()
+        string[] GetGpuNames()
         {
             using var mos = new ManagementObjectSearcher("SELECT Name FROM Win32_VideoController");
             using var results = mos.Get();
@@ -122,7 +191,7 @@ namespace IOTracesCORE.snapper
                           .ToArray()!;
         }
 
-         (string model, long sizeBytes)[] GetDisks()
+        (string model, long sizeBytes)[] GetDisks()
         {
             using var mos = new ManagementObjectSearcher("SELECT Model,Size FROM Win32_DiskDrive");
             using var results = mos.Get();
@@ -134,7 +203,7 @@ namespace IOTracesCORE.snapper
                           .ToArray();
         }
 
-         string PrettySize(long bytes)
+        string PrettySize(long bytes)
         {
             if (bytes <= 0) return "0 B";
             string[] units = { "B", "KB", "MB", "GB", "TB", "PB" };
