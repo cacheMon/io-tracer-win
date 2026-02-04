@@ -26,6 +26,7 @@ namespace IOTracesCORE
         private static CancellationTokenSource cancellationTokenSource;
         private static NotifyIcon trayIcon;
         private static bool isElevated;
+        private static ToolStripMenuItem rewardMenuItem;
 
         [STAThread]
         static void Main(string[] args)
@@ -47,6 +48,9 @@ namespace IOTracesCORE
 
             ConfigClasses.LoadTracemetaConfiguration();
 
+            // Subscribe to reward unlock event to update UI
+            RewardManager.Instance.OnRewardUnlocked += OnRewardUnlocked;
+
             string currentVersion = VersionManager.Instance.GetCurrentVersion();
             trayIcon = new NotifyIcon
             {
@@ -58,6 +62,14 @@ namespace IOTracesCORE
             var contextMenu = new ContextMenuStrip();
             contextMenu.Items.Add($"IO Traces Core v{currentVersion}", null, null).Enabled = false;
             contextMenu.Items.Add("-");
+
+            // Add Reward button
+            rewardMenuItem = new ToolStripMenuItem(GetRewardButtonText(), null, OnRewardClicked);
+            rewardMenuItem.Font = new Font(rewardMenuItem.Font, FontStyle.Regular);
+            UpdateRewardButtonAppearance();
+            contextMenu.Items.Add(rewardMenuItem);
+            contextMenu.Items.Add("-");
+
             contextMenu.Items.Add("Show Status", null, (s, e) =>
             {
                 TimeSpan Total_current_session = WriterManager.active_session;
@@ -99,6 +111,98 @@ namespace IOTracesCORE
             var form = TracerConfigForm.Run(cancellationTokenSource.Token);
             form.FormClosed += (_, __) => { cancellationTokenSource?.Cancel(); };
             Application.Run(form);
+        }
+
+        private static string GetRewardButtonText()
+        {
+            return RewardManager.Instance.IsUnlocked ? "View Reward 🎁" : "Reward 🔒";
+        }
+
+        private static void UpdateRewardButtonAppearance()
+        {
+            if (rewardMenuItem == null) return;
+
+            rewardMenuItem.Text = GetRewardButtonText();
+
+            //if (RewardManager.Instance.IsUnlocked)
+            //{
+            //    rewardMenuItem.BackColor = Color.LightGreen;
+            //    rewardMenuItem.ForeColor = Color.DarkGreen;
+            //}
+            //else
+            //{
+            //    rewardMenuItem.BackColor = Color.LightGray;
+            //    rewardMenuItem.ForeColor = Color.DarkGray;
+            //}
+        }
+
+        private static void OnRewardUnlocked()
+        {
+            // Update UI on the main thread
+            if (trayIcon?.ContextMenuStrip != null && trayIcon.ContextMenuStrip.InvokeRequired)
+            {
+                trayIcon.ContextMenuStrip.Invoke(new Action(UpdateRewardButtonAppearance));
+            }
+            else
+            {
+                UpdateRewardButtonAppearance();
+            }
+
+            // Show notification
+            trayIcon?.ShowBalloonTip(
+                3000,
+                "🎉 Reward Unlocked!",
+                "You've earned a reward code! Click the Reward button to view it.",
+                ToolTipIcon.Info
+            );
+        }
+
+        private static void OnRewardClicked(object? sender, EventArgs e)
+        {
+            var reward = RewardManager.Instance;
+
+            if (reward.IsUnlocked)
+            {
+                var result = MessageBox.Show(
+                    $"Your Prolific Submission code is:\n\n" +
+                    $"    {reward.RewardCode}\n\n" +
+                    $"Thank you for contributing to the research!\n\n" +
+                    $"Click OK to copy the code to clipboard.",
+                    "Submission Unlocked",
+                    MessageBoxButtons.OKCancel,
+                    MessageBoxIcon.Information
+                );
+
+                if (result == DialogResult.OK)
+                {
+                    try
+                    {
+                        Clipboard.SetText(reward.RewardCode);
+                        MessageBox.Show(
+                            "Code copied to clipboard!",
+                            "Success",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Failed to copy to clipboard: {ex.Message}");
+                    }
+                }
+            }
+            else
+            {
+                MessageBox.Show(
+                    "Submission Locked\n\n" +
+                    $"Upload progress: {ObjectStorageHandler.UploadedFiles} / 1 files\n\n" +
+                    "Upload at least 1 trace file to unlock your reward code.\n\n" +
+                    "Keep the tracer running and connected to the internet.",
+                    "Reward Status",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information
+                );
+            }
         }
 
         private static void OnExitClicked(object sender, EventArgs e)
