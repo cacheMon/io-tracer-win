@@ -265,7 +265,7 @@ namespace IOTracesCORE
                     Debug.WriteLine($"Found orphaned session '{sessionName}', cleaning up...");
                     existingSession.Stop();
                     existingSession.Dispose();
-                    Thread.Sleep(1000); 
+                    Thread.Sleep(1000);
                 }
             }
             catch (Exception ex)

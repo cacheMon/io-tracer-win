@@ -29,7 +29,7 @@ namespace IOTracesCORE
 
         private ObjectStorageHandler obj_storage;
 
-        private const double MEMORY_PRESSURE_RATIO = 0.01; 
+        private const double MEMORY_PRESSURE_RATIO = 0.01;
         private const long ABSOLUTE_MAX_BYTES = 256L * 1024 * 1024; // 256 MB
         private static readonly TimeSpan MIN_FLUSH_INTERVAL = TimeSpan.FromSeconds(10);
         private static DateTime _lastFlushUtc = DateTime.UtcNow;
@@ -42,7 +42,7 @@ namespace IOTracesCORE
         public static TimeSpan active_session = TimeSpan.FromSeconds(0);
         public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
 
-        public WriterManager(string dirpath, bool is_anonymous, bool upload,ObjectStorageHandler obj)
+        public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj)
         {
             amount_compressed_file = 0;
 
@@ -64,7 +64,7 @@ namespace IOTracesCORE
             nw_filepath = GenerateFilePath("nw");
             process_snap_filepath = GenerateFilePath("process");
             fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
-            this.is_anonymous = is_anonymous; 
+            this.is_anonymous = is_anonymous;
 
             StartEventRateDetector();
         }
@@ -112,9 +112,10 @@ namespace IOTracesCORE
                 int events_in_interval = final_count - initial_count;
                 disk_event_counter = 0;
                 //Debug.WriteLine($"Rate: {events_in_interval}");
-                if (events_in_interval > 100) { 
+                if (events_in_interval > 100)
+                {
                     active_session += TimeSpan.FromSeconds(1);
-                }   
+                }
             }
         }
 
@@ -170,13 +171,14 @@ namespace IOTracesCORE
             }
             file_event_counter += 1;
             //event_counter += 1;
+            DebugLogger.LogRaw(data.FormatAsCsv(is_anonymous));
             fs_sb.Append(data.FormatAsCsv(is_anonymous));
             if (IsTimeToFlush(fs_sb))
             {
                 FlushWrite(fs_sb, fs_filepath, "filesystem");
             }
         }
-        
+
         public void Write(DiskTrace data)
         {
             if (data.Comm.Equals("IOTracesCORE"))
@@ -264,7 +266,8 @@ namespace IOTracesCORE
             {
                 old_fp = fs_snap_filepath;
                 fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
-            } else if (tracetype.Equals("network"))
+            }
+            else if (tracetype.Equals("network"))
             {
                 old_fp = nw_filepath;
                 nw_filepath = GenerateFilePath("nw");
@@ -288,14 +291,15 @@ namespace IOTracesCORE
                 {
                     obj_storage.QueueFile(compressed_fp);
                 }
-            } catch (Exception ex)
+            }
+            catch (Exception ex)
             {
                 Debug.WriteLine($"Error compressing file {old_fp}: {ex.Message}");
             }
             WriteStatus();
         }
 
-        public void DirectWrite(string file_out_path ,string input)
+        public void DirectWrite(string file_out_path, string input)
         {
             string out_path = $"{dir_path}\\system_spec\\{file_out_path}";
 

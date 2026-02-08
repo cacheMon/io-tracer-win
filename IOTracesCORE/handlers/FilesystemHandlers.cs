@@ -14,7 +14,7 @@ namespace IOTracesCORE.handlers
     class FilesystemHandlers
     {
         private readonly WriterManager wm;
-            
+
         private readonly ConcurrentDictionary<ulong, string> nameByObj = new();
 
         public FilesystemHandlers(WriterManager old_wm) => wm = old_wm;
@@ -28,20 +28,45 @@ namespace IOTracesCORE.handlers
             return nameByObj.TryGetValue(fileObject, out var cached) ? cached : "";
         }
 
+        // Original emit for simple operations (backward compatible)
         private void Emit(DateTime ts, string op, int pid, string proc, string name, int size) =>
             wm.Write(new FilesystemTrace(ts, op, pid, proc, name, size));
+
+        // Extended emit for Create operations with flags
+        private void EmitCreate(DateTime ts, string op, int pid, string proc, string name, int size,
+            int createOptions, int shareAccess, int createDisposition) =>
+            wm.Write(new FilesystemTrace(ts, op, pid, proc, name, size,
+                FileIOFlags.FormatCreateOptions(createOptions),
+                FileIOFlags.FormatShareAccess(shareAccess),
+                FileIOFlags.FormatCreateDisposition(createDisposition),
+                null, null, null));
+
+        // Extended emit for Read/Write operations with offset
+        private void EmitWithOffset(DateTime ts, string op, int pid, string proc, string name, int size, long offset) =>
+            wm.Write(new FilesystemTrace(ts, op, pid, proc, name, size,
+                null, null, null, offset, null, null));
+
+        // Extended emit for MapFile operations with view size
+        private void EmitMapFile(DateTime ts, string op, int pid, string proc, string name, ulong viewSize) =>
+            wm.Write(new FilesystemTrace(ts, op, pid, proc, name, 0,
+                null, null, null, null, (long)viewSize, null));
+
+        // Extended emit for Query/SetInfo operations with info class
+        private void EmitWithInfoClass(DateTime ts, string op, int pid, string proc, string name, int infoClass) =>
+            wm.Write(new FilesystemTrace(ts, op, pid, proc, name, 0,
+                null, null, null, null, null, FileIOFlags.FormatInfoClass(infoClass)));
 
 
         public void OnRead(FileIOReadWriteTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "read", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.IoSize);
+            EmitWithOffset(d.TimeStamp, "read", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.IoSize, d.Offset);
         }
 
         public void OnWrite(FileIOReadWriteTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "write", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.IoSize);
+            EmitWithOffset(d.TimeStamp, "write", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.IoSize, d.Offset);
         }
 
         public void OnFlush(FileIOSimpleOpTraceData d)
@@ -53,7 +78,7 @@ namespace IOTracesCORE.handlers
         public void OnQuery(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "query", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
+            EmitWithInfoClass(d.TimeStamp, "query", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.InfoClass);
         }
 
         public void OnDirEnum(FileIODirEnumTraceData d)
@@ -67,7 +92,11 @@ namespace IOTracesCORE.handlers
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Clean(d.FileName);
             if (!string.IsNullOrEmpty(name)) nameByObj[d.FileObject] = name;
-            Emit(d.TimeStamp, "create", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
+
+            // Now capturing CreateOptions, ShareAccess, and CreateDisposition flags
+            EmitCreate(d.TimeStamp, "create", d.ProcessID, d.ProcessName,
+                Resolve(d.FileObject, d.FileName), 0,
+                (int)d.CreateOptions, (int)d.ShareAccess, (int)d.CreateDisposition);
         }
 
         public void OnFileCreate(FileIONameTraceData d)
@@ -124,25 +153,26 @@ namespace IOTracesCORE.handlers
         public void OnFSControl(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "fs_control", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
+            EmitWithInfoClass(d.TimeStamp, "fs_control", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.InfoClass);
         }
 
         public void OnMapFile(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "map_file", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
+            // Now capturing ViewSize for memory-mapped file operations
+            EmitMapFile(d.TimeStamp, "map_file", d.ProcessID, d.ProcessName, Clean(d.FileName), d.ViewSize);
         }
 
         public void OnMapFileDCStart(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "map_file_dc_start", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
+            EmitMapFile(d.TimeStamp, "map_file_dc_start", d.ProcessID, d.ProcessName, Clean(d.FileName), d.ViewSize);
         }
 
         public void OnMapFileDCStop(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "map_file_dc_stop", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
+            EmitMapFile(d.TimeStamp, "map_file_dc_stop", d.ProcessID, d.ProcessName, Clean(d.FileName), d.ViewSize);
         }
 
         public void OnName(FileIONameTraceData d)
@@ -154,19 +184,19 @@ namespace IOTracesCORE.handlers
         public void OnQueryInfo(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "query_info", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
+            EmitWithInfoClass(d.TimeStamp, "query_info", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.InfoClass);
         }
 
         public void OnSetInfo(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "set_info", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), 0);
+            EmitWithInfoClass(d.TimeStamp, "set_info", d.ProcessID, d.ProcessName, Resolve(d.FileObject, d.FileName), d.InfoClass);
         }
 
         public void OnUnmapFile(MapFileTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "unmap_file", d.ProcessID, d.ProcessName, Clean(d.FileName), 0);
+            EmitMapFile(d.TimeStamp, "unmap_file", d.ProcessID, d.ProcessName, Clean(d.FileName), d.ViewSize);
         }
     }
 }
