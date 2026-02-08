@@ -29,6 +29,10 @@ namespace IOTracesCORE.cloudstorage
 
         public async Task UploadFile(string filepath)
         {
+#if DEBUG
+            Debug.WriteLine($"[DEBUG] Upload disabled in development mode. Skipping: {filepath}");
+            return;
+#endif
             //double deltaSeconds = WriterManager.active_session.TotalSeconds - LastActiveHours.TotalSeconds;
             //int deltaFileEvent = WriterManager.file_event_counter - LastFileEvent;
             //Debug.WriteLine($"Uploading file with delta seconds: {deltaSeconds}, delta file events: {deltaFileEvent}");
