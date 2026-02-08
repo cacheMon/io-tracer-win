@@ -29,6 +29,17 @@ namespace IOTracesCORE.trace
         public long? ViewSize { get; set; }             // For MapFile operations
         public string? InfoClass { get; set; }          // For Query/SetInfo operations
 
+        // Additional fields for better IO event differentiation
+        public int ThreadId { get; set; }               // Thread ID for concurrency analysis
+        public ulong? IrpPtr { get; set; }              // IRP pointer for correlation
+        public ulong? FileKey { get; set; }             // Unique file identifier
+        // NOTE: DesiredAccess is NOT available from Windows ETW FileIO events.
+        // Neither the NT Kernel Logger (FileIOCreateTraceData) nor Microsoft-Windows-Kernel-File
+        // include DesiredAccess in their event schemas. To capture this field, a minifilter
+        // driver would be required (similar to how Process Monitor captures it).
+        public string? FileAttributes { get; set; }     // For Create - file attributes
+        public string? IoFlags { get; set; }            // For Read/Write - IO operation flags
+
         private readonly StringWriter buffer = new StringWriter();
         private readonly CsvWriter csv;
 
@@ -57,13 +68,20 @@ namespace IOTracesCORE.trace
             }
             csv.WriteField(TraceSize);
 
-            // Write new fields (empty string if null)
+            // Write extended fields (empty string if null)
             csv.WriteField(CreateOptions ?? "");
             csv.WriteField(ShareAccess ?? "");
             csv.WriteField(CreateDisposition ?? "");
             csv.WriteField(Offset?.ToString() ?? "");
             csv.WriteField(ViewSize?.ToString() ?? "");
             csv.WriteField(InfoClass ?? "");
+
+            // Write additional IO differentiation fields
+            csv.WriteField(ThreadId);
+            csv.WriteField(IrpPtr?.ToString() ?? "");
+            csv.WriteField(FileKey?.ToString() ?? "");
+            csv.WriteField(FileAttributes ?? "");
+            csv.WriteField(IoFlags ?? "");
 
             csv.NextRecord();
             return buffer.ToString();
@@ -74,18 +92,20 @@ namespace IOTracesCORE.trace
                 DateTime ts,
                 string op,
                 int pid,
+                int threadId,
                 string comm,
                 string filename,
                 int size
-            ) : this(ts, op, pid, comm, filename, size, null, null, null, null, null, null)
+            ) : this(ts, op, pid, threadId, comm, filename, size, null, null, null, null, null, null, null, null, null, null)
         {
         }
 
-        // Extended constructor with all new fields
+        // Extended constructor with all fields
         public FilesystemTrace(
                 DateTime ts,
                 string op,
                 int pid,
+                int threadId,
                 string comm,
                 string filename,
                 int size,
@@ -94,12 +114,17 @@ namespace IOTracesCORE.trace
                 string? createDisposition,
                 long? offset,
                 long? viewSize,
-                string? infoClass
+                string? infoClass,
+                ulong? irpPtr,
+                ulong? fileKey,
+                string? fileAttributes,
+                string? ioFlags
             )
         {
             Ts = ts;
             Op = op;
             Pid = pid;
+            ThreadId = threadId;
             Comm = string.IsNullOrEmpty(comm) ? "" : comm;
             Filename = string.IsNullOrEmpty(filename) ? "" : filename;
             TraceSize = size;
@@ -110,6 +135,11 @@ namespace IOTracesCORE.trace
             Offset = offset;
             ViewSize = viewSize;
             InfoClass = infoClass;
+
+            IrpPtr = irpPtr;
+            FileKey = fileKey;
+            FileAttributes = fileAttributes;
+            IoFlags = ioFlags;
 
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -125,7 +155,11 @@ namespace IOTracesCORE.trace
     /// </summary>
     static class FileIOFlags
     {
-        // CreateOptions (NtCreateFile CreateOptions parameter)
+        /// <summary>
+        /// CreateOptions flags for NtCreateFile/ZwCreateFile.
+        /// Source: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile
+        /// Header: ntifs.h, wdm.h (Windows Driver Kit)
+        /// </summary>
         [Flags]
         public enum CreateOptionsFlags : uint
         {
@@ -154,28 +188,61 @@ namespace IOTracesCORE.trace
             FILE_OPEN_FOR_FREE_SPACE_QUERY = 0x00800000
         }
 
-        // ShareAccess flags
+        /// <summary>
+        /// ShareAccess flags for NtCreateFile/ZwCreateFile.
+        /// These are bitmask flags that can be combined with OR (|).
+        /// <para>
+        /// Primary Source: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile
+        /// </para>
+        /// <para>
+        /// Win32 API equivalent: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilea (dwShareMode parameter)
+        /// </para>
+        /// <para>
+        /// WDK Header: wdm.h - C:\Program Files (x86)\Windows Kits\10\Include\{version}\km\wdm.h
+        /// </para>
+        /// </summary>
         [Flags]
         public enum ShareAccessFlags : uint
         {
-            FILE_SHARE_NONE = 0x00000000,
-            FILE_SHARE_READ = 0x00000001,
-            FILE_SHARE_WRITE = 0x00000002,
-            FILE_SHARE_DELETE = 0x00000004
+            FILE_SHARE_NONE = 0x00000000,   // Exclusive access, no sharing allowed
+            FILE_SHARE_READ = 0x00000001,   // Allow other openers to read
+            FILE_SHARE_WRITE = 0x00000002,  // Allow other openers to write
+            FILE_SHARE_DELETE = 0x00000004  // Allow other openers to delete/rename
+            // Combined: FILE_SHARE_READ | FILE_SHARE_WRITE = 0x03
+            // Combined: FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE = 0x07
         }
 
-        // CreateDisposition values
+        /// <summary>
+        /// CreateDisposition values for NtCreateFile/ZwCreateFile.
+        /// These are discrete enumerated values (0-5), NOT bitmask flags.
+        /// <para>
+        /// Primary Source: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntcreatefile
+        /// </para>
+        /// <para>
+        /// Undocumented NtCreateFile: https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile
+        /// </para>
+        /// <para>
+        /// WDK Header: wdm.h - C:\Program Files (x86)\Windows Kits\10\Include\{version}\km\wdm.h
+        /// </para>
+        /// </summary>
+        /// <remarks>
+        /// Established in Windows NT 3.1 (1993), values unchanged for backward compatibility.
+        /// </remarks>
         public enum CreateDispositionValue : uint
         {
-            FILE_SUPERSEDE = 0,
-            FILE_OPEN = 1,
-            FILE_CREATE = 2,
-            FILE_OPEN_IF = 3,
-            FILE_OVERWRITE = 4,
-            FILE_OVERWRITE_IF = 5
+            FILE_SUPERSEDE = 0,     // 0x00 - If exists, delete and create new. If not exists, create.
+            FILE_OPEN = 1,          // 0x01 - Open existing file only. Fail if not exists.
+            FILE_CREATE = 2,        // 0x02 - Create new file only. Fail if already exists.
+            FILE_OPEN_IF = 3,       // 0x03 - Open if exists, else create new.
+            FILE_OVERWRITE = 4,     // 0x04 - Open existing and truncate. Fail if not exists.
+            FILE_OVERWRITE_IF = 5   // 0x05 - Open and truncate if exists, else create new.
         }
 
-        // FileInfoClass values (common ones for Query/SetInfo)
+        /// <summary>
+        /// FILE_INFORMATION_CLASS values for ZwQueryInformationFile/ZwSetInformationFile.
+        /// Source: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ne-wdm-_file_information_class
+        /// Header: wdm.h (Windows Driver Kit)
+        /// </summary>
         public enum FileInfoClassValue : uint
         {
             FileDirectoryInformation = 1,
@@ -217,7 +284,51 @@ namespace IOTracesCORE.trace
             FileIdBothDirectoryInformation = 37,
             FileIdFullDirectoryInformation = 38,
             FileValidDataLengthInformation = 39,
-            FileShortNameInformation = 40
+            FileShortNameInformation = 40,
+            FileIoCompletionNotificationInformation = 41,
+            FileIoStatusBlockRangeInformation = 42,
+            FileIoPriorityHintInformation = 43,
+            FileSfioReserveInformation = 44,
+            FileSfioVolumeInformation = 45,
+            FileHardLinkInformation = 46,
+            FileProcessIdsUsingFileInformation = 47,
+            FileNormalizedNameInformation = 48,
+            FileNetworkPhysicalNameInformation = 49,
+            FileIdGlobalTxDirectoryInformation = 50,
+            FileIsRemoteDeviceInformation = 51,
+            FileUnusedInformation = 52,
+            FileNumaNodeInformation = 53,
+            FileStandardLinkInformation = 54,
+            FileRemoteProtocolInformation = 55,
+            FileRenameInformationBypassAccessCheck = 56,
+            FileLinkInformationBypassAccessCheck = 57,
+            FileVolumeNameInformation = 58,
+            FileIdInformation = 59,
+            FileIdExtdDirectoryInformation = 60,
+            FileReplaceCompletionInformation = 61,
+            FileHardLinkFullIdInformation = 62,
+            FileIdExtdBothDirectoryInformation = 63,
+            FileDispositionInformationEx = 64,
+            FileRenameInformationEx = 65,
+            FileRenameInformationExBypassAccessCheck = 66,
+            FileDesiredStorageClassInformation = 67,
+            FileStatInformation = 68,
+            FileMemoryPartitionInformation = 69,
+            FileStatLxInformation = 70,
+            FileCaseSensitiveInformation = 71,
+            FileLinkInformationEx = 72,
+            FileLinkInformationExBypassAccessCheck = 73,
+            FileStorageReserveIdInformation = 74,
+            FileCaseSensitiveInformationForceAccessCheck = 75,
+            FileKnownFolderInformation = 76,
+            FileStatBasicInformation = 77,
+            FileId64ExtdDirectoryInformation = 78,
+            FileId64ExtdBothDirectoryInformation = 79,
+            FileIdAllExtdDirectoryInformation = 80,
+            FileIdAllExtdBothDirectoryInformation = 81,
+            FileStreamReservationInformation,
+            FileMupProviderInfo,
+            FileMaximumInformation
         }
 
         public static string FormatCreateOptions(int flags)
@@ -272,6 +383,124 @@ namespace IOTracesCORE.trace
                 return ((FileInfoClassValue)value).ToString();
             }
             return $"0x{value:X8}";
+        }
+
+        // NOTE: DesiredAccess (ACCESS_MASK) is NOT available from Windows ETW FileIO events.
+        // Neither the NT Kernel Logger (FileIOCreateTraceData) nor the Microsoft-Windows-Kernel-File
+        // provider include DesiredAccess in their event schemas. The ETW FileIO/Create events only
+        // provide: CreateOptions, ShareAccess, CreateDisposition, FileAttributes, FileName.
+        //
+        // The DesiredAccessFlags enum and FormatDesiredAccess method have been intentionally removed.
+        // To capture DesiredAccess, a minifilter driver would be required (similar to how Process
+        // Monitor captures it). See: https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/access-mask
+
+        /// <summary>
+        /// File Attribute constants.
+        /// Source: https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants
+        /// Header: winnt.h
+        /// </summary>
+        [Flags]
+        public enum FileAttributeFlags : uint
+        {
+            FILE_ATTRIBUTE_READONLY = 0x00000001,
+            FILE_ATTRIBUTE_HIDDEN = 0x00000002,
+            FILE_ATTRIBUTE_SYSTEM = 0x00000004,
+            FILE_ATTRIBUTE_DIRECTORY = 0x00000010,
+            FILE_ATTRIBUTE_ARCHIVE = 0x00000020,
+            FILE_ATTRIBUTE_DEVICE = 0x00000040,
+            FILE_ATTRIBUTE_NORMAL = 0x00000080,
+            FILE_ATTRIBUTE_TEMPORARY = 0x00000100,
+            FILE_ATTRIBUTE_SPARSE_FILE = 0x00000200,
+            FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400,
+            FILE_ATTRIBUTE_COMPRESSED = 0x00000800,
+            FILE_ATTRIBUTE_OFFLINE = 0x00001000,
+            FILE_ATTRIBUTE_NOT_CONTENT_INDEXED = 0x00002000,
+            FILE_ATTRIBUTE_ENCRYPTED = 0x00004000,
+            FILE_ATTRIBUTE_INTEGRITY_STREAM = 0x00008000,
+            FILE_ATTRIBUTE_VIRTUAL = 0x00010000,
+            FILE_ATTRIBUTE_NO_SCRUB_DATA = 0x00020000,
+            // Note: FILE_ATTRIBUTE_EA and FILE_ATTRIBUTE_RECALL_ON_OPEN share the same value (0x00040000).
+            // FILE_ATTRIBUTE_EA is for internal use only (extended attributes present).
+            // FILE_ATTRIBUTE_RECALL_ON_OPEN appears in directory enumeration (virtual/remote file).
+            FILE_ATTRIBUTE_EA = 0x00040000,
+            FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x00040000,
+            FILE_ATTRIBUTE_PINNED = 0x00080000,           // HSM: keep fully present locally
+            FILE_ATTRIBUTE_UNPINNED = 0x00100000,         // HSM: do not keep fully present locally
+            FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = 0x00400000  // Not fully present locally (sparse/virtualized)
+        }
+
+        public static string FormatFileAttributes(int flags)
+        {
+            if (flags == 0) return "NONE";
+
+            var result = new List<string>();
+            var enumFlags = (FileAttributeFlags)flags;
+
+            foreach (FileAttributeFlags flag in Enum.GetValues(typeof(FileAttributeFlags)))
+            {
+                if (enumFlags.HasFlag(flag))
+                {
+                    result.Add(flag.ToString());
+                }
+            }
+
+            return result.Count > 0 ? string.Join("|", result) : $"0x{flags:X8}";
+        }
+
+        /// <summary>
+        /// IRP Flags for Read/Write operations from IRP.Flags field.
+        /// <para>
+        /// Flag names reference: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_irp
+        /// (Note: The online documentation only lists flag names without hex values)
+        /// </para>
+        /// <para>
+        /// Hex values source: WDK Header wdm.h (Windows Driver Kit).
+        /// Online mirror: https://github.com/tpn/winsdk-10/blob/master/Include/10.0.10240.0/km/wdm.h
+        /// These values are stable across Windows versions and match the kernel definitions.
+        /// </para>
+        /// <para>
+        /// Note: IRP_PAGING_IO (0x02) and IRP_MOUNT_COMPLETION (0x02) share the same value (context-dependent).
+        /// Similarly, IRP_INPUT_OPERATION (0x40) and IRP_SYNCHRONOUS_PAGING_IO (0x40) share the same value.
+        /// </para>
+        /// </summary>
+        [Flags]
+        public enum IoOperationFlags : uint
+        {
+            IRP_NOCACHE = 0x00000001,
+            IRP_PAGING_IO = 0x00000002,
+            IRP_MOUNT_COMPLETION = 0x00000002,
+            IRP_SYNCHRONOUS_API = 0x00000004,
+            IRP_ASSOCIATED_IRP = 0x00000008,
+            IRP_BUFFERED_IO = 0x00000010,
+            IRP_DEALLOCATE_BUFFER = 0x00000020,
+            IRP_INPUT_OPERATION = 0x00000040,
+            IRP_SYNCHRONOUS_PAGING_IO = 0x00000040,
+            IRP_CREATE_OPERATION = 0x00000080,
+            IRP_READ_OPERATION = 0x00000100,
+            IRP_WRITE_OPERATION = 0x00000200,
+            IRP_CLOSE_OPERATION = 0x00000400,
+            IRP_DEFER_IO_COMPLETION = 0x00000800,
+            IRP_OB_QUERY_NAME = 0x00001000,
+            IRP_HOLD_DEVICE_QUEUE = 0x00002000,
+            IRP_UM_DRIVER_INITIATED_IO = 0x00400000
+        }
+
+        public static string FormatIoFlags(int flags)
+        {
+            if (flags == 0) return "NONE";
+
+            var result = new List<string>();
+            var enumFlags = (IoOperationFlags)flags;
+
+            foreach (IoOperationFlags flag in Enum.GetValues(typeof(IoOperationFlags)))
+            {
+                if (enumFlags.HasFlag(flag))
+                {
+                    result.Add(flag.ToString());
+                }
+            }
+
+            return result.Count > 0 ? string.Join("|", result) : $"0x{flags:X8}";
         }
     }
 }
