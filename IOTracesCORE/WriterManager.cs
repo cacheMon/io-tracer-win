@@ -171,7 +171,7 @@ namespace IOTracesCORE
             }
             file_event_counter += 1;
             //event_counter += 1;
-            DebugLogger.LogRaw(data.FormatAsCsv(is_anonymous));
+            // DebugLogger.LogRaw(data.FormatAsCsv(is_anonymous));
             fs_sb.Append(data.FormatAsCsv(is_anonymous));
             if (IsTimeToFlush(fs_sb))
             {
@@ -194,7 +194,7 @@ namespace IOTracesCORE
             }
             disk_event_counter += 1;
             ds_sb.Append(data.FormatAsCsv());
-
+            DebugLogger.LogRaw(data.FormatAsCsv());
             if (IsTimeToFlush(ds_sb))
             {
                 FlushWrite(ds_sb, ds_filepath, "disk");

@@ -167,6 +167,7 @@ namespace IOTracesCORE
                         KernelTraceEventParser.Keywords.FileIOInit |
                         KernelTraceEventParser.Keywords.DiskIO |
                         KernelTraceEventParser.Keywords.DiskIOInit |
+                        KernelTraceEventParser.Keywords.Driver |
                         KernelTraceEventParser.Keywords.NetworkTCPIP
                     );
 
@@ -200,6 +201,15 @@ namespace IOTracesCORE
                     kernel.DiskIOReadInit += dsHandler.OnDiskInit;
                     kernel.DiskIOWriteInit += dsHandler.OnDiskInit;
                     kernel.DiskIOWrite += dsHandler.OnDiskWrite;
+                    kernel.DiskIOFlushBuffers += dsHandler.OnDiskFlush;
+
+                    // Driver events are not directly exposed on KernelTraceEventParser in this version.
+                    // To capture them, we might need a specific Driver parser or generic subscription.
+                    // kernel.DriverMajorFunctionCall += dsHandler.OnDriverMajorFunctionCall;
+                    // kernel.DriverMajorFunctionReturn += dsHandler.OnDriverMajorFunctionReturn;
+                    // kernel.DriverCompletionRoutine += dsHandler.OnDriverCompletionRoutine;
+                    // kernel.DriverCompleteRequest += dsHandler.OnDriverCompleteRequest;
+                    // kernel.DriverCompleteRequestReturn += dsHandler.OnDriverCompleteRequestReturn;
 
                     kernel.TcpIpSend += nwHandler.OnSend;
                     kernel.TcpIpRecv += nwHandler.OnReceive;
