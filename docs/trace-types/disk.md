@@ -7,20 +7,35 @@ Captures low-level disk I/O operations.
 
 **Fields:**
 
-| Field        | Description                               | Notes                             |
-| :----------- | :---------------------------------------- | :-------------------------------- |
-| `Ts`         | Timestamp (UTC)                           | Format: `yyyy-MM-dd HH:mm:ss.fff` |
-| `Pid`        | Process ID                                |                                   |
-| `ThreadId`   | Thread ID                                 |                                   |
-| `Comm`       | Command/Process name                      |                                   |
-| `Sector`     | Logical sector number on the disk         |                                   |
-| `Operation`  | Operation type                            | Values: `read`, `write`, `flush`  |
-| `TraceSize`  | Size of the I/O request (bytes)           |                                   |
-| `Latency`    | Duration of the operation in milliseconds |                                   |
-| `DiskNumber` | Disk number                               |                                   |
-| `Irp`        | I/O Request Packet pointer                | Hex format: `0x...`               |
+| Field        | Description                               | Notes                                           |
+| :----------- | :---------------------------------------- | :---------------------------------------------- |
+| `Ts`         | Timestamp (UTC)                           | Format: `yyyy-MM-dd HH:mm:ss.fff`               |
+| `Pid`        | Process ID                                |                                                 |
+| `ThreadId`   | Thread ID                                 |                                                 |
+| `Comm`       | Command/Process name                      |                                                 |
+| `Sector`     | Logical sector number on the disk         |                                                 |
+| `Operation`  | Operation type                            | See [Operation Values](#operation-values) below |
+| `TraceSize`  | Size of the I/O request (bytes)           |                                                 |
+| `Latency`    | Duration of the operation in milliseconds |                                                 |
+| `DiskNumber` | Disk number                               |                                                 |
+| `Irp`        | I/O Request Packet pointer                | Hex format: `0x...`                             |
+| `IrpFlags`   | IRP Flags                                 | See [IrpFlags Values](#irpflags-values) below   |
 
-| `IrpFlags` | IRP Flags | Piped string. Possible values: `Nocache`, `PagingIo`, `SynchronousApi`, `AssociatedIrp`, `BufferedIO`, `DeallocateBuffer`, `SynchronousPagingIO`, `Create`, `Read`, `Write`, `Close`, `DeferIOCompletion`, `ObQueryName`, `HoldDeviceQueue`, `Priority:Low`, `Priority:Normal`, `Priority:High`, `Priority:Critical`, `Priority:<val>` |
+## Field Values
+
+### Operation Values
+
+`read`, `write`, `flush`
+
+### IrpFlags Values
+
+Pipe-separated flags:
+
+- `Nocache`, `PagingIo`, `SynchronousApi`, `AssociatedIrp`
+- `BufferedIO`, `DeallocateBuffer`, `SynchronousPagingIO`
+- `Create`, `Read`, `Write`, `Close`, `DeferIOCompletion`
+- `ObQueryName`, `HoldDeviceQueue`
+- `Priority:Low`, `Priority:Normal`, `Priority:High`, `Priority:Critical`, `Priority:<val>`
 
 **Example:**
 

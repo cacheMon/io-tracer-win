@@ -7,12 +7,12 @@ Captures memory-related events.
 
 **Fields:**
 
-| Field  | Description                   | Notes             |
-| :----- | :---------------------------- | :---------------- |
-| `Ts`   | Timestamp (UTC)               |                   |
-| `Pid`  | Process ID                    |                   |
-| `Comm` | Command/Process name (quoted) |                   |
-| `Type` | Type of memory event          | e.g., `PageFault` |
+| Field  | Description          | Notes                             |
+| :----- | :------------------- | :-------------------------------- |
+| `Ts`   | Timestamp (UTC)      | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `Pid`  | Process ID           |                                   |
+| `Comm` | Command/Process name | Quoted if contains spaces         |
+| `Type` | Type of memory event | e.g., `PageFault`                 |
 
 **Example:**
 

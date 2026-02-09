@@ -7,17 +7,17 @@ Captures network traffic summary.
 
 **Fields:**
 
-| Field   | Description                 | Notes              |
-| :------ | :-------------------------- | :----------------- |
-| `Ts`    | Timestamp (UTC)             |                    |
-| `Pid`   | Process ID                  |                    |
-| `Comm`  | Command/Process name        |                    |
-| `Saddr` | Source IP address           |                    |
-| `Daddr` | Destination IP address      |                    |
-| `Sport` | Source Port                 |                    |
-| `Dport` | Destination Port            |                    |
-| `Bytes` | Number of bytes transferred |                    |
-| `Type`  | Protocol type               | e.g., `TCP`, `UDP` |
+| Field   | Description                 | Notes                             |
+| :------ | :-------------------------- | :-------------------------------- |
+| `Ts`    | Timestamp (UTC)             | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `Pid`   | Process ID                  |                                   |
+| `Comm`  | Command/Process name        |                                   |
+| `Saddr` | Source IP address           |                                   |
+| `Daddr` | Destination IP address      |                                   |
+| `Sport` | Source Port                 |                                   |
+| `Dport` | Destination Port            |                                   |
+| `Bytes` | Number of bytes transferred |                                   |
+| `Type`  | Protocol type               | e.g., `TCP`, `UDP`                |
 
 **Example:**
 

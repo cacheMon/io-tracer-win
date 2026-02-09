@@ -7,18 +7,18 @@ Periodic snapshot of running processes.
 
 **Fields:**
 
-| Field            | Description                                | Notes      |
-| :--------------- | :----------------------------------------- | :--------- |
-| `Ts`             | Timestamp (UTC) of the snapshot            |            |
-| `ProcessId`      | Process ID                                 |            |
-| `Name`           | Process name                               |            |
-| `CommandLine`    | Process command line arguments             |            |
-| `VirtualSize`    | Virtual memory size (bytes)                |            |
-| `WorkingSetSize` | Working set (physical memory) size (bytes) |            |
-| `CreationDate`   | Process creation time                      |            |
-| `CpuUsage_5s`    | CPU usage over the last 5 seconds          | Percentage |
-| `CpuUsage_2m`    | CPU usage over the last 2 minutes          | Percentage |
-| `CpuUsage_1h`    | CPU usage over the last 1 hour             | Percentage |
+| Field            | Description                                | Notes                             |
+| :--------------- | :----------------------------------------- | :-------------------------------- |
+| `Ts`             | Timestamp (UTC) of the snapshot            | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `ProcessId`      | Process ID                                 |                                   |
+| `Name`           | Process name                               |                                   |
+| `CommandLine`    | Process command line arguments             |                                   |
+| `VirtualSize`    | Virtual memory size (bytes)                |                                   |
+| `WorkingSetSize` | Working set (physical memory) size (bytes) |                                   |
+| `CreationDate`   | Process creation time                      | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `CpuUsage_5s`    | CPU usage over the last 5 seconds          | Percentage                        |
+| `CpuUsage_2m`    | CPU usage over the last 2 minutes          | Percentage                        |
+| `CpuUsage_1h`    | CPU usage over the last 1 hour             | Percentage                        |
 
 **Example:**
 
