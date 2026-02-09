@@ -22,6 +22,7 @@ namespace IOTracesCORE.snapper
             this.wm = wm;
             interrupted = false;
             this.anonymouse = anonymouse;
+            PrivilegeManager.EnableBackupPrivileges();
         }
 
         public void Stop()
@@ -43,46 +44,65 @@ namespace IOTracesCORE.snapper
                     Thread.Sleep(500);
                 }
             }
+            Console.WriteLine("Filesystem snapshot completed.");
+            wm.FinalizeFilesystemSnapshot();
         }
 
-        private void TraverseDirectory(string dirPath)
+        private void TraverseDirectory(string rootPath)
         {
-            try
+            Stack<string> dirs = new Stack<string>();
+            dirs.Push(rootPath);
+            DateTime ts = DateTime.Now;
+            while (dirs.Count > 0)
             {
                 if (interrupted) return;
-                Thread.Sleep(random.Next(500,900));
-                string[] files = Directory.GetFiles(dirPath);
-                foreach (string file in files)
-                {
-                    FileInfo fileInfo = new FileInfo(file);
-                    string filepath = anonymouse ? PathHasher.HashFilePath(fileInfo.FullName, scanRoot, anonymouse ,hashLen) : fileInfo.FullName;
-                    FilesystemInfo fi = new FilesystemInfo(
-                        path: filepath.Replace("\\", "/"), 
-                        size: fileInfo.Length, 
-                        creationDate: fileInfo.CreationTime, 
-                        modificationDate: fileInfo.LastWriteTime
-                    );
-                    wm.Write(fi);
-                }
+                string currentDir = dirs.Pop();
 
-
-                string[] directories = Directory.GetDirectories(dirPath);
-                foreach (string directory in directories)
+                try
                 {
-                    TraverseDirectory(directory);
+                    DirectoryInfo di = new DirectoryInfo(currentDir);
+                    foreach (FileSystemInfo fsi in di.EnumerateFileSystemInfos())
+                    {
+                        if (interrupted) return;
+
+                        if ((fsi.Attributes & FileAttributes.Directory) == FileAttributes.Directory)
+                        {
+                            if ((fsi.Attributes & FileAttributes.ReparsePoint) != FileAttributes.ReparsePoint)
+                            {
+                                dirs.Push(fsi.FullName);
+                            }
+                        }
+                        else
+                        {
+                            FileInfo fileInfo = (FileInfo)fsi;
+                            string filepath = anonymouse ? PathHasher.HashFilePath(fileInfo.FullName, scanRoot, anonymouse, hashLen) : fileInfo.FullName;
+                            FilesystemInfo fi = new FilesystemInfo(
+                                timestamp: ts,
+                                path: filepath.Replace("\\", "/"),
+                                size: fileInfo.Length,
+                                creationDate: fileInfo.CreationTime,
+                                modificationDate: fileInfo.LastWriteTime,
+                                lastAccessTime: fileInfo.LastAccessTime,
+                                attributes: fileInfo.Attributes,
+                                extension: fileInfo.Extension,
+                                isReadOnly: fileInfo.IsReadOnly
+                            );
+                            wm.Write(fi);
+                        }
+                    }
                 }
-            }
-            catch (UnauthorizedAccessException)
-            {
-                Console.WriteLine($"[ACCESS DENIED] {dirPath}");
-            }
-            catch (DirectoryNotFoundException)
-            {
-                Console.WriteLine($"[NOT FOUND] {dirPath}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ERROR] {dirPath}: {ex.Message}");
+                catch (UnauthorizedAccessException)
+                {
+                    Debug.WriteLine($"[ACCESS DENIED] {currentDir}");
+                }
+                catch (DirectoryNotFoundException)
+                {
+                    Debug.WriteLine($"[NOT FOUND] {currentDir}");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ERROR] {currentDir}: {ex.Message}");
+                }
             }
         }
     }

@@ -50,7 +50,7 @@ namespace IOTracesCORE.snapper
                 }
 
                 // wait the base interval
-                Thread.Sleep((int)Interval5s.TotalMilliseconds);
+                Thread.Sleep((int)TimeSpan.FromSeconds(15).TotalMilliseconds);
             }
         }
 
@@ -63,6 +63,7 @@ SELECT ProcessId, Name, CommandLine, VirtualSize, WorkingSetSize, CreationDate, 
 FROM Win32_Process";
 
             var currentPids = new HashSet<int>();
+            var processInfos = new List<ProcessInfo>();
 
             using (var searcher = new ManagementObjectSearcher(procFullQuery))
             using (var results = searcher.Get())
@@ -145,7 +146,12 @@ FROM Win32_Process";
                         cpuUsage_1h: cpu1h
                     );
 
-                    wm.Write(pi);
+                    processInfos.Add(pi);
+                }
+
+                if (processInfos.Count > 0)
+                {
+                    wm.Write(processInfos);
                 }
             }
 
