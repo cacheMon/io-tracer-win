@@ -433,8 +433,12 @@ namespace IOTracesCORE.handlers
         {
             try
             {
-                var val = data.PayloadByName(name);
-                return val == null ? defaultValue : Convert.ToUInt64(val);
+                if (data.PayloadNames.Contains(name))
+                {
+                    var val = data.PayloadByName(name);
+                    return val == null ? defaultValue : Convert.ToUInt64(val);
+                }
+                return defaultValue;
             }
             catch
             {
@@ -446,8 +450,12 @@ namespace IOTracesCORE.handlers
         {
             try
             {
-                var val = data.PayloadByName(name);
-                return val == null ? defaultValue : Convert.ToInt64(val);
+                if (data.PayloadNames.Contains(name))
+                {
+                    var val = data.PayloadByName(name);
+                    return val == null ? defaultValue : Convert.ToInt64(val);
+                }
+                return defaultValue;
             }
             catch
             {
@@ -459,8 +467,12 @@ namespace IOTracesCORE.handlers
         {
             try
             {
-                var val = data.PayloadByName(name);
-                return val?.ToString() ?? defaultValue;
+                if (data.PayloadNames.Contains(name))
+                {
+                    var val = data.PayloadByName(name);
+                    return val?.ToString() ?? defaultValue;
+                }
+                return defaultValue;
             }
             catch
             {

@@ -235,6 +235,7 @@ namespace IOTracesCORE
                     kernel.TcpIpDisconnect += nwHandler.OnDisconnect;
                     kernel.TcpIpAccept += nwHandler.OnAccept;
                     kernel.TcpIpReconnect += nwHandler.OnReconnect;
+                    kernel.TcpIpRetransmit += nwHandler.OnRetransmit;
                     kernel.TcpIpFail += nwHandler.OnFail;
 
                     kernel.MemoryHardFault += memHandler.OnMemoryHardFault;

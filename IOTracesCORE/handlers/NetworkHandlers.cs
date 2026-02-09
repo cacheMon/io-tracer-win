@@ -20,6 +20,11 @@ namespace IOTracesCORE.handlers
             wm = old_wm;
         }
 
+        private ulong GetConnId(TraceEvent data)
+        {
+            return GetUlongPayload(data, "ConnID");
+        }
+
         public void OnSend(TcpIpSendTraceData data)
         {
             if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
@@ -41,7 +46,9 @@ namespace IOTracesCORE.handlers
                 data.sport,
                 data.dport,
                 data.size,
-                "send"
+                "send",
+                0,
+                GetConnId(data)
             );
 
             //Debug.WriteLine(nt.ToString());
@@ -69,7 +76,9 @@ namespace IOTracesCORE.handlers
                 data.sport,
                 data.dport,
                 data.size,
-                "send"
+                "send",
+                0,
+                GetConnId(data)
             );
 
             //Debug.WriteLine(nt.ToString());
@@ -97,7 +106,11 @@ namespace IOTracesCORE.handlers
                 data.sport,
                 data.dport,
                 data.size,
-                "send"
+                "send",
+                0,
+                GetConnId(data),
+                context: data.context,
+                dSize: data.dsize
             );
             wm.Write(nt);
         }
@@ -123,7 +136,10 @@ namespace IOTracesCORE.handlers
                 data.sport,
                 data.dport,
                 data.size,
-                "send"
+                "send",
+                0,
+                GetConnId(data),
+                seqNum: data.seqnum
             );
 
             //Debug.WriteLine(nt.ToString());
@@ -151,7 +167,10 @@ namespace IOTracesCORE.handlers
                 data.sport,
                 data.dport,
                 data.size,
-                "receive"
+                "receive",
+                0,
+                GetConnId(data),
+                seqNum: data.seqnum
             );
 
             //Debug.WriteLine(nt.ToString());
@@ -179,7 +198,10 @@ namespace IOTracesCORE.handlers
                 data.sport,
                 data.dport,
                 data.size,
-                "receive"
+                "receive",
+                0,
+                GetConnId(data),
+                seqNum: data.seqnum
             );
 
             //Debug.WriteLine(nt.ToString());
@@ -207,7 +229,11 @@ namespace IOTracesCORE.handlers
                 data.sport,
                 data.dport,
                 data.size,
-                "receive"
+                "receive",
+                0,
+                GetConnId(data),
+                context: data.context,
+                dSize: data.dsize
             );
 
             //Debug.WriteLine(nt.ToString());
@@ -235,7 +261,10 @@ namespace IOTracesCORE.handlers
                 data.sport,
                 data.dport,
                 data.size,
-                "receive"
+                "receive",
+                0,
+                GetConnId(data),
+                seqNum: data.seqnum
             );
 
             //Debug.WriteLine(nt.ToString());
@@ -251,7 +280,16 @@ namespace IOTracesCORE.handlers
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp, data.ProcessID, data.ProcessName,
                 data.saddr.ToString(), data.daddr.ToString(),
-                data.sport, data.dport, 0, "connect"
+                data.sport, data.dport, 0, "connect",
+                0, GetConnId(data),
+                seqNum: data.seqnum,
+                mss: data.mss,
+                sndWinScale: data.sndwinscale,
+                rcvWinScale: data.rcvwinscale,
+                rcvWin: data.rcvwin,
+                wsOpt: data.wsopt,
+                tsOpt: data.tsopt,
+                sackOpt: data.sackopt
             );
             wm.Write(nt);
         }
@@ -264,7 +302,9 @@ namespace IOTracesCORE.handlers
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp, data.ProcessID, data.ProcessName,
                 data.saddr.ToString(), data.daddr.ToString(),
-                data.sport, data.dport, 0, "disconnect"
+                data.sport, data.dport, 0, "disconnect",
+                0, GetConnId(data),
+                seqNum: data.seqnum
             );
             wm.Write(nt);
         }
@@ -277,7 +317,16 @@ namespace IOTracesCORE.handlers
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp, data.ProcessID, data.ProcessName,
                 data.saddr.ToString(), data.daddr.ToString(),
-                data.sport, data.dport, 0, "accept"
+                data.sport, data.dport, 0, "accept",
+                0, GetConnId(data),
+                seqNum: data.seqnum,
+                mss: data.mss,
+                sndWinScale: data.sndwinscale,
+                rcvWinScale: data.rcvwinscale,
+                rcvWin: data.rcvwin,
+                wsOpt: data.wsopt,
+                tsOpt: data.tsopt,
+                sackOpt: data.sackopt
             );
             wm.Write(nt);
         }
@@ -290,7 +339,9 @@ namespace IOTracesCORE.handlers
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp, data.ProcessID, data.ProcessName,
                 data.saddr.ToString(), data.daddr.ToString(),
-                data.sport, data.dport, 0, "reconnect"
+                data.sport, data.dport, 0, "reconnect",
+                0, GetConnId(data),
+                seqNum: data.seqnum
             );
             wm.Write(nt);
         }
@@ -301,19 +352,18 @@ namespace IOTracesCORE.handlers
 
             // TcpIpFailTraceData might not expose saddr/daddr directly as properties in some versions.
             // We'll try to get them from payload or default to empty.
-            string saddr = data.PayloadByName("saddr")?.ToString() ?? "";
-            string daddr = data.PayloadByName("daddr")?.ToString() ?? "";
-            int sport = 0;
-            int dport = 0;
-
-            if (data.PayloadNames.Contains("sport")) sport = (int)((ushort)data.PayloadByName("sport"));
-            if (data.PayloadNames.Contains("dport")) dport = (int)((ushort)data.PayloadByName("dport"));
+            string saddr = GetStringPayload(data, "saddr");
+            string daddr = GetStringPayload(data, "daddr");
+            int sport = GetIntPayload(data, "sport");
+            int dport = GetIntPayload(data, "dport");
 
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp, data.ProcessID, data.ProcessName,
                 saddr, daddr,
                 sport, dport, 0, "fail",
-                data.FailureCode
+                data.FailureCode,
+                GetConnId(data),
+                proto: data.Proto
             );
             wm.Write(nt);
         }
@@ -333,10 +383,10 @@ namespace IOTracesCORE.handlers
             // Checking if keys exist to be safe
             if (!data.PayloadNames.Contains("saddr") || !data.PayloadNames.Contains("daddr")) return;
 
-            var saddr = data.PayloadByName("saddr");
-            var daddr = data.PayloadByName("daddr");
-            var sport = (int)((ushort)data.PayloadByName("sport"));
-            var dport = (int)((ushort)data.PayloadByName("dport"));
+            string saddr = GetStringPayload(data, "saddr");
+            string daddr = GetStringPayload(data, "daddr");
+            int sport = GetIntPayload(data, "sport");
+            int dport = GetIntPayload(data, "dport");
 
             string eventType = "";
             switch (data.EventName)
@@ -347,13 +397,95 @@ namespace IOTracesCORE.handlers
                 default: return;
             }
 
+            ulong connId = GetConnId(data);
+
             NetworkTrace nt = new NetworkTrace(
                 data.TimeStamp, data.ProcessID, data.ProcessName,
-                saddr?.ToString() ?? "",
-                daddr?.ToString() ?? "",
-                sport, dport, 0, eventType
+                saddr,
+                daddr,
+                sport, dport, 0, eventType,
+                0, connId
             );
             wm.Write(nt);
         }
+
+        public void OnRetransmit(TcpIpTraceData data)
+        {
+
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
+
+            NetworkTrace nt = new NetworkTrace(
+                 data.TimeStamp,
+                 data.ProcessID,
+                 data.ProcessName,
+                 data.saddr.ToString(),
+                data.daddr.ToString(),
+                data.sport,
+                data.dport,
+                data.size,
+                "retransmit",
+                0,
+                GetConnId(data),
+                seqNum: data.seqnum
+            );
+
+            wm.Write(nt);
+        }
+
+        #region Safe Payload Access Helpers
+
+        private ulong GetUlongPayload(TraceEvent data, string name, ulong defaultValue = 0)
+        {
+            try
+            {
+                if (data.PayloadNames.Contains(name))
+                {
+                    var val = data.PayloadByName(name);
+                    return val == null ? defaultValue : Convert.ToUInt64(val);
+                }
+                return defaultValue;
+            }
+            catch
+            {
+                return defaultValue;
+            }
+        }
+
+        private int GetIntPayload(TraceEvent data, string name, int defaultValue = 0)
+        {
+            try
+            {
+                if (data.PayloadNames.Contains(name))
+                {
+                    var val = data.PayloadByName(name);
+                    return val == null ? defaultValue : Convert.ToInt32(val);
+                }
+                return defaultValue;
+            }
+            catch
+            {
+                return defaultValue;
+            }
+        }
+
+        private string GetStringPayload(TraceEvent data, string name, string defaultValue = "")
+        {
+            try
+            {
+                if (data.PayloadNames.Contains(name))
+                {
+                    var val = data.PayloadByName(name);
+                    return val?.ToString() ?? defaultValue;
+                }
+                return defaultValue;
+            }
+            catch
+            {
+                return defaultValue;
+            }
+        }
+
+        #endregion
     }
 }
