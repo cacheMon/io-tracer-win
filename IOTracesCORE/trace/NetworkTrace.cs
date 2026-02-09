@@ -22,11 +22,12 @@ namespace IOTracesCORE.trace
         public int Dport { get; set; }
         public int Bytes { get; set; }
         public string Type { get; set; }
+        public int Status { get; set; }
 
         private readonly StringWriter buffer = new StringWriter();
         private readonly CsvWriter csv;
 
-        public NetworkTrace(DateTime ts, int pid, string comm, string saddr, string daddr, int sport, int dport, int bytes, string type)
+        public NetworkTrace(DateTime ts, int pid, string comm, string saddr, string daddr, int sport, int dport, int bytes, string type, int status = 0)
         {
             Ts = ts;
             Pid = pid;
@@ -37,6 +38,7 @@ namespace IOTracesCORE.trace
             this.Dport = dport;
             this.Bytes = bytes;
             this.Type = type;
+            this.Status = status;
 
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -58,13 +60,14 @@ namespace IOTracesCORE.trace
             csv.WriteField(Dport);
             csv.WriteField(Bytes);
             csv.WriteField(Type);
+            csv.WriteField(Status);
             csv.NextRecord();
             return buffer.ToString();
         }
 
         public override string ToString()
         {
-            return $"{Ts.ToString("o")},{Pid},{Comm},{Saddr},{Daddr},{Sport},{Dport},{Bytes},{Type}";
+            return $"{Ts.ToString("o")},{Pid},{Comm},{Saddr},{Daddr},{Sport},{Dport},{Bytes},{Type},{Status}";
         }
     }
 }
