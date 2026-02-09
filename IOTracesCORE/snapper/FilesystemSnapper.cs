@@ -22,6 +22,7 @@ namespace IOTracesCORE.snapper
             this.wm = wm;
             interrupted = false;
             this.anonymouse = anonymouse;
+            PrivilegeManager.EnableBackupPrivileges();
         }
 
         public void Stop()
@@ -64,7 +65,10 @@ namespace IOTracesCORE.snapper
 
                         if ((fsi.Attributes & FileAttributes.Directory) == FileAttributes.Directory)
                         {
-                            dirs.Push(fsi.FullName);
+                            if ((fsi.Attributes & FileAttributes.ReparsePoint) != FileAttributes.ReparsePoint)
+                            {
+                                dirs.Push(fsi.FullName);
+                            }
                         }
                         else
                         {
