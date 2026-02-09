@@ -75,7 +75,11 @@ namespace IOTracesCORE.snapper
                                 path: filepath.Replace("\\", "/"),
                                 size: fileInfo.Length,
                                 creationDate: fileInfo.CreationTime,
-                                modificationDate: fileInfo.LastWriteTime
+                                modificationDate: fileInfo.LastWriteTime,
+                                lastAccessTime: fileInfo.LastAccessTime,
+                                attributes: fileInfo.Attributes,
+                                extension: fileInfo.Extension,
+                                isReadOnly: fileInfo.IsReadOnly
                             );
                             wm.Write(fi);
                         }

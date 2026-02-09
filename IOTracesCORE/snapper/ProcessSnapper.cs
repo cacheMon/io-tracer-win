@@ -50,7 +50,7 @@ namespace IOTracesCORE.snapper
                 }
 
                 // wait the base interval
-                Thread.Sleep((int)Interval5s.TotalMilliseconds);
+                Thread.Sleep((int)TimeSpan.FromSeconds(15).TotalMilliseconds);
             }
         }
 
