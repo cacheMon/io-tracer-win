@@ -17,19 +17,7 @@ namespace IOTracesCORE.handlers
         /// Standardized cache event types matching Linux page cache events
         /// for cross-platform analysis compatibility.
         /// </summary>
-        public enum CacheEventType
-        {
-            HIT = 0,              // Page found in memory (soft fault)
-            MISS = 1,             // Page not in memory (hard fault, requires I/O)
-            DIRTY = 2,            // Page marked as modified
-            WRITEBACK_START = 3,  // Modified page write initiated
-            WRITEBACK_END = 4,    // Modified page write completed
-            EVICT = 5,            // Page removed from working set
-            INVALIDATE = 6,       // Page invalidated (access violation)
-            DROP = 7,             // Page dropped from cache
-            READAHEAD = 8,        // Sequential read optimization
-            RECLAIM = 9           // Memory pressure reclaim
-        }
+
 
         public MemoryHandlers(WriterManager old_wm)
         {
@@ -49,8 +37,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "HIT",
-                eventType: (int)CacheEventType.HIT,
+                type: MemoryEventType.HIT,
                 virtualAddress: data.VirtualAddress,
                 byteCount: 4096,  // Standard page size on Windows
                 threadId: data.ThreadID
@@ -72,8 +59,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "HIT",
-                eventType: (int)CacheEventType.HIT,
+                type: MemoryEventType.HIT,
                 virtualAddress: data.VirtualAddress,
                 byteCount: 4096,
                 threadId: data.ThreadID
@@ -95,8 +81,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "MISS",
-                eventType: (int)CacheEventType.MISS,
+                type: MemoryEventType.MISS,
                 virtualAddress: 0,  // Not available in HardFaultTraceData
                 byteCount: data.ByteCount,
                 threadId: data.ThreadID
@@ -118,8 +103,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "DIRTY",
-                eventType: (int)CacheEventType.DIRTY,
+                type: MemoryEventType.DIRTY,
                 virtualAddress: data.VirtualAddress,
                 byteCount: 4096,
                 threadId: data.ThreadID
@@ -141,8 +125,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "INVALIDATE",
-                eventType: (int)CacheEventType.INVALIDATE,
+                type: MemoryEventType.INVALIDATE,
                 virtualAddress: data.VirtualAddress,
                 byteCount: 0,
                 threadId: data.ThreadID
@@ -163,8 +146,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "GUARD",
-                eventType: -1,  // Special type, not in standard cache events
+                type: MemoryEventType.GUARD,
                 virtualAddress: data.VirtualAddress,
                 byteCount: 4096,
                 threadId: data.ThreadID
@@ -185,8 +167,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "ALLOC",
-                eventType: -1,
+                type: MemoryEventType.ALLOC,
                 virtualAddress: (ulong)data.BaseAddr,
                 byteCount: (long)data.Length,
                 threadId: data.ThreadID
@@ -208,8 +189,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "EVICT",
-                eventType: (int)CacheEventType.EVICT,
+                type: MemoryEventType.EVICT,
                 virtualAddress: (ulong)data.BaseAddr,
                 byteCount: (long)data.Length,
                 threadId: data.ThreadID

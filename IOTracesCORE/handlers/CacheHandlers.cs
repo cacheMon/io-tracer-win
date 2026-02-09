@@ -12,62 +12,7 @@ namespace IOTracesCORE.handlers
     /// <summary>
     /// Extended cache event types for file system cache tracking
     /// </summary>
-    public enum ExtendedCacheEventType
-    {
 
-        // File system cache events (10-19)
-        CACHE_READ = 10,           // File data read from cache
-        CACHE_WRITE = 11,          // File data written to cache
-        CACHE_FLUSH_START = 12,    // Cache flush initiated
-        CACHE_FLUSH_END = 13,      // Cache flush completed
-        CACHE_LAZY_WRITE = 14,     // Lazy writer background flush
-        CACHE_READ_AHEAD = 15,     // Predictive read-ahead
-        CACHE_MISS_PARTIAL = 16,   // Partial cache hit
-        CACHE_MAP = 17,            // File section mapped to cache
-        CACHE_UNMAP = 18,          // File section unmapped
-        CACHE_PURGE = 19,          // Cache purged for file
-
-        // Working set events (20-29)
-        WS_TRIM = 20,              // Working set trimmed
-        WS_EXPANSION = 21,         // Working set expanded
-        WS_FAULT_IN = 22,          // Page faulted into working set
-        WS_FAULT_OUT = 23,         // Page faulted out of working set
-        WS_AGING = 24,             // Working set page aged
-        WS_LOCK = 25,              // Page locked in working set
-        WS_UNLOCK = 26,            // Page unlocked from working set
-
-        // Modified page writer events (30-39)
-        MPW_WRITE_START = 30,      // Modified page write initiated
-        MPW_WRITE_END = 31,        // Modified page write completed
-        MPW_THROTTLE = 32,         // Modified page writer throttled
-        MPW_QUEUE = 33,            // Page queued to modified list
-        MPW_DEQUEUE = 34,          // Page dequeued from modified list
-
-        // Standby list events (40-49)
-        STANDBY_INSERT = 40,       // Page inserted to standby list
-        STANDBY_REMOVE = 41,       // Page removed from standby list
-        STANDBY_REPURPOSE = 42,    // Standby page repurposed
-
-        // Memory pressure events (50-59)
-        LOW_MEMORY = 50,           // Low memory condition
-        HIGH_MEMORY = 51,          // High memory condition
-        OUT_OF_MEMORY = 52,        // Out of memory
-        PRIORITY_TRIM = 53,        // Priority-based trim
-
-        // Prefetch/Superfetch events (60-69)
-        PREFETCH_START = 60,       // Prefetch operation started
-        PREFETCH_END = 61,         // Prefetch operation completed
-        SUPERFETCH_QUERY = 62,     // Superfetch query
-        SUPERFETCH_DECISION = 63,  // Superfetch decision made
-
-        // TLB events (70-79)
-        TLB_FLUSH = 70,            // TLB flushed
-        TLB_MISS = 71,             // TLB miss
-
-        // NUMA events (80-89)
-        NUMA_MIGRATION = 80,       // Page migrated across NUMA nodes
-        NUMA_FAULT = 81,           // NUMA fault
-    }
 
     /// <summary>
     /// Handles advanced cache and memory management events from Windows ETW.
@@ -113,8 +58,7 @@ namespace IOTracesCORE.handlers
                     ts: data.TimeStamp,
                     pid: data.ProcessID,
                     comm: data.ProcessName,
-                    type: "CACHE_READ",
-                    eventType: (int)ExtendedCacheEventType.CACHE_READ,
+                    type: MemoryEventType.CACHE_READ,
                     virtualAddress: data.FileKey,
                     byteCount: data.IoSize,
                     threadId: data.ThreadID
@@ -139,8 +83,7 @@ namespace IOTracesCORE.handlers
                     ts: data.TimeStamp,
                     pid: data.ProcessID,
                     comm: data.ProcessName,
-                    type: "CACHE_WRITE",
-                    eventType: (int)ExtendedCacheEventType.CACHE_WRITE,
+                    type: MemoryEventType.CACHE_WRITE,
                     virtualAddress: data.FileKey,
                     byteCount: data.IoSize,
                     threadId: data.ThreadID
@@ -165,8 +108,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "CACHE_FLUSH_START",
-                eventType: (int)ExtendedCacheEventType.CACHE_FLUSH_START,
+                type: MemoryEventType.CACHE_FLUSH_START,
                 virtualAddress: data.FileKey,
                 byteCount: 0,
                 threadId: data.ThreadID
@@ -188,8 +130,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "CACHE_MAP",
-                eventType: (int)ExtendedCacheEventType.CACHE_MAP,
+                type: MemoryEventType.CACHE_MAP,
                 virtualAddress: data.FileKey,
                 byteCount: (long)data.ViewSize,
                 threadId: data.ThreadID
@@ -210,8 +151,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "CACHE_UNMAP",
-                eventType: (int)ExtendedCacheEventType.CACHE_UNMAP,
+                type: MemoryEventType.CACHE_UNMAP,
                 virtualAddress: data.FileKey,
                 byteCount: (long)data.ViewSize,
                 threadId: data.ThreadID
@@ -245,8 +185,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: pid,
                 comm: data.ProcessName,
-                type: "WS_TRIM",
-                eventType: (int)ExtendedCacheEventType.WS_TRIM,
+                type: MemoryEventType.WS_TRIM,
                 virtualAddress: 0,
                 byteCount: trimmedBytes,
                 threadId: data.ThreadID
@@ -267,8 +206,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "WS_EXPANSION",
-                eventType: (int)ExtendedCacheEventType.WS_EXPANSION,
+                type: MemoryEventType.WS_EXPANSION,
                 virtualAddress: (ulong)data.BaseAddr,
                 byteCount: (long)data.Length,
                 threadId: data.ThreadID
@@ -298,8 +236,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: pid,
                 comm: data.ProcessName,
-                type: "MPW_WRITE_START",
-                eventType: (int)ExtendedCacheEventType.MPW_WRITE_START,
+                type: MemoryEventType.MPW_WRITE_START,
                 virtualAddress: 0,
                 byteCount: byteCount,
                 threadId: data.ThreadID
@@ -324,8 +261,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: pid,
                 comm: data.ProcessName,
-                type: "MPW_QUEUE",
-                eventType: (int)ExtendedCacheEventType.MPW_QUEUE,
+                type: MemoryEventType.MPW_QUEUE,
                 virtualAddress: pageAddr,
                 byteCount: 4096,
                 threadId: data.ThreadID
@@ -355,8 +291,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: pid,
                 comm: data.ProcessName,
-                type: "STANDBY_INSERT",
-                eventType: (int)ExtendedCacheEventType.STANDBY_INSERT,
+                type: MemoryEventType.STANDBY_INSERT,
                 virtualAddress: pageAddr,
                 byteCount: priority, // Store priority in byteCount field
                 threadId: data.ThreadID
@@ -381,8 +316,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: pid,
                 comm: data.ProcessName,
-                type: "STANDBY_REMOVE",
-                eventType: (int)ExtendedCacheEventType.STANDBY_REMOVE,
+                type: MemoryEventType.STANDBY_REMOVE,
                 virtualAddress: pageAddr,
                 byteCount: 4096,
                 threadId: data.ThreadID
@@ -409,8 +343,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: 0, // System event
                 comm: "System",
-                type: "LOW_MEMORY",
-                eventType: (int)ExtendedCacheEventType.LOW_MEMORY,
+                type: MemoryEventType.LOW_MEMORY,
                 virtualAddress: 0,
                 byteCount: availableBytes,
                 threadId: 0
@@ -429,8 +362,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: 0,
                 comm: "System",
-                type: "OUT_OF_MEMORY",
-                eventType: (int)ExtendedCacheEventType.OUT_OF_MEMORY,
+                type: MemoryEventType.OUT_OF_MEMORY,
                 virtualAddress: 0,
                 byteCount: 0,
                 threadId: 0
@@ -460,8 +392,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: pid,
                 comm: data.ProcessName,
-                type: "PREFETCH_START",
-                eventType: (int)ExtendedCacheEventType.PREFETCH_START,
+                type: MemoryEventType.PREFETCH_START,
                 virtualAddress: 0,
                 byteCount: byteCount,
                 threadId: data.ThreadID
@@ -485,8 +416,7 @@ namespace IOTracesCORE.handlers
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 comm: data.ProcessName,
-                type: "CACHE_READ_AHEAD",
-                eventType: (int)ExtendedCacheEventType.CACHE_READ_AHEAD,
+                type: MemoryEventType.CACHE_READ_AHEAD,
                 virtualAddress: data.FileKey,
                 byteCount: data.IoSize,
                 threadId: data.ThreadID
