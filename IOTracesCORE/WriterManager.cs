@@ -261,7 +261,7 @@ namespace IOTracesCORE
             memory_event_counter += 1;
 
             mr_sb.Append(data.FormatAsCsv());
-            DebugLogger.LogRaw(data.FormatAsCsv());
+            Debug.WriteLine(data.FormatAsCsv());
             if (IsTimeToFlush(mr_sb))
             {
                 FlushWrite(mr_sb, mr_filepath, "memory");

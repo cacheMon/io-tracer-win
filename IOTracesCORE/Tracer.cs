@@ -19,6 +19,7 @@ namespace IOTracesCORE
         private readonly NetworkHandlers nwHandler;
         private readonly DriverHandlers driverHandler;
         private readonly MemoryHandlers memHandler;
+        private readonly CacheHandlers cacheHandler;
         private readonly ProcessSnapper psHandler;
         private readonly FilesystemSnapper fsSnapper;
         private TraceEventSession? session;
@@ -48,6 +49,7 @@ namespace IOTracesCORE
             fsHandler = new FilesystemHandlers(wm);
             dsHandler = new DiskHandlers(wm);
             memHandler = new MemoryHandlers(wm);
+            cacheHandler = new CacheHandlers(wm);
             psHandler = new ProcessSnapper(wm, anonymouse);
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
             systemSnapper = new SystemSnapper(wm);
@@ -175,8 +177,12 @@ namespace IOTracesCORE
                         KernelTraceEventParser.Keywords.NetworkTCPIP |
                         KernelTraceEventParser.Keywords.Memory |
                         KernelTraceEventParser.Keywords.MemoryHardFaults |
-                        KernelTraceEventParser.Keywords.VirtualAlloc
+                        KernelTraceEventParser.Keywords.VirtualAlloc |
+                        KernelTraceEventParser.Keywords.ContextSwitch
                     );
+
+                    var memoryManagerGuid = new Guid("d1d93ef7-e1f2-4f45-9943-03d245fe6c00");
+                    session.EnableProvider(memoryManagerGuid);
 
                     var source = session.Source;
                     var kernel = source.Kernel;
@@ -230,6 +236,50 @@ namespace IOTracesCORE
                     kernel.MemoryGuardMemory += memHandler.OnMemoryGuardMemory;
                     kernel.VirtualMemAlloc += memHandler.OnVirtualMemAlloc;
                     kernel.VirtualMemFree += memHandler.OnVirtualMemFree;
+
+                    // Extneded Cache Handlers
+                    kernel.FileIORead += cacheHandler.OnCacheRead;
+                    kernel.FileIOWrite += cacheHandler.OnCacheWrite;
+                    kernel.FileIOFlush += cacheHandler.OnCacheFlush;
+                    kernel.FileIOMapFile += cacheHandler.OnCacheMap;
+                    kernel.FileIOUnmapFile += cacheHandler.OnCacheUnmap;
+
+                    kernel.VirtualMemAlloc += cacheHandler.OnWorkingSetExpansion;
+
+                    // Dynamic event handlers for Memory Manager provider
+                    source.Dynamic.All += (TraceEvent data) =>
+                    {
+                        if (data.ProviderName != "Microsoft-Windows-Kernel-Memory")
+                            return;
+
+                        switch (data.EventName)
+                        {
+                            case "WorkingSetTrim":
+                                cacheHandler.OnWorkingSetTrim(data);
+                                break;
+                            case "ModifiedPageWrite":
+                                cacheHandler.OnModifiedPageWrite(data);
+                                break;
+                            case "ModifiedPageQueue":
+                                cacheHandler.OnModifiedPageQueue(data);
+                                break;
+                            case "StandbyInsert":
+                                cacheHandler.OnStandbyInsert(data);
+                                break;
+                            case "StandbyRemove":
+                                cacheHandler.OnStandbyRemove(data);
+                                break;
+                            case "LowMemory":
+                                cacheHandler.OnLowMemory(data);
+                                break;
+                            case "OutOfMemory":
+                                cacheHandler.OnOutOfMemory(data);
+                                break;
+                            case "PrefetchStart":
+                                cacheHandler.OnPrefetchStart(data);
+                                break;
+                        }
+                    };
 
 
                     source.Process();
