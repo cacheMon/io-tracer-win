@@ -19,7 +19,6 @@ namespace IOTracesCORE.utils
             if (excludedPids.Contains(pid)) return false;
             if (excludedProcessNames.Any(n => processName.Contains(n, StringComparison.OrdinalIgnoreCase)))
                 return false;
-            if (String.IsNullOrEmpty(processName)) return false;
             return true;
         }
     }

@@ -17,6 +17,7 @@ namespace IOTracesCORE
         private readonly SystemSnapper systemSnapper;
         private readonly DiskHandlers dsHandler;
         private readonly NetworkHandlers nwHandler;
+        private readonly DriverHandlers driverHandler;
         private readonly ProcessSnapper psHandler;
         private readonly FilesystemSnapper fsSnapper;
         private TraceEventSession? session;
@@ -49,6 +50,7 @@ namespace IOTracesCORE
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
             systemSnapper = new SystemSnapper(wm);
             nwHandler = new NetworkHandlers(wm);
+            driverHandler = new DriverHandlers(wm);
         }
 
         private bool ConsoleCtrlHandler(CtrlTypes ctrlType)
@@ -167,6 +169,7 @@ namespace IOTracesCORE
                         KernelTraceEventParser.Keywords.FileIOInit |
                         KernelTraceEventParser.Keywords.DiskIO |
                         KernelTraceEventParser.Keywords.DiskIOInit |
+                        KernelTraceEventParser.Keywords.Driver |
                         KernelTraceEventParser.Keywords.NetworkTCPIP
                     );
 
@@ -200,6 +203,12 @@ namespace IOTracesCORE
                     kernel.DiskIOReadInit += dsHandler.OnDiskInit;
                     kernel.DiskIOWriteInit += dsHandler.OnDiskInit;
                     kernel.DiskIOWrite += dsHandler.OnDiskWrite;
+                    kernel.DiskIOFlushBuffers += dsHandler.OnDiskFlush;
+                    kernel.DiskIODriverMajorFunctionCall += driverHandler.OnDriverMajorFunctionCall;
+                    kernel.DiskIODriverMajorFunctionReturn += driverHandler.OnDriverMajorFunctionReturn;
+                    kernel.DiskIODriverCompletionRoutine += driverHandler.OnDriverCompletionRoutine;
+                    kernel.DiskIODriverCompleteRequest += driverHandler.OnDriverCompleteRequest;
+                    kernel.DiskIODriverCompleteRequestReturn += driverHandler.OnDriverCompleteRequestReturn;
 
                     kernel.TcpIpSend += nwHandler.OnSend;
                     kernel.TcpIpRecv += nwHandler.OnReceive;
