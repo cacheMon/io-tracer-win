@@ -18,6 +18,7 @@ namespace IOTracesCORE
         private readonly DiskHandlers dsHandler;
         private readonly NetworkHandlers nwHandler;
         private readonly DriverHandlers driverHandler;
+        private readonly MemoryHandlers memHandler;
         private readonly ProcessSnapper psHandler;
         private readonly FilesystemSnapper fsSnapper;
         private TraceEventSession? session;
@@ -46,6 +47,7 @@ namespace IOTracesCORE
             wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler);
             fsHandler = new FilesystemHandlers(wm);
             dsHandler = new DiskHandlers(wm);
+            memHandler = new MemoryHandlers(wm);
             psHandler = new ProcessSnapper(wm, anonymouse);
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
             systemSnapper = new SystemSnapper(wm);
@@ -170,7 +172,10 @@ namespace IOTracesCORE
                         KernelTraceEventParser.Keywords.DiskIO |
                         KernelTraceEventParser.Keywords.DiskIOInit |
                         KernelTraceEventParser.Keywords.Driver |
-                        KernelTraceEventParser.Keywords.NetworkTCPIP
+                        KernelTraceEventParser.Keywords.NetworkTCPIP |
+                        KernelTraceEventParser.Keywords.Memory |
+                        KernelTraceEventParser.Keywords.MemoryHardFaults |
+                        KernelTraceEventParser.Keywords.VirtualAlloc
                     );
 
                     var source = session.Source;
@@ -214,10 +219,17 @@ namespace IOTracesCORE
                     kernel.TcpIpRecv += nwHandler.OnReceive;
                     kernel.TcpIpRecvIPV6 += nwHandler.OnReceive;
                     kernel.TcpIpSendIPV6 += nwHandler.OnSend;
-                    kernel.UdpIpSend += nwHandler.OnSend;
-                    kernel.UdpIpRecv += nwHandler.OnReceive;
                     kernel.UdpIpRecvIPV6 += nwHandler.OnSend;
                     kernel.UdpIpSendIPV6 += nwHandler.OnReceive;
+
+                    kernel.MemoryHardFault += memHandler.OnMemoryHardFault;
+                    kernel.MemoryTransitionFault += memHandler.OnMemoryTransitionFault;
+                    kernel.MemoryDemandZeroFault += memHandler.OnMemoryDemandZeroFault;
+                    kernel.MemoryCopyOnWrite += memHandler.OnMemoryCopyOnWrite;
+                    kernel.MemoryAccessViolation += memHandler.OnMemoryAccessViolation;
+                    kernel.MemoryGuardMemory += memHandler.OnMemoryGuardMemory;
+                    kernel.VirtualMemAlloc += memHandler.OnVirtualMemAlloc;
+                    kernel.VirtualMemFree += memHandler.OnVirtualMemFree;
 
 
                     source.Process();

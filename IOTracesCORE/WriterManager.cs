@@ -41,6 +41,7 @@ namespace IOTracesCORE
         public static int amount_compressed_file = 0;
         public static int disk_event_counter = 0;
         public static int file_event_counter = 0;
+        public static int memory_event_counter = 0;
         public static TimeSpan active_session = TimeSpan.FromSeconds(0);
         public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
 
@@ -87,14 +88,12 @@ namespace IOTracesCORE
 
             EnsureDirectoryExists(fs_folder);
             EnsureDirectoryExists(ds_folder);
+            EnsureDirectoryExists(mr_folder);
             EnsureDirectoryExists(proc_snap_folder);
             EnsureDirectoryExists(fs_snap_folder);
             EnsureDirectoryExists(nw_folder);
             EnsureDirectoryExists(driver_folder);
-            //if(!Directory.Exists(mr_folder))
-            //{
-            //    Directory.CreateDirectory(mr_folder);
-            //}
+
             Console.WriteLine("File output: {0}", this.dir_path);
         }
 
@@ -244,7 +243,7 @@ namespace IOTracesCORE
             }
 
             driver_sb.Append(data.FormatAsCsv());
-            DebugLogger.LogRaw(data.FormatAsCsv());
+            // DebugLogger.LogRaw(data.FormatAsCsv());
 
             if (IsTimeToFlush(driver_sb))
             {
@@ -254,13 +253,15 @@ namespace IOTracesCORE
 
         public void Write(MemoryTrace data)
         {
-            DateTime ts = data.Ts;
-            int pid = data.Pid;
-            string process_name = EscapeCsvField(data.Comm);
-            string type = EscapeCsvField(data.Type);
+            if (data.Comm.Equals("IOTracesCORE"))
+            {
+                return;
+            }
 
-            mr_sb.AppendFormat("{0},{1},{2},{3}\n", ts.ToString("yyyy-MM-dd HH:mm:ss.fff"), pid, process_name, type);
+            memory_event_counter += 1;
 
+            mr_sb.Append(data.FormatAsCsv());
+            DebugLogger.LogRaw(data.FormatAsCsv());
             if (IsTimeToFlush(mr_sb))
             {
                 FlushWrite(mr_sb, mr_filepath, "memory");
@@ -490,6 +491,7 @@ namespace IOTracesCORE
 
             FlushWrite(fs_sb, fs_filepath, "filesystem");
             FlushWrite(ds_sb, ds_filepath, "disk");
+            FlushWrite(mr_sb, mr_filepath, "memory");
             FlushWrite(process_snap_sb, process_snap_filepath, "process");
             FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
             FlushWrite(nw_sb, nw_filepath, "network");
