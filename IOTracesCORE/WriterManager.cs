@@ -297,8 +297,9 @@ namespace IOTracesCORE
             }
             else if (tracetype.Equals("filesystem_snapshot"))
             {
+                // For filesystem snapshot, we DO NOT rotate the file. 
+                // We keep appending to the same file.
                 old_fp = fs_snap_filepath;
-                fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
             }
             else if (tracetype.Equals("network"))
             {
@@ -315,12 +316,22 @@ namespace IOTracesCORE
                 return;
             }
             _lastFlushUtc = DateTime.UtcNow;
+
+            // For filesystem_snapshot, we only want to write to the file, but NOT compress it yet.
+            // Compression happens at the very end of the run (CompressAllAsync).
+
             using (var writer = new StreamWriter(old_fp, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             {
                 writer.Write(sb);
             }
 
             sb.Clear();
+
+            if (tracetype.Equals("filesystem_snapshot"))
+            {
+                // Do not compress yet.
+                return;
+            }
 
             try
             {
@@ -501,12 +512,39 @@ namespace IOTracesCORE
             FlushWrite(driver_sb, driver_filepath, "driver");
             Debug.WriteLine("Flushed all StringBuilders.");
 
+            // Filesystem snapshot compression is now handled by FinalizeFilesystemSnapshot
+
             WriteStatus();
 
             await obj_storage.ClearQueue();
             ConfigClasses.SaveTracemetaConfiguration(active_session + trace_duration, file_event_counter);
 
             CompressRun();
+        }
+
+        public void FinalizeFilesystemSnapshot()
+        {
+            Debug.WriteLine("Finalizing filesystem snapshot...");
+            // Flush any remaining data in the buffer
+            FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+
+            // Explicitly compress the single filesystem snapshot file now
+            try
+            {
+                if (File.Exists(fs_snap_filepath))
+                {
+                    string compressed_snap = CompressFile(fs_snap_filepath);
+                    if (is_upload_automatically)
+                    {
+                        obj_storage.QueueFile(compressed_snap);
+                    }
+                    Debug.WriteLine($"Filesystem snapshot compressed to: {compressed_snap}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error compressing filesystem snapshot: {ex.Message}");
+            }
         }
 
 

@@ -44,6 +44,8 @@ namespace IOTracesCORE.snapper
                     Thread.Sleep(500);
                 }
             }
+            Console.WriteLine("Filesystem snapshot completed.");
+            wm.FinalizeFilesystemSnapshot();
         }
 
         private void TraverseDirectory(string rootPath)
