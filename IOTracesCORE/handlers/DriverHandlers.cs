@@ -23,16 +23,30 @@ namespace IOTracesCORE.handlers
 
         private ulong GetUlongPayload(Microsoft.Diagnostics.Tracing.TraceEvent data, string name)
         {
-            var val = data.PayloadByName(name);
-            if (val == null) return 0;
-            try { return Convert.ToUInt64(val); } catch { return 0; }
+            try
+            {
+                if (data.PayloadNames.Contains(name))
+                {
+                    var val = data.PayloadByName(name);
+                    return val == null ? 0 : Convert.ToUInt64(val);
+                }
+                return 0;
+            }
+            catch { return 0; }
         }
 
         private int GetIntPayload(Microsoft.Diagnostics.Tracing.TraceEvent data, string name)
         {
-            var val = data.PayloadByName(name);
-            if (val == null) return -1;
-            try { return Convert.ToInt32(val); } catch { return -1; }
+            try
+            {
+                if (data.PayloadNames.Contains(name))
+                {
+                    var val = data.PayloadByName(name);
+                    return val == null ? -1 : Convert.ToInt32(val);
+                }
+                return -1;
+            }
+            catch { return -1; }
         }
 
         public void OnDriverMajorFunctionCall(DriverMajorFunctionCallTraceData data)

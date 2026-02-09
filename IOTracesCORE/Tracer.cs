@@ -184,6 +184,9 @@ namespace IOTracesCORE
                     var memoryManagerGuid = new Guid("d1d93ef7-e1f2-4f45-9943-03d245fe6c00");
                     session.EnableProvider(memoryManagerGuid);
 
+                    var tcpIpProviderGuid = new Guid("2F07E2EE-15DB-40F1-90EF-9D7BA282188A");
+                    session.EnableProvider(tcpIpProviderGuid);
+
                     var source = session.Source;
                     var kernel = source.Kernel;
 
@@ -228,6 +231,13 @@ namespace IOTracesCORE
                     kernel.UdpIpRecvIPV6 += nwHandler.OnSend;
                     kernel.UdpIpSendIPV6 += nwHandler.OnReceive;
 
+                    kernel.TcpIpConnect += nwHandler.OnConnect;
+                    kernel.TcpIpDisconnect += nwHandler.OnDisconnect;
+                    kernel.TcpIpAccept += nwHandler.OnAccept;
+                    kernel.TcpIpReconnect += nwHandler.OnReconnect;
+                    kernel.TcpIpRetransmit += nwHandler.OnRetransmit;
+                    kernel.TcpIpFail += nwHandler.OnFail;
+
                     kernel.MemoryHardFault += memHandler.OnMemoryHardFault;
                     kernel.MemoryTransitionFault += memHandler.OnMemoryTransitionFault;
                     kernel.MemoryDemandZeroFault += memHandler.OnMemoryDemandZeroFault;
@@ -249,35 +259,39 @@ namespace IOTracesCORE
                     // Dynamic event handlers for Memory Manager provider
                     source.Dynamic.All += (TraceEvent data) =>
                     {
-                        if (data.ProviderName != "Microsoft-Windows-Kernel-Memory")
-                            return;
-
-                        switch (data.EventName)
+                        if (data.ProviderName == "Microsoft-Windows-Kernel-Memory")
                         {
-                            case "WorkingSetTrim":
-                                cacheHandler.OnWorkingSetTrim(data);
-                                break;
-                            case "ModifiedPageWrite":
-                                cacheHandler.OnModifiedPageWrite(data);
-                                break;
-                            case "ModifiedPageQueue":
-                                cacheHandler.OnModifiedPageQueue(data);
-                                break;
-                            case "StandbyInsert":
-                                cacheHandler.OnStandbyInsert(data);
-                                break;
-                            case "StandbyRemove":
-                                cacheHandler.OnStandbyRemove(data);
-                                break;
-                            case "LowMemory":
-                                cacheHandler.OnLowMemory(data);
-                                break;
-                            case "OutOfMemory":
-                                cacheHandler.OnOutOfMemory(data);
-                                break;
-                            case "PrefetchStart":
-                                cacheHandler.OnPrefetchStart(data);
-                                break;
+                            switch (data.EventName)
+                            {
+                                case "WorkingSetTrim":
+                                    cacheHandler.OnWorkingSetTrim(data);
+                                    break;
+                                case "ModifiedPageWrite":
+                                    cacheHandler.OnModifiedPageWrite(data);
+                                    break;
+                                case "ModifiedPageQueue":
+                                    cacheHandler.OnModifiedPageQueue(data);
+                                    break;
+                                case "StandbyInsert":
+                                    cacheHandler.OnStandbyInsert(data);
+                                    break;
+                                case "StandbyRemove":
+                                    cacheHandler.OnStandbyRemove(data);
+                                    break;
+                                case "LowMemory":
+                                    cacheHandler.OnLowMemory(data);
+                                    break;
+                                case "OutOfMemory":
+                                    cacheHandler.OnOutOfMemory(data);
+                                    break;
+                                case "PrefetchStart":
+                                    cacheHandler.OnPrefetchStart(data);
+                                    break;
+                            }
+                        }
+                        else if (data.ProviderName == "Microsoft-Windows-TCPIP")
+                        {
+                            nwHandler.OnTcpHandshake(data);
                         }
                     };
 

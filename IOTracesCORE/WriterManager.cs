@@ -221,7 +221,6 @@ namespace IOTracesCORE
             }
             //event_counter += 1;
             nw_sb.Append(data.FormatAsCsv());
-
             if (IsTimeToFlush(nw_sb))
             {
                 FlushWrite(nw_sb, nw_filepath, "network");
