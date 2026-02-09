@@ -1,6 +1,7 @@
 ﻿using IOTracesCORE.cloudstorage;
 using IOTracesCORE.trace;
 using IOTracesCORE.utils;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
@@ -146,15 +147,18 @@ namespace IOTracesCORE
             }
         }
 
-        public void Write(ProcessInfo pc)
+        public void Write(IEnumerable<ProcessInfo> pcs)
         {
-            if (pc.Name.Equals("IOTracesCORE"))
+            foreach (var pc in pcs)
             {
-                return;
+                if (pc.Name.Equals("IOTracesCORE"))
+                {
+                    continue;
+                }
+                process_snap_sb.Append(pc.FormatAsCsv());
             }
 
-            process_snap_sb.Append(pc.FormatAsCsv());
-            if (IsTimeToFlush(process_snap_sb))
+            if (process_snap_sb.Length > 0)
             {
                 FlushWrite(process_snap_sb, process_snap_filepath, "process");
             }
