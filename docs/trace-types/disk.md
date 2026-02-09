@@ -3,32 +3,27 @@
 Captures low-level disk I/O operations.
 
 **CSV Header:**
-`Ts,Pid,ThreadId,Comm,Sector,Operation,TraceSize,Latency,DiskNumber,Irp,ByteOffset,IrpFlags,MajorFunction,MinorFunction,RoutineAddr,FileObject,DeviceObject`
+`Ts,Pid,ThreadId,Comm,Sector,Operation,TraceSize,Latency,DiskNumber,Irp,IrpFlags`
 
 **Fields:**
 
-| Field           | Description                               | Notes                                                                                                                                                                                                                                                                                                                                  |
-| :-------------- | :---------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Ts`            | Timestamp (UTC)                           | Format: `yyyy-MM-dd HH:mm:ss.fff`                                                                                                                                                                                                                                                                                                      |
-| `Pid`           | Process ID                                |                                                                                                                                                                                                                                                                                                                                        |
-| `ThreadId`      | Thread ID                                 |                                                                                                                                                                                                                                                                                                                                        |
-| `Comm`          | Command/Process name                      |                                                                                                                                                                                                                                                                                                                                        |
-| `Sector`        | Logical sector number on the disk         |                                                                                                                                                                                                                                                                                                                                        |
-| `Operation`     | Operation type                            | Values: `read`, `write`, `flush`, `driver_call`, `driver_return`, `driver_completion`, `driver_complete_req`, `driver_complete_req_ret`                                                                                                                                                                                                |
-| `TraceSize`     | Size of the I/O request (bytes)           |                                                                                                                                                                                                                                                                                                                                        |
-| `Latency`       | Duration of the operation in milliseconds |                                                                                                                                                                                                                                                                                                                                        |
-| `DiskNumber`    | Disk number                               |                                                                                                                                                                                                                                                                                                                                        |
-| `Irp`           | I/O Request Packet pointer                | Hex format: `0x...`                                                                                                                                                                                                                                                                                                                    |
-| `ByteOffset`    | Byte offset on disk                       |                                                                                                                                                                                                                                                                                                                                        |
-| `IrpFlags`      | IRP Flags                                 | Piped string. Possible values: `Nocache`, `PagingIo`, `SynchronousApi`, `AssociatedIrp`, `BufferedIO`, `DeallocateBuffer`, `SynchronousPagingIO`, `Create`, `Read`, `Write`, `Close`, `DeferIOCompletion`, `ObQueryName`, `HoldDeviceQueue`, `Priority:Low`, `Priority:Normal`, `Priority:High`, `Priority:Critical`, `Priority:<val>` |
-| `MajorFunction` | Major Function Code                       | Integer value (e.g. IRP_MJ_READ)                                                                                                                                                                                                                                                                                                       |
-| `MinorFunction` | Minor Function Code                       | Integer value                                                                                                                                                                                                                                                                                                                          |
-| `RoutineAddr`   | Driver Routine Address                    | Hex format: `0x...`                                                                                                                                                                                                                                                                                                                    |
-| `FileObject`    | File Object Pointer                       | Hex format: `0x...`                                                                                                                                                                                                                                                                                                                    |
-| `DeviceObject`  | Device Object Pointer                     | Hex format: `0x...`                                                                                                                                                                                                                                                                                                                    |
+| Field        | Description                               | Notes                             |
+| :----------- | :---------------------------------------- | :-------------------------------- |
+| `Ts`         | Timestamp (UTC)                           | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `Pid`        | Process ID                                |                                   |
+| `ThreadId`   | Thread ID                                 |                                   |
+| `Comm`       | Command/Process name                      |                                   |
+| `Sector`     | Logical sector number on the disk         |                                   |
+| `Operation`  | Operation type                            | Values: `read`, `write`, `flush`  |
+| `TraceSize`  | Size of the I/O request (bytes)           |                                   |
+| `Latency`    | Duration of the operation in milliseconds |                                   |
+| `DiskNumber` | Disk number                               |                                   |
+| `Irp`        | I/O Request Packet pointer                | Hex format: `0x...`               |
+
+| `IrpFlags` | IRP Flags | Piped string. Possible values: `Nocache`, `PagingIo`, `SynchronousApi`, `AssociatedIrp`, `BufferedIO`, `DeallocateBuffer`, `SynchronousPagingIO`, `Create`, `Read`, `Write`, `Close`, `DeferIOCompletion`, `ObQueryName`, `HoldDeviceQueue`, `Priority:Low`, `Priority:Normal`, `Priority:High`, `Priority:Critical`, `Priority:<val>` |
 
 **Example:**
 
 ```csv
-2026-02-08 23:23:45.123,1234,5678,notepad.exe,1024345,read,4096,0.5,0,0xFFFF800012345678,524464640,Nocache|PagingIo|Priority:Normal,3,0,0xFFFFF80012345678,0xFFFF800087654321,0xFFFF800012345678
+2026-02-08 23:23:45.123,1234,5678,notepad.exe,1024345,read,4096,0.5,0,0xFFFF800012345678,Nocache|PagingIo|Priority:Normal
 ```

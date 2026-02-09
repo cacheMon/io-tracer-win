@@ -17,6 +17,7 @@ namespace IOTracesCORE
         private string ds_filepath;
         private string mr_filepath;
         private string nw_filepath;
+        private string driver_filepath;
         private string fs_snap_filepath;
         private string process_snap_filepath;
 
@@ -24,6 +25,7 @@ namespace IOTracesCORE
         private readonly StringBuilder ds_sb;
         private readonly StringBuilder mr_sb;
         private readonly StringBuilder nw_sb;
+        private readonly StringBuilder driver_sb;
         private readonly StringBuilder fs_snap_sb;
         private readonly StringBuilder process_snap_sb;
 
@@ -50,6 +52,7 @@ namespace IOTracesCORE
             ds_sb = new StringBuilder();
             mr_sb = new StringBuilder();
             nw_sb = new StringBuilder();
+            driver_sb = new StringBuilder();
             fs_snap_sb = new StringBuilder();
             process_snap_sb = new StringBuilder();
 
@@ -62,6 +65,7 @@ namespace IOTracesCORE
             ds_filepath = GenerateFilePath("ds");
             mr_filepath = GenerateFilePath("mr");
             nw_filepath = GenerateFilePath("nw");
+            driver_filepath = GenerateFilePath("driver");
             process_snap_filepath = GenerateFilePath("process");
             fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
             this.is_anonymous = is_anonymous;
@@ -76,6 +80,7 @@ namespace IOTracesCORE
             string? ds_folder = Path.GetDirectoryName(ds_filepath) ?? throw new Exception("Invalid directory path.");
             string? mr_folder = Path.GetDirectoryName(mr_filepath) ?? throw new Exception("Invalid directory path.");
             string? nw_folder = Path.GetDirectoryName(nw_filepath) ?? throw new Exception("Invalid directory path.");
+            string? driver_folder = Path.GetDirectoryName(driver_filepath) ?? throw new Exception("Invalid directory path.");
             string? proc_snap_folder = Path.GetDirectoryName(process_snap_filepath) ?? throw new Exception("Invalid directory path.");
             string? fs_snap_folder = Path.GetDirectoryName(fs_snap_filepath) ?? throw new Exception("Invalid directory path.");
 
@@ -85,6 +90,7 @@ namespace IOTracesCORE
             EnsureDirectoryExists(proc_snap_folder);
             EnsureDirectoryExists(fs_snap_folder);
             EnsureDirectoryExists(nw_folder);
+            EnsureDirectoryExists(driver_folder);
             //if(!Directory.Exists(mr_folder))
             //{
             //    Directory.CreateDirectory(mr_folder);
@@ -194,7 +200,7 @@ namespace IOTracesCORE
             }
             disk_event_counter += 1;
             ds_sb.Append(data.FormatAsCsv());
-            DebugLogger.LogRaw(data.FormatAsCsv());
+            // DebugLogger.LogRaw(data.FormatAsCsv());
             if (IsTimeToFlush(ds_sb))
             {
                 FlushWrite(ds_sb, ds_filepath, "disk");
@@ -220,6 +226,29 @@ namespace IOTracesCORE
             if (IsTimeToFlush(nw_sb))
             {
                 FlushWrite(nw_sb, nw_filepath, "network");
+            }
+        }
+
+        public void Write(DriverTrace data)
+        {
+            if (data.Comm.Equals("IOTracesCORE"))
+            {
+                return;
+            }
+
+            string process_name = EscapeCsvField(data.Comm);
+
+            if (process_name.Equals("IOTracesCORE"))
+            {
+                return;
+            }
+
+            driver_sb.Append(data.FormatAsCsv());
+            DebugLogger.LogRaw(data.FormatAsCsv());
+
+            if (IsTimeToFlush(driver_sb))
+            {
+                FlushWrite(driver_sb, driver_filepath, "driver");
             }
         }
 
@@ -271,6 +300,11 @@ namespace IOTracesCORE
             {
                 old_fp = nw_filepath;
                 nw_filepath = GenerateFilePath("nw");
+            }
+            else if (tracetype.Equals("driver"))
+            {
+                old_fp = driver_filepath;
+                driver_filepath = GenerateFilePath("driver");
             }
             else
             {
@@ -459,6 +493,7 @@ namespace IOTracesCORE
             FlushWrite(process_snap_sb, process_snap_filepath, "process");
             FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
             FlushWrite(nw_sb, nw_filepath, "network");
+            FlushWrite(driver_sb, driver_filepath, "driver");
             Debug.WriteLine("Flushed all StringBuilders.");
 
             WriteStatus();

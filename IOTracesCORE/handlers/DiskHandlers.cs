@@ -65,8 +65,8 @@ namespace IOTracesCORE.handlers
                         traceSize: data.TransferSize,
                         latency: latency,
                         diskNumber: data.DiskNumber,
-                        irp: irp,
-                        byteOffset: data.ByteOffset
+                        irp: irp
+
                     );
 
                 wm.Write(dt);
@@ -104,8 +104,8 @@ namespace IOTracesCORE.handlers
                         traceSize: data.TransferSize,
                         latency: latency,
                         diskNumber: data.DiskNumber,
-                        irp: irp,
-                        byteOffset: data.ByteOffset
+                        irp: irp
+
                     );
 
                 wm.Write(dt);
@@ -151,134 +151,7 @@ namespace IOTracesCORE.handlers
             wm.Write(dt);
         }
 
-        private ulong GetUlongPayload(Microsoft.Diagnostics.Tracing.TraceEvent data, string name)
-        {
-            var val = data.PayloadByName(name);
-            if (val == null) return 0;
-            try { return Convert.ToUInt64(val); } catch { return 0; }
-        }
 
-        private int GetIntPayload(Microsoft.Diagnostics.Tracing.TraceEvent data, string name)
-        {
-            var val = data.PayloadByName(name);
-            if (val == null) return -1;
-            try { return Convert.ToInt32(val); } catch { return -1; }
-        }
-
-        public void OnDriverMajorFunctionCall(DriverMajorFunctionCallTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-
-            DiskTrace dt = new DiskTrace(
-                ts: data.TimeStamp,
-                pid: data.ProcessID,
-                threadId: data.ThreadID,
-                comm: data.ProcessName,
-                sector: 0,
-                operation: "driver_call",
-                traceSize: 0,
-                latency: 0,
-                irp: GetUlongPayload(data, "Irp"),
-                majorFunction: GetIntPayload(data, "MajorFunction"),
-                minorFunction: GetIntPayload(data, "MinorFunction"),
-                routineAddr: GetUlongPayload(data, "RoutineAddr"),
-                fileObject: GetUlongPayload(data, "FileObject"),
-                deviceObject: GetUlongPayload(data, "DeviceObject")
-            );
-            wm.Write(dt);
-        }
-
-        public void OnDriverMajorFunctionReturn(DriverMajorFunctionReturnTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-
-            DiskTrace dt = new DiskTrace(
-               ts: data.TimeStamp,
-               pid: data.ProcessID,
-               threadId: data.ThreadID,
-               comm: data.ProcessName,
-               sector: 0,
-               operation: "driver_return",
-               traceSize: 0,
-               latency: 0,
-               irp: GetUlongPayload(data, "Irp"),
-               majorFunction: GetIntPayload(data, "MajorFunction"),
-               minorFunction: GetIntPayload(data, "MinorFunction"),
-               routineAddr: GetUlongPayload(data, "RoutineAddr"),
-               fileObject: GetUlongPayload(data, "FileObject"),
-               deviceObject: GetUlongPayload(data, "DeviceObject")
-           );
-            wm.Write(dt);
-        }
-
-        public void OnDriverCompletionRoutine(DriverCompletionRoutineTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-
-            DiskTrace dt = new DiskTrace(
-               ts: data.TimeStamp,
-               pid: data.ProcessID,
-               threadId: data.ThreadID,
-               comm: data.ProcessName,
-               sector: 0,
-               operation: "driver_completion",
-               traceSize: 0,
-               latency: 0,
-               irp: GetUlongPayload(data, "Irp"),
-               majorFunction: GetIntPayload(data, "MajorFunction"),
-               minorFunction: GetIntPayload(data, "MinorFunction"),
-               routineAddr: GetUlongPayload(data, "RoutineAddr"),
-               fileObject: GetUlongPayload(data, "FileObject"),
-               deviceObject: GetUlongPayload(data, "DeviceObject")
-           );
-            wm.Write(dt);
-        }
-
-        public void OnDriverCompleteRequest(DriverCompleteRequestTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-
-            DiskTrace dt = new DiskTrace(
-               ts: data.TimeStamp,
-               pid: data.ProcessID,
-               threadId: data.ThreadID,
-               comm: data.ProcessName,
-               sector: 0,
-               operation: "driver_complete_req",
-               traceSize: 0,
-               latency: 0,
-               irp: GetUlongPayload(data, "Irp"),
-               majorFunction: GetIntPayload(data, "MajorFunction"),
-               minorFunction: GetIntPayload(data, "MinorFunction"),
-               routineAddr: GetUlongPayload(data, "RoutineAddr"),
-               fileObject: GetUlongPayload(data, "FileObject"),
-               deviceObject: GetUlongPayload(data, "DeviceObject")
-           );
-            wm.Write(dt);
-        }
-
-        public void OnDriverCompleteRequestReturn(DriverCompleteRequestReturnTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-
-            DiskTrace dt = new DiskTrace(
-               ts: data.TimeStamp,
-               pid: data.ProcessID,
-               threadId: data.ThreadID,
-               comm: data.ProcessName,
-               sector: 0,
-               operation: "driver_complete_req_ret",
-               traceSize: 0,
-               latency: 0,
-               irp: GetUlongPayload(data, "Irp"),
-               majorFunction: GetIntPayload(data, "MajorFunction"),
-               minorFunction: GetIntPayload(data, "MinorFunction"),
-               routineAddr: GetUlongPayload(data, "RoutineAddr"),
-               fileObject: GetUlongPayload(data, "FileObject"),
-               deviceObject: GetUlongPayload(data, "DeviceObject")
-           );
-            wm.Write(dt);
-        }
 
     }
 }
