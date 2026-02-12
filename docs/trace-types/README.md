@@ -10,3 +10,4 @@ This directory contains documentation for the different trace types captured by 
 - [Memory Trace (`MEMORY`)](memory.md) - Captures memory-related events.
 - [Process Snapshot (`PROCESS`)](process.md) - Periodic snapshot of running processes.
 - [Filesystem Snapshot (`FILESYSTEM_SNAPSHOT`)](filesystem-snapshot.md) - Snapshot of file system state (metadata).
+- [System Snapshot](system-snapshot.md) - Hardware and software specifications captured at trace start.

@@ -3,17 +3,178 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Management;
+using System.Net;
 using System.Net.Http;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace IOTracesCORE.snapper
 {
+    #region JSON Schema Classes
+    internal class CpuInfo
+    {
+        [JsonPropertyName("brand")]
+        public string? Brand { get; set; }
+
+        [JsonPropertyName("cores_logical")]
+        public int CoresLogical { get; set; }
+
+        [JsonPropertyName("cores_physical")]
+        public int CoresPhysical { get; set; }
+
+        [JsonPropertyName("frequency_mhz")]
+        public double? FrequencyMhz { get; set; }
+
+        [JsonPropertyName("frequency_min_mhz")]
+        public double? FrequencyMinMhz { get; set; }
+
+        [JsonPropertyName("frequency_max_mhz")]
+        public double? FrequencyMaxMhz { get; set; }
+    }
+
+    internal class MemoryInfo
+    {
+        [JsonPropertyName("total_bytes")]
+        public long TotalBytes { get; set; }
+
+        [JsonPropertyName("available_bytes")]
+        public long AvailableBytes { get; set; }
+
+        [JsonPropertyName("used_bytes")]
+        public long UsedBytes { get; set; }
+
+        [JsonPropertyName("percent_used")]
+        public double PercentUsed { get; set; }
+
+        [JsonPropertyName("total_gb")]
+        public double TotalGb { get; set; }
+
+        [JsonPropertyName("available_gb")]
+        public double AvailableGb { get; set; }
+
+        [JsonPropertyName("swap_total_bytes")]
+        public long SwapTotalBytes { get; set; }
+
+        [JsonPropertyName("swap_used_bytes")]
+        public long SwapUsedBytes { get; set; }
+
+        [JsonPropertyName("swap_free_bytes")]
+        public long SwapFreeBytes { get; set; }
+    }
+
+    internal class PartitionInfo
+    {
+        [JsonPropertyName("device")]
+        public string Device { get; set; } = "";
+
+        [JsonPropertyName("mountpoint")]
+        public string Mountpoint { get; set; } = "";
+
+        [JsonPropertyName("fstype")]
+        public string Fstype { get; set; } = "";
+
+        [JsonPropertyName("opts")]
+        public string Opts { get; set; } = "";
+
+        [JsonPropertyName("total_bytes")]
+        public long TotalBytes { get; set; }
+
+        [JsonPropertyName("used_bytes")]
+        public long UsedBytes { get; set; }
+
+        [JsonPropertyName("free_bytes")]
+        public long FreeBytes { get; set; }
+
+        [JsonPropertyName("percent_used")]
+        public double PercentUsed { get; set; }
+    }
+
+    internal class DiskInfo
+    {
+        [JsonPropertyName("storage_devices")]
+        public List<string> StorageDevices { get; set; } = new();
+
+        [JsonPropertyName("partitions")]
+        public List<PartitionInfo> Partitions { get; set; } = new();
+
+        [JsonPropertyName("gpus")]
+        public List<string> Gpus { get; set; } = new();
+    }
+
+    internal class NetworkAddress
+    {
+        [JsonPropertyName("family")]
+        public string Family { get; set; } = "";
+
+        [JsonPropertyName("address")]
+        public string Address { get; set; } = "";
+
+        [JsonPropertyName("netmask")]
+        public string? Netmask { get; set; }
+
+        [JsonPropertyName("broadcast")]
+        public string? Broadcast { get; set; }
+    }
+
+    internal class NetworkInterface
+    {
+        [JsonPropertyName("addresses")]
+        public List<NetworkAddress> Addresses { get; set; } = new();
+
+        [JsonPropertyName("is_up")]
+        public bool IsUp { get; set; }
+
+        [JsonPropertyName("speed_mbps")]
+        public long? SpeedMbps { get; set; }
+
+        [JsonPropertyName("mtu")]
+        public int Mtu { get; set; }
+    }
+
+    internal class NetworkInfo
+    {
+        [JsonPropertyName("interfaces")]
+        public Dictionary<string, NetworkInterface> Interfaces { get; set; } = new();
+
+        [JsonPropertyName("hostname")]
+        public string Hostname { get; set; } = "";
+    }
+
+    internal class OsInfo
+    {
+        [JsonPropertyName("system")]
+        public string System { get; set; } = "";
+
+        [JsonPropertyName("release")]
+        public string Release { get; set; } = "";
+
+        [JsonPropertyName("version")]
+        public string Version { get; set; } = "";
+
+        [JsonPropertyName("machine")]
+        public string Machine { get; set; } = "";
+
+        [JsonPropertyName("hostname")]
+        public string Hostname { get; set; } = "";
+
+        [JsonPropertyName("country")]
+        public string Country { get; set; } = "";
+    }
+    #endregion
+
     internal class SystemSnapper
     {
         private readonly WriterManager wm;
         private static readonly HttpClient httpClient = new HttpClient() { Timeout = TimeSpan.FromSeconds(10) };
+        private static readonly JsonSerializerOptions jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            DefaultIgnoreCondition = JsonIgnoreCondition.Never
+        };
 
         public SystemSnapper(WriterManager wm)
         {
@@ -22,54 +183,182 @@ namespace IOTracesCORE.snapper
 
         public void CaptureSpecSnapshot()
         {
-            StringBuilder sb = new();
             Console.WriteLine("Capturing system specification...");
 
-            
-
-            // --- OS / Machine ---
-            var (osCaption, osVersion, osBuild) = GetOsInfo();
-            sb.AppendLine($"System: {osCaption}");
-            sb.AppendLine($"Version: {osVersion} (Build {osBuild})");
-            sb.AppendLine($"Machine: {Environment.Is64BitOperatingSystem switch { true => "x64", false => "x86" }}");
-
-            // --- Location (IP-based) ---
+            // Get country code once for all files
             string countryCode = GetCountryCodeFromIp();
-            sb.AppendLine($"Country: {countryCode}");
-            sb.AppendLine();
 
-            // --- CPU ---
-            var (cpuName, physicalCores, logicalCores, maxMhz) = GetCpuInfo();
-            sb.AppendLine($"CPU Brand: {cpuName}");
-            sb.AppendLine($"CPU Cores (logical): {logicalCores}");
-            sb.AppendLine($"CPU Cores (physical): {physicalCores}");
-            sb.AppendLine($"CPU Max Frequency: {(maxMhz.HasValue ? $"{maxMhz} MHz" : "N/A")}");
-            sb.AppendLine();
+            // Capture CPU info
+            var cpuInfo = CaptureCpuInfo();
+            string cpuJson = JsonSerializer.Serialize(cpuInfo, jsonOptions);
+            wm.DirectWrite("cpu_info.json", cpuJson);
 
-            // --- Memory ---
-            var (totalGb, freeGb) = GetMemoryInfo();
-            sb.AppendLine($"Total Memory: {totalGb:0.##} GB");
-            sb.AppendLine($"Available Memory: {freeGb:0.##} GB");
-            sb.AppendLine();
+            // Capture Memory info
+            var memoryInfo = CaptureMemoryInfo();
+            string memoryJson = JsonSerializer.Serialize(memoryInfo, jsonOptions);
+            wm.DirectWrite("memory_info.json", memoryJson);
 
-            // --- GPU(s) ---
-            var gpus = GetGpuNames();
-            sb.AppendLine($"GPUs: {(gpus.Length == 0 ? "None detected" : string.Join(", ", gpus))}");
+            // Capture Disk info (includes GPUs)
+            var diskInfo = CaptureDiskInfo();
+            string diskJson = JsonSerializer.Serialize(diskInfo, jsonOptions);
+            wm.DirectWrite("disk_info.json", diskJson);
 
-            // --- Storage ---
-            var disks = GetDisks();
-            sb.AppendLine("Storages:");
-            if (disks.Length == 0)
-            {
-                sb.AppendLine("Could not detect");
-            }
-            else
-            {
-                foreach (var d in disks)
-                    sb.AppendLine($"{d.model}  {PrettySize(d.sizeBytes)}");
-            }
-            wm.DirectWrite($"spec_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt", sb.ToString());
+            // Capture Network info
+            var networkInfo = CaptureNetworkInfo();
+            string networkJson = JsonSerializer.Serialize(networkInfo, jsonOptions);
+            wm.DirectWrite("network_info.json", networkJson);
+
+            // Capture OS info
+            var osInfo = CaptureOsInfo(countryCode);
+            string osJson = JsonSerializer.Serialize(osInfo, jsonOptions);
+            wm.DirectWrite("os_info.json", osJson);
+
             Console.WriteLine("Capturing system specification complete!");
+        }
+
+        private CpuInfo CaptureCpuInfo()
+        {
+            var (cpuName, physicalCores, logicalCores, maxMhz) = GetCpuInfo();
+
+            return new CpuInfo
+            {
+                Brand = cpuName,
+                CoresLogical = logicalCores,
+                CoresPhysical = physicalCores,
+                FrequencyMhz = maxMhz,
+                FrequencyMinMhz = null, // Windows WMI doesn't easily provide min frequency
+                FrequencyMaxMhz = maxMhz
+            };
+        }
+
+        private MemoryInfo CaptureMemoryInfo()
+        {
+            var (totalKb, freeKb) = GetMemoryInfoRaw();
+
+            long totalBytes = totalKb * 1024L;
+            long availableBytes = freeKb * 1024L;
+            long usedBytes = totalBytes - availableBytes;
+            double percentUsed = totalBytes > 0 ? (usedBytes * 100.0 / totalBytes) : 0;
+            double totalGb = totalBytes / 1024.0 / 1024.0 / 1024.0;
+            double availableGb = availableBytes / 1024.0 / 1024.0 / 1024.0;
+
+            // Get page file (swap) info
+            var (swapTotal, swapFree) = GetPageFileInfo();
+            long swapUsed = swapTotal - swapFree;
+
+            return new MemoryInfo
+            {
+                TotalBytes = totalBytes,
+                AvailableBytes = availableBytes,
+                UsedBytes = usedBytes,
+                PercentUsed = Math.Round(percentUsed, 1),
+                TotalGb = Math.Round(totalGb, 2),
+                AvailableGb = Math.Round(availableGb, 2),
+                SwapTotalBytes = swapTotal,
+                SwapUsedBytes = swapUsed,
+                SwapFreeBytes = swapFree
+            };
+        }
+
+        private DiskInfo CaptureDiskInfo()
+        {
+            var diskInfo = new DiskInfo();
+
+            // Storage devices
+            var disks = GetDisks();
+            foreach (var d in disks)
+            {
+                diskInfo.StorageDevices.Add($"{d.model}  {PrettySize(d.sizeBytes)}");
+            }
+
+            // Partitions (logical drives)
+            var partitions = GetPartitions();
+            diskInfo.Partitions.AddRange(partitions);
+
+            // GPUs
+            var gpus = GetGpuNames();
+            diskInfo.Gpus.AddRange(gpus);
+
+            return diskInfo;
+        }
+
+        private NetworkInfo CaptureNetworkInfo()
+        {
+            var networkInfo = new NetworkInfo
+            {
+                Hostname = Dns.GetHostName()
+            };
+
+            var interfaces = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces();
+
+            foreach (var iface in interfaces)
+            {
+                var netInterface = new NetworkInterface
+                {
+                    IsUp = iface.OperationalStatus == OperationalStatus.Up,
+                    SpeedMbps = iface.Speed > 0 ? iface.Speed / 1_000_000 : null,
+                    Mtu = GetMtu(iface)
+                };
+
+                // Get IP addresses
+                var ipProps = iface.GetIPProperties();
+                foreach (var addr in ipProps.UnicastAddresses)
+                {
+                    if (addr.Address.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        netInterface.Addresses.Add(new NetworkAddress
+                        {
+                            Family = "AF_INET",
+                            Address = addr.Address.ToString(),
+                            Netmask = addr.IPv4Mask?.ToString(),
+                            Broadcast = null
+                        });
+                    }
+                    else if (addr.Address.AddressFamily == AddressFamily.InterNetworkV6)
+                    {
+                        netInterface.Addresses.Add(new NetworkAddress
+                        {
+                            Family = "AF_INET6",
+                            Address = addr.Address.ToString(),
+                            Netmask = null,
+                            Broadcast = null
+                        });
+                    }
+                }
+
+                // Get MAC address
+                var mac = iface.GetPhysicalAddress();
+                if (mac != null && mac.ToString().Length > 0)
+                {
+                    string macStr = string.Join(":", mac.GetAddressBytes().Select(b => b.ToString("x2")));
+                    netInterface.Addresses.Add(new NetworkAddress
+                    {
+                        Family = "AF_PACKET",
+                        Address = macStr,
+                        Netmask = null,
+                        Broadcast = null
+                    });
+                }
+
+                networkInfo.Interfaces[iface.Name] = netInterface;
+            }
+
+            return networkInfo;
+        }
+
+        private OsInfo CaptureOsInfo(string countryCode)
+        {
+            var (osCaption, osVersion, osBuild) = GetOsInfo();
+
+            return new OsInfo
+            {
+                System = "Windows",
+                Release = osVersion,
+                Version = $"{osCaption} (Build {osBuild})",
+                Machine = Environment.Is64BitOperatingSystem ? "x64" : "x86",
+                Hostname = Dns.GetHostName(),
+                Country = countryCode
+            };
         }
 
         private string GetCountryCodeFromIp()
@@ -163,21 +452,97 @@ namespace IOTracesCORE.snapper
             return (name, physSum, logSum, maxMhz);
         }
 
-        (double totalGb, double freeGb) GetMemoryInfo()
+        (long totalKb, long freeKb) GetMemoryInfoRaw()
         {
             using var mos = new ManagementObjectSearcher("SELECT TotalVisibleMemorySize,FreePhysicalMemory FROM Win32_OperatingSystem");
             using var results = mos.Get();
             var mo = results.Cast<ManagementObject>().FirstOrDefault();
 
-            static double KBtoGB(ulong kb) => kb / 1024.0 / 1024.0;
-
             if (mo != null &&
                 ulong.TryParse(mo["TotalVisibleMemorySize"]?.ToString(), out var totalKb) &&
                 ulong.TryParse(mo["FreePhysicalMemory"]?.ToString(), out var freeKb))
             {
-                return (KBtoGB(totalKb), KBtoGB(freeKb));
+                return ((long)totalKb, (long)freeKb);
             }
             return (0, 0);
+        }
+
+        (long totalBytes, long freeBytes) GetPageFileInfo()
+        {
+            try
+            {
+                using var mos = new ManagementObjectSearcher("SELECT AllocatedBaseSize,CurrentUsage FROM Win32_PageFileUsage");
+                using var results = mos.Get();
+
+                long totalBytes = 0;
+                long usedBytes = 0;
+
+                foreach (ManagementObject mo in results)
+                {
+                    if (uint.TryParse(mo["AllocatedBaseSize"]?.ToString(), out var allocated))
+                        totalBytes += allocated * 1024L * 1024L; // MB to bytes
+                    if (uint.TryParse(mo["CurrentUsage"]?.ToString(), out var current))
+                        usedBytes += current * 1024L * 1024L; // MB to bytes
+                }
+
+                return (totalBytes, totalBytes - usedBytes);
+            }
+            catch
+            {
+                return (0, 0);
+            }
+        }
+
+        List<PartitionInfo> GetPartitions()
+        {
+            var partitions = new List<PartitionInfo>();
+
+            try
+            {
+                var drives = DriveInfo.GetDrives();
+                foreach (var drive in drives)
+                {
+                    if (drive.IsReady)
+                    {
+                        long totalBytes = drive.TotalSize;
+                        long freeBytes = drive.AvailableFreeSpace;
+                        long usedBytes = totalBytes - freeBytes;
+                        double percentUsed = totalBytes > 0 ? (usedBytes * 100.0 / totalBytes) : 0;
+
+                        partitions.Add(new PartitionInfo
+                        {
+                            Device = drive.Name,
+                            Mountpoint = drive.RootDirectory.FullName,
+                            Fstype = drive.DriveFormat,
+                            Opts = drive.DriveType.ToString(),
+                            TotalBytes = totalBytes,
+                            UsedBytes = usedBytes,
+                            FreeBytes = freeBytes,
+                            PercentUsed = Math.Round(percentUsed, 1)
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error getting partitions: {ex.Message}");
+            }
+
+            return partitions;
+        }
+
+        int GetMtu(System.Net.NetworkInformation.NetworkInterface iface)
+        {
+            try
+            {
+                var ipProps = iface.GetIPProperties();
+                var ipv4Props = ipProps.GetIPv4Properties();
+                return ipv4Props.Mtu;
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         string[] GetGpuNames()
