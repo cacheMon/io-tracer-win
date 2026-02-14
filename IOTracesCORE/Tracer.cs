@@ -252,58 +252,58 @@ namespace IOTracesCORE
                     kernel.TcpIpRetransmit += nwHandler.OnRetransmit;
                     kernel.TcpIpFail += nwHandler.OnFail;
 
-                    kernel.MemoryHardFault += memHandler.OnMemoryHardFault;
-                    kernel.MemoryTransitionFault += memHandler.OnMemoryTransitionFault;
-                    kernel.MemoryDemandZeroFault += memHandler.OnMemoryDemandZeroFault;
-                    kernel.MemoryCopyOnWrite += memHandler.OnMemoryCopyOnWrite;
-                    kernel.MemoryAccessViolation += memHandler.OnMemoryAccessViolation;
-                    kernel.MemoryGuardMemory += memHandler.OnMemoryGuardMemory;
-                    kernel.VirtualMemAlloc += memHandler.OnVirtualMemAlloc;
-                    kernel.VirtualMemFree += memHandler.OnVirtualMemFree;
+                    // kernel.MemoryHardFault += memHandler.OnMemoryHardFault;
+                    // kernel.MemoryTransitionFault += memHandler.OnMemoryTransitionFault;
+                    // kernel.MemoryDemandZeroFault += memHandler.OnMemoryDemandZeroFault;
+                    // kernel.MemoryCopyOnWrite += memHandler.OnMemoryCopyOnWrite;
+                    // kernel.MemoryAccessViolation += memHandler.OnMemoryAccessViolation;
+                    // kernel.MemoryGuardMemory += memHandler.OnMemoryGuardMemory;
+                    // kernel.VirtualMemAlloc += memHandler.OnVirtualMemAlloc;
+                    // kernel.VirtualMemFree += memHandler.OnVirtualMemFree;
 
                     // Extneded Cache Handlers
-                    kernel.FileIORead += cacheHandler.OnCacheRead;
-                    kernel.FileIOWrite += cacheHandler.OnCacheWrite;
-                    kernel.FileIOFlush += cacheHandler.OnCacheFlush;
-                    kernel.FileIOMapFile += cacheHandler.OnCacheMap;
-                    kernel.FileIOUnmapFile += cacheHandler.OnCacheUnmap;
+                    // kernel.FileIORead += cacheHandler.OnCacheRead;
+                    // kernel.FileIOWrite += cacheHandler.OnCacheWrite;
+                    // kernel.FileIOFlush += cacheHandler.OnCacheFlush;
+                    // kernel.FileIOMapFile += cacheHandler.OnCacheMap;
+                    // kernel.FileIOUnmapFile += cacheHandler.OnCacheUnmap;
 
-                    kernel.VirtualMemAlloc += cacheHandler.OnWorkingSetExpansion;
+                    // kernel.VirtualMemAlloc += cacheHandler.OnWorkingSetExpansion;
 
                     // Dynamic event handlers for Memory Manager provider
                     source.Dynamic.All += (TraceEvent data) =>
                     {
-                        if (data.ProviderName == "Microsoft-Windows-Kernel-Memory")
-                        {
-                            switch (data.EventName)
-                            {
-                                case "WorkingSetTrim":
-                                    cacheHandler.OnWorkingSetTrim(data);
-                                    break;
-                                case "ModifiedPageWrite":
-                                    cacheHandler.OnModifiedPageWrite(data);
-                                    break;
-                                case "ModifiedPageQueue":
-                                    cacheHandler.OnModifiedPageQueue(data);
-                                    break;
-                                case "StandbyInsert":
-                                    cacheHandler.OnStandbyInsert(data);
-                                    break;
-                                case "StandbyRemove":
-                                    cacheHandler.OnStandbyRemove(data);
-                                    break;
-                                case "LowMemory":
-                                    cacheHandler.OnLowMemory(data);
-                                    break;
-                                case "OutOfMemory":
-                                    cacheHandler.OnOutOfMemory(data);
-                                    break;
-                                case "PrefetchStart":
-                                    cacheHandler.OnPrefetchStart(data);
-                                    break;
-                            }
-                        }
-                        else if (data.ProviderName == "Microsoft-Windows-TCPIP")
+                        // if (data.ProviderName == "Microsoft-Windows-Kernel-Memory")
+                        // {
+                        //     switch (data.EventName)
+                        //     {
+                        //         case "WorkingSetTrim":
+                        //             cacheHandler.OnWorkingSetTrim(data);
+                        //             break;
+                        //         case "ModifiedPageWrite":
+                        //             cacheHandler.OnModifiedPageWrite(data);
+                        //             break;
+                        //         case "ModifiedPageQueue":
+                        //             cacheHandler.OnModifiedPageQueue(data);
+                        //             break;
+                        //         case "StandbyInsert":
+                        //             cacheHandler.OnStandbyInsert(data);
+                        //             break;
+                        //         case "StandbyRemove":
+                        //             cacheHandler.OnStandbyRemove(data);
+                        //             break;
+                        //         case "LowMemory":
+                        //             cacheHandler.OnLowMemory(data);
+                        //             break;
+                        //         case "OutOfMemory":
+                        //             cacheHandler.OnOutOfMemory(data);
+                        //             break;
+                        //         case "PrefetchStart":
+                        //             cacheHandler.OnPrefetchStart(data);
+                        //             break;
+                        //     }
+                        // }
+                        if (data.ProviderName == "Microsoft-Windows-TCPIP")
                         {
                             nwHandler.OnTcpHandshake(data);
                         }
