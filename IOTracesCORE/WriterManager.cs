@@ -30,6 +30,8 @@ namespace IOTracesCORE
         private readonly StringBuilder fs_snap_sb;
         private readonly StringBuilder process_snap_sb;
 
+        private int fs_snap_part_counter = 1;
+
         private ObjectStorageHandler obj_storage;
 
         private const double MEMORY_PRESSURE_RATIO = 0.01;
@@ -69,7 +71,7 @@ namespace IOTracesCORE
             nw_filepath = GenerateFilePath("nw");
             driver_filepath = GenerateFilePath("driver");
             process_snap_filepath = GenerateFilePath("process");
-            fs_snap_filepath = GenerateFilePath("filesystem_snapshot");
+            fs_snap_filepath = GenerateFilePathWithPart("filesystem_snapshot", fs_snap_part_counter);
             this.is_anonymous = is_anonymous;
 
             StartEventRateDetector();
@@ -297,9 +299,9 @@ namespace IOTracesCORE
             }
             else if (tracetype.Equals("filesystem_snapshot"))
             {
-                // For filesystem snapshot, we DO NOT rotate the file. 
-                // We keep appending to the same file.
+                // For filesystem snapshot, rotate the file with part numbers
                 old_fp = fs_snap_filepath;
+                fs_snap_filepath = GenerateFilePathWithPart("filesystem_snapshot", ++fs_snap_part_counter);
             }
             else if (tracetype.Equals("network"))
             {
@@ -317,9 +319,6 @@ namespace IOTracesCORE
             }
             _lastFlushUtc = DateTime.UtcNow;
 
-            // For filesystem_snapshot, we only want to write to the file, but NOT compress it yet.
-            // Compression happens at the very end of the run (CompressAllAsync).
-
             using (var writer = new StreamWriter(old_fp, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             {
                 writer.Write(sb);
@@ -327,12 +326,7 @@ namespace IOTracesCORE
 
             sb.Clear();
 
-            if (tracetype.Equals("filesystem_snapshot"))
-            {
-                // Do not compress yet.
-                return;
-            }
-
+            // Compress all trace types including filesystem_snapshot parts
             try
             {
                 string compressed_fp = CompressFile(old_fp);
@@ -526,24 +520,42 @@ namespace IOTracesCORE
         {
             Debug.WriteLine("Finalizing filesystem snapshot...");
             // Flush any remaining data in the buffer
-            FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+            if (fs_snap_sb.Length > 0)
+            {
+                FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+            }
 
-            // Explicitly compress the single filesystem snapshot file now
+            // Rename the last part file to include "complete" marker
             try
             {
-                if (File.Exists(fs_snap_filepath))
+                // Find the last compressed file (it should have been compressed by FlushWrite)
+                string lastCompressedFile = $"{fs_snap_filepath}.zst";
+                
+                if (File.Exists(lastCompressedFile))
                 {
-                    string compressed_snap = CompressFile(fs_snap_filepath);
+                    // Generate new name with "complete" marker
+                    string dir = Path.GetDirectoryName(lastCompressedFile) ?? dir_path;
+                    string filename = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(lastCompressedFile)); // Remove .csv.zst
+                    string newFilename = $"{filename}_complete_parts{fs_snap_part_counter}.csv.zst";
+                    string newPath = Path.Combine(dir, newFilename);
+                    
+                    File.Move(lastCompressedFile, newPath);
+                    
                     if (is_upload_automatically)
                     {
-                        obj_storage.QueueFile(compressed_snap);
+                        obj_storage.QueueFile(newPath);
                     }
-                    Debug.WriteLine($"Filesystem snapshot compressed to: {compressed_snap}");
+                    
+                    Debug.WriteLine($"Filesystem snapshot completed with {fs_snap_part_counter} parts. Final file: {newPath}");
+                }
+                else
+                {
+                    Debug.WriteLine($"Warning: Last compressed file not found: {lastCompressedFile}");
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error compressing filesystem snapshot: {ex.Message}");
+                Debug.WriteLine($"Error renaming final snapshot file: {ex.Message}");
             }
         }
 
@@ -551,6 +563,12 @@ namespace IOTracesCORE
         private string GenerateFilePath(string type)
         {
             string fs_name = $".\\{type}\\{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{PathHasher.deviceId}.csv";
+            return Path.Combine(dir_path, fs_name);
+        }
+
+        private string GenerateFilePathWithPart(string type, int partNumber)
+        {
+            string fs_name = $".\\{type}\\{type}_part{partNumber:D4}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{PathHasher.deviceId}.csv";
             return Path.Combine(dir_path, fs_name);
         }
 
