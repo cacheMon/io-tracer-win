@@ -516,13 +516,48 @@ namespace IOTracesCORE
             CompressRun();
         }
 
-        public void FinalizeFilesystemSnapshot()
+        public void FinalizeFilesystemSnapshot(bool isComplete)
         {
-            Debug.WriteLine("Finalizing filesystem snapshot...");
+            Debug.WriteLine($"Finalizing filesystem snapshot (complete: {isComplete})...");
+
             // Flush any remaining data in the buffer
             if (fs_snap_sb.Length > 0)
             {
                 FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+            }
+
+            if (!isComplete)
+            {
+                // Snapshot was interrupted - delete all part files
+                Debug.WriteLine("Snapshot was incomplete. Deleting all filesystem snapshot files...");
+
+                try
+                {
+                    string snapshotDir = Path.Combine(dir_path, "filesystem_snapshot");
+                    if (Directory.Exists(snapshotDir))
+                    {
+                        var files = Directory.GetFiles(snapshotDir, "filesystem_snapshot_part*.csv*");
+                        foreach (var file in files)
+                        {
+                            try
+                            {
+                                File.Delete(file);
+                                Debug.WriteLine($"Deleted incomplete snapshot file: {file}");
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"Error deleting file {file}: {ex.Message}");
+                            }
+                        }
+                        Debug.WriteLine($"Deleted {files.Length} incomplete snapshot file(s).");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error cleaning up incomplete snapshot files: {ex.Message}");
+                }
+
+                return;
             }
 
             // Rename the last part file to include "complete" marker
@@ -530,7 +565,7 @@ namespace IOTracesCORE
             {
                 // Find the last compressed file (it should have been compressed by FlushWrite)
                 string lastCompressedFile = $"{fs_snap_filepath}.zst";
-                
+
                 if (File.Exists(lastCompressedFile))
                 {
                     // Generate new name with "complete" marker
@@ -538,14 +573,14 @@ namespace IOTracesCORE
                     string filename = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(lastCompressedFile)); // Remove .csv.zst
                     string newFilename = $"{filename}_complete_parts{fs_snap_part_counter}.csv.zst";
                     string newPath = Path.Combine(dir, newFilename);
-                    
+
                     File.Move(lastCompressedFile, newPath);
-                    
+
                     if (is_upload_automatically)
                     {
                         obj_storage.QueueFile(newPath);
                     }
-                    
+
                     Debug.WriteLine($"Filesystem snapshot completed with {fs_snap_part_counter} parts. Final file: {newPath}");
                 }
                 else
@@ -556,6 +591,47 @@ namespace IOTracesCORE
             catch (Exception ex)
             {
                 Debug.WriteLine($"Error renaming final snapshot file: {ex.Message}");
+            }
+        }
+
+        public void FinalizeProcessSnapshot(bool isComplete)
+        {
+            Debug.WriteLine($"Finalizing process snapshot (complete: {isComplete})...");
+
+            if (!isComplete)
+            {
+                // Snapshot was interrupted - delete all process snapshot files
+                Debug.WriteLine("Process snapshot was incomplete. Deleting all process snapshot files...");
+
+                try
+                {
+                    string snapshotDir = Path.Combine(dir_path, "process");
+                    if (Directory.Exists(snapshotDir))
+                    {
+                        var files = Directory.GetFiles(snapshotDir, "process_*.csv*");
+                        foreach (var file in files)
+                        {
+                            try
+                            {
+                                File.Delete(file);
+                                Debug.WriteLine($"Deleted incomplete process snapshot file: {file}");
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"Error deleting file {file}: {ex.Message}");
+                            }
+                        }
+                        Debug.WriteLine($"Deleted {files.Length} incomplete process snapshot file(s).");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error cleaning up incomplete process snapshot files: {ex.Message}");
+                }
+            }
+            else
+            {
+                Debug.WriteLine("Process snapshot completed successfully.");
             }
         }
 

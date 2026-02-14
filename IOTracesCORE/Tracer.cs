@@ -104,6 +104,20 @@ namespace IOTracesCORE
 
                 await Task.Delay(1000);
 
+                // Check if filesystem snapshot completed before finalizing
+                if (!fsSnapper.IsSnapshotComplete())
+                {
+                    Debug.WriteLine("Filesystem snapshot was incomplete, cleaning up...");
+                    wm.FinalizeFilesystemSnapshot(false);
+                }
+
+                // Check if process snapshot completed before finalizing
+                if (!psHandler.IsSnapshotComplete())
+                {
+                    Debug.WriteLine("Process snapshot was incomplete, cleaning up...");
+                    wm.FinalizeProcessSnapshot(false);
+                }
+
                 await wm.CompressAllAsync();
 
                 Console.WriteLine("Cleanup completed successfully.");

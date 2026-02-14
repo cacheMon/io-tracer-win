@@ -15,6 +15,7 @@ namespace IOTracesCORE.snapper
     {
         private readonly WriterManager wm;
         private bool interrupted;
+        private bool snapshotCompleted;
         private readonly bool is_anonymouse;
 
         private readonly Dictionary<int, List<(DateTime ts, TimeSpan totalCpu)>> samples =
@@ -30,10 +31,16 @@ namespace IOTracesCORE.snapper
         {
             this.wm = wm;
             interrupted = false;
+            snapshotCompleted = false;
             this.is_anonymouse = is_anonymouse;
         }
 
         public void Stop() => interrupted = true;
+
+        public bool IsSnapshotComplete()
+        {
+            return snapshotCompleted;
+        }
 
         public void Run()
         {
@@ -50,8 +57,12 @@ namespace IOTracesCORE.snapper
                 }
 
                 // wait the base interval
-                Thread.Sleep((int)TimeSpan.FromSeconds(15).TotalMilliseconds);
+                Thread.Sleep((int)TimeSpan.FromMinutes(5).TotalMilliseconds);
             }
+
+            // Only mark as complete if we were stopped gracefully (not interrupted during startup)
+            // This ensures we captured at least some meaningful data
+            snapshotCompleted = true;
         }
 
         private void SampleAndWriteSnapshot()

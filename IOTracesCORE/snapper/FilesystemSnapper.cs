@@ -13,6 +13,7 @@ namespace IOTracesCORE.snapper
     {
         private WriterManager wm;
         private bool interrupted;
+        private bool snapshotCompleted;
         private readonly int hashLen = 16;
         private string scanRoot = "";
         private bool anonymouse;
@@ -21,6 +22,7 @@ namespace IOTracesCORE.snapper
         {
             this.wm = wm;
             interrupted = false;
+            snapshotCompleted = false;
             this.anonymouse = anonymouse;
             PrivilegeManager.EnableBackupPrivileges();
         }
@@ -30,12 +32,19 @@ namespace IOTracesCORE.snapper
             interrupted = true;
         }
 
+        public bool IsSnapshotComplete()
+        {
+            return snapshotCompleted;
+        }
+
         public void Run()
         {
             DriveInfo[] drives = DriveInfo.GetDrives();
             Console.WriteLine("Starting filesystem snapshot...");
             foreach (DriveInfo drive in drives)
             {
+                if (interrupted) return;
+
                 if (drive.IsReady)
                 {
                     Debug.WriteLine($"Scanning Drive: {drive.Name}");
@@ -44,8 +53,18 @@ namespace IOTracesCORE.snapper
                     Thread.Sleep(500);
                 }
             }
-            Console.WriteLine("Filesystem snapshot completed.");
-            wm.FinalizeFilesystemSnapshot();
+
+            // Only mark as complete if we weren't interrupted
+            if (!interrupted)
+            {
+                snapshotCompleted = true;
+                Debug.WriteLine("Filesystem snapshot completed.");
+                wm.FinalizeFilesystemSnapshot(true);
+            }
+            else
+            {
+                Debug.WriteLine("Filesystem snapshot was interrupted and is incomplete.");
+            }
         }
 
         private void TraverseDirectory(string rootPath)

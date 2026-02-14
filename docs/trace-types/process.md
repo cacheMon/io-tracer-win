@@ -1,6 +1,6 @@
 # Process Snapshot (`PROCESS`)
 
-Periodic snapshot of running processes.
+Periodic snapshot (5 minutes) of running processes.
 
 **CSV Header:**
 `Ts,ProcessId,Name,CommandLine,VirtualSize,WorkingSetSize,CreationDate,CpuUsage_5s,CpuUsage_2m,CpuUsage_1h`
