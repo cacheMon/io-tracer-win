@@ -227,8 +227,9 @@ namespace IOTracesCORE
             }
             //event_counter += 1;
             nw_sb.Append(data.FormatAsCsv());
-            if (IsTimeToFlush(nw_sb))
+            if (IsTimeToFlush(nw_sb, lowThreshold: true))
             {
+                Debug.WriteLine("Flushing network trace");
                 FlushWrite(nw_sb, nw_filepath, "network");
             }
         }
@@ -366,7 +367,7 @@ namespace IOTracesCORE
 
         }
 
-        private static bool IsTimeToFlush(StringBuilder sb, bool isSnap = false)
+        private static bool IsTimeToFlush(StringBuilder sb, bool isSnap = false, bool lowThreshold = false)
         {
             long sbBytes = sb.Length * sizeof(char);
 
@@ -383,10 +384,14 @@ namespace IOTracesCORE
             if (sbBytes >= adaptiveLimit)
                 return true;
 
-            if (DateTime.UtcNow - _lastFlushUtc >= MIN_FLUSH_INTERVAL &&
-                sbBytes > adaptiveLimit / 4)
+            if (DateTime.UtcNow - _lastFlushUtc >= MIN_FLUSH_INTERVAL)
             {
-                return true;
+                // For low-threshold trace types (e.g. network), flush any buffered data
+                if (lowThreshold && sbBytes > 0)
+                    return true;
+
+                if (sbBytes > adaptiveLimit / 4)
+                    return true;
             }
 
             return false;
