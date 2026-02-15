@@ -21,6 +21,8 @@ namespace IOTracesCORE.handlers
 
         private static string Clean(string s) => string.IsNullOrEmpty(s) ? "" : s.Trim();
 
+        private static bool IsIgnored(string s) => !string.IsNullOrEmpty(s) && s.Contains("IOTracer", StringComparison.OrdinalIgnoreCase);
+
         private string Resolve(ulong fileObject, string eventName)
         {
             var n = Clean(eventName);
@@ -30,9 +32,12 @@ namespace IOTracesCORE.handlers
 
         // Emit for simple operations with basic enhanced fields
         private void Emit(DateTime ts, string op, int pid, int tid, string proc, string name, int size,
-            ulong? irpPtr = null, ulong? fileKey = null) =>
+            ulong? irpPtr = null, ulong? fileKey = null)
+        {
+            if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
                 null, null, null, null, null, null, irpPtr, fileKey, null, null));
+        }
 
         // Extended emit for Create operations with all flags
         // NOTE: DesiredAccess is NOT captured here because it is not available in Windows ETW FileIO events.
@@ -42,7 +47,9 @@ namespace IOTracesCORE.handlers
         // To capture DesiredAccess, a minifilter driver would be required (like Process Monitor uses).
         private void EmitCreate(DateTime ts, string op, int pid, int tid, string proc, string name, int size,
             int createOptions, int shareAccess, int createDisposition, ulong irpPtr, ulong fileKey,
-            int fileAttributes) =>
+            int fileAttributes)
+        {
+            if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
                 FileIOFlags.FormatCreateOptions(createOptions),
                 FileIOFlags.FormatShareAccess(shareAccess),
@@ -50,26 +57,36 @@ namespace IOTracesCORE.handlers
                 null, null, null, irpPtr, fileKey,
                 FileIOFlags.FormatFileAttributes(fileAttributes),
                 null));
+        }
 
         // Extended emit for Read/Write operations with offset and IoFlags
         private void EmitReadWrite(DateTime ts, string op, int pid, int tid, string proc, string name, int size,
-            long offset, ulong irpPtr, ulong fileKey, int ioFlags) =>
+            long offset, ulong irpPtr, ulong fileKey, int ioFlags)
+        {
+            if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
                 null, null, null, offset, null, null, irpPtr, fileKey, null,
                 FileIOFlags.FormatIoFlags(ioFlags)));
+        }
 
         // Extended emit for MapFile operations with view size
         private void EmitMapFile(DateTime ts, string op, int pid, int tid, string proc, string name, ulong viewSize,
-            ulong? fileKey = null) =>
+            ulong? fileKey = null)
+        {
+            if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
                 null, null, null, null, (long)viewSize, null, null, fileKey, null, null));
+        }
 
         // Extended emit for Query/SetInfo operations with info class
         private void EmitWithInfoClass(DateTime ts, string op, int pid, int tid, string proc, string name,
-            int infoClass, ulong? irpPtr = null, ulong? fileKey = null) =>
+            int infoClass, ulong? irpPtr = null, ulong? fileKey = null)
+        {
+            if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
                 null, null, null, null, null, FileIOFlags.FormatInfoClass(infoClass),
                 irpPtr, fileKey, null, null));
+        }
 
 
         public void OnRead(FileIOReadWriteTraceData d)
