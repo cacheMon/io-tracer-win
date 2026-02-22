@@ -101,6 +101,23 @@ Type of information for `Query`/`Set` operations:
 - `FileNetworkOpenInformation`, `FileAttributeTagInformation`
 - ...and other `File*Information` values.
 
+## Known Limitations
+
+### `dir_notify` events may have empty `Filename`
+
+Windows ETW `DirNotify` events (fired when a process watches a directory for changes via `ReadDirectoryChangesW`) frequently have empty `FileName` and `DirectoryName` fields. This is a known ETW kernel provider limitation.
+
+**Root cause:** The `DirNotify` event represents an asynchronous change notification on a directory handle. Unlike other file I/O events (e.g., `create`, `read`, `write`), the ETW kernel provider does not reliably populate the file/directory name in the event payload. The fields `FileName`, `DirectoryName`, `FileObject`, and `FileKey` are all either empty or do not match entries from other event types (`FileIOName`, `FileIOFileRundown`, `FileIOFileCreate`).
+
+**Why standard resolution fails:**
+
+- `FileName` and `DirectoryName` on the `FileIODirEnumTraceData` are empty for `DirNotify` events.
+- `FileObject`-based cache (populated by `create` events) does not match because the directory handle used for notifications is separate from standard file handles.
+- `FileKey`-based cache (populated by `Name`/`FileRundown` events) fails because these events do not fire under the standard `FileIO | FileIOInit` kernel flags.
+- `DirEnum` directory cache (populated by `dir_enum` events) uses a different `FileObject` than `DirNotify` for the same directory.
+
+**Impact:** `dir_notify` rows in the CSV may have an empty `Filename` field.
+
 **Example:**
 
 ```csv
