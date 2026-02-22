@@ -145,6 +145,43 @@ Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Of
 
 ---
 
+## Cache-Based Filename Resolution
+
+Many ETW filesystem events (e.g., `read`, `write`, `flush`, `close`, `dir_notify`, `query_info`, `set_info`, `fs_control`) do **not** reliably include the filename. To work around this, the tracer maintains an in-memory `FileObject → Filename` cache (`nameByObj`) and uses a two-step resolution strategy via the `Resolve()` method:
+
+### Resolution Strategy
+
+For every event that carries a `FileObject` handle, the tracer resolves the filename as follows:
+
+1. **Event-supplied name first** — if the ETW event itself provides a non-empty `FileName`, that value is used directly.
+2. **Cache fallback** — if the event's `FileName` is empty, the tracer looks up the `FileObject` in the cache. If a mapping exists, the cached name is returned.
+3. **Empty result** — if neither source yields a name, the filename is recorded as an empty string.
+
+### Cache Lifecycle
+
+| Phase        | Trigger                        | Action                                                                       |
+| :----------- | :----------------------------- | :--------------------------------------------------------------------------- |
+| **Populate** | `create` event (`OnCreate`)    | Maps `FileObject → FileName` when the filename is non-empty.                 |
+| **Update**   | `rename` event (`OnRename`)    | Overwrites the mapping with the new filename after a rename.                 |
+| **Consume**  | Any I/O event (e.g., `OnRead`) | Calls `Resolve()` which reads from the cache when the event name is missing. |
+| **Evict**    | `close` event (`OnClose`)      | Removes the `FileObject` entry after the handle is closed.                   |
+
+### Which Operations Use the Cache
+
+| Uses cache (`Resolve()`)                                                                                                           | Does **not** use cache (name taken directly from event)                                   |
+| :--------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------- |
+| `read`, `write`, `flush`, `close`, `cleanup`, `delete`, `rename`, `dir_enum`, `dir_notify`, `query_info`, `set_info`, `fs_control` | `create`, `file_create`, `file_delete`, `file_rundown`, `map_file*`, `unmap_file`, `name` |
+
+> **Note:** `create` and `rename` are special — they both **populate** the cache _and_ call `Resolve()`, so they benefit from the cache if their own `FileName` happens to be empty.
+
+### Why the Cache Can Miss
+
+- **Pre-existing handles** — files opened _before_ tracing started have no corresponding `create` event, so they never enter the cache.
+- **`FileObject` reuse** — after a `close` evicts an entry, the kernel may reassign the same `FileObject` value to a new file. The cache only reflects the most recent mapping.
+- **`dir_notify` mismatch** — the directory handle used for `ReadDirectoryChangesW` notifications typically differs from the handle seen in `create`, so the cache lookup returns nothing (see [Known Limitations](#empty-filename-on-dir_notify-events)).
+
+---
+
 ## Known Limitations
 
 ### Empty `Filename` on `dir_notify` events
