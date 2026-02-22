@@ -188,7 +188,6 @@ namespace IOTracesCORE
 
             file_event_counter += 1;
             //event_counter += 1;
-            // DebugLogger.LogRaw(data.FormatAsCsv(is_anonymous));
             fs_sb.Append(data.FormatAsCsv(is_anonymous));
             if (IsTimeToFlush(fs_sb))
             {
