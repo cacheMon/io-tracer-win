@@ -40,36 +40,36 @@ namespace IOTracesCORE.trace
             double cpuUsage_2m,
             double cpuUsage_1h
         )
-            {
-                Ts = ts;
-                ProcessId = processId;
-                Name = name;
-                CommandLine = commandLine;
-                VirtualSize = virtualSize;
-                WorkingSetSize = workingSetSize;
-                CreationDate = creationDate;
-                CpuUsage_2m = cpuUsage_2m;
-                CpuUsage_5s = cpuUsage_5s;
-                CpuUsage_1h = cpuUsage_1h;
+        {
+            Ts = ts;
+            ProcessId = processId;
+            Name = name;
+            CommandLine = commandLine;
+            VirtualSize = virtualSize;
+            WorkingSetSize = workingSetSize;
+            CreationDate = creationDate;
+            CpuUsage_2m = cpuUsage_2m;
+            CpuUsage_5s = cpuUsage_5s;
+            CpuUsage_1h = cpuUsage_1h;
 
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-                {
-                    NewLine = "\n"
-                };
+            {
+                NewLine = "\n"
+            };
 
-                this.csv = new CsvWriter(buffer, config);
+            this.csv = new CsvWriter(buffer, config);
         }
 
         public string FormatAsCsv()
         {
             buffer.GetStringBuilder().Clear();
-            csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
             csv.WriteField(ProcessId);
             csv.WriteField(Name);
             csv.WriteField(CommandLine);
             csv.WriteField(VirtualSize);
             csv.WriteField(WorkingSetSize);
-            csv.WriteField(CreationDate?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "");
+            csv.WriteField(CreationDate?.ToString("yyyy-MM-dd HH:mm:ss.ffffff") ?? "");
             csv.WriteField(CpuUsage_5s);
             csv.WriteField(CpuUsage_2m);
             csv.WriteField(CpuUsage_1h);

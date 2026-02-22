@@ -75,7 +75,7 @@ namespace IOTracesCORE.trace
         public string FormatAsCsv()
         {
             buffer.GetStringBuilder().Clear();
-            csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
             csv.WriteField(Pid);
             csv.WriteField(Comm);
             csv.WriteField(Saddr);

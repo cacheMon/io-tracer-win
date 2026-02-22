@@ -50,12 +50,12 @@ namespace IOTracesCORE.trace
         public string FormatAsCsv()
         {
             buffer.GetStringBuilder().Clear();
-            csv.WriteField(timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            csv.WriteField(timestamp.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
             csv.WriteField(path);
             csv.WriteField(size);
-            csv.WriteField(CreationDate.ToString("yyyy-MM-dd HH:mm:ss.fff"));
-            csv.WriteField(modificationDate.ToString("yyyy-MM-dd HH:mm:ss.fff"));
-            csv.WriteField(LastAccessTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            csv.WriteField(CreationDate.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
+            csv.WriteField(modificationDate.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
+            csv.WriteField(LastAccessTime.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
             csv.WriteField(Attributes.ToString());
             csv.WriteField(Extension);
             csv.WriteField(IsReadOnly);
