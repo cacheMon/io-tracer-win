@@ -180,6 +180,12 @@ namespace IOTracesCORE
             {
                 return;
             }
+
+            if (data.Filename != null && data.Filename.Contains("IOTracer", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             file_event_counter += 1;
             //event_counter += 1;
             // DebugLogger.LogRaw(data.FormatAsCsv(is_anonymous));
