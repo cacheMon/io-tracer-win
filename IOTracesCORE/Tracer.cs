@@ -211,7 +211,6 @@ namespace IOTracesCORE
                     kernel.FileIODelete += fsHandler.OnDelete;
                     kernel.FileIOFlush += fsHandler.OnFlush;
                     kernel.FileIODirEnum += fsHandler.OnDirEnum;
-                    kernel.FileIOQueryInfo += fsHandler.OnQuery;
                     kernel.FileIORename += fsHandler.OnRename;
                     kernel.FileIOCleanup += fsHandler.OnCleanup;
                     kernel.FileIODirNotify += fsHandler.OnDirNotify;

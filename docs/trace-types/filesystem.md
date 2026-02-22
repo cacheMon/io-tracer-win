@@ -7,25 +7,25 @@ Captures detailed file system I/O operations via Windows ETW kernel tracing.
 
 **Fields:**
 
-| Field               | Description                              | Notes                                                                                      |
-| :------------------ | :--------------------------------------- | :----------------------------------------------------------------------------------------- |
-| `Ts`                | Timestamp (UTC) of the event             | Format: `yyyy-MM-dd HH:mm:ss.ffffff`                                                       |
-| `Op`                | Operation name                           | See [Operation Values](#operation-values-op) below                                         |
-| `Pid`               | Process ID initiating the operation      |                                                                                            |
-| `Comm`              | Command / process name                   |                                                                                            |
-| `Filename`          | Full path of the file involved           | Hashed if anonymous mode is enabled                                                        |
-| `TraceSize`         | Data transfer size (bytes)               |                                                                                            |
-| `CreateOptions`     | Flags specified during file creation     | See [CreateOptions](#createoptions-values). _`create` only_                                |
-| `ShareAccess`       | File sharing mode flags                  | See [ShareAccess](#shareaccess-values). _`create` only_                                    |
-| `CreateDisposition` | Action to take on file creation          | See [CreateDisposition](#createdisposition-values). _`create` only_                        |
-| `Offset`            | Byte offset of the operation             | _`read`, `write` only_                                                                     |
-| `ViewSize`          | Size of the mapped view                  | _`map_file` family only_                                                                   |
-| `InfoClass`         | Type of information being queried or set | See [InfoClass](#infoclass-values). _`query`, `query_info`, `set_info`, `fs_control` only_ |
-| `ThreadId`          | Thread ID of the operation               |                                                                                            |
-| `IrpPtr`            | I/O Request Packet pointer               | Useful for correlating request/completion pairs                                            |
-| `FileKey`           | Kernel file-object identifier            |                                                                                            |
-| `FileAttributes`    | File attribute flags                     | See [FileAttributes](#fileattributes-values). _`create` only_                              |
-| `IoFlags`           | I/O flags                                | See [IoFlags](#ioflags-values). _`read`, `write` only_                                     |
+| Field               | Description                              | Notes                                                                             |
+| :------------------ | :--------------------------------------- | :-------------------------------------------------------------------------------- |
+| `Ts`                | Timestamp (UTC) of the event             | Format: `yyyy-MM-dd HH:mm:ss.ffffff`                                              |
+| `Op`                | Operation name                           | See [Operation Values](#operation-values-op) below                                |
+| `Pid`               | Process ID initiating the operation      |                                                                                   |
+| `Comm`              | Command / process name                   |                                                                                   |
+| `Filename`          | Full path of the file involved           | Hashed if anonymous mode is enabled                                               |
+| `TraceSize`         | Data transfer size (bytes)               |                                                                                   |
+| `CreateOptions`     | Flags specified during file creation     | See [CreateOptions](#createoptions-values). _`create` only_                       |
+| `ShareAccess`       | File sharing mode flags                  | See [ShareAccess](#shareaccess-values). _`create` only_                           |
+| `CreateDisposition` | Action to take on file creation          | See [CreateDisposition](#createdisposition-values). _`create` only_               |
+| `Offset`            | Byte offset of the operation             | _`read`, `write` only_                                                            |
+| `ViewSize`          | Size of the mapped view                  | _`map_file` family only_                                                          |
+| `InfoClass`         | Type of information being queried or set | See [InfoClass](#infoclass-values). _`query_info`, `set_info`, `fs_control` only_ |
+| `ThreadId`          | Thread ID of the operation               |                                                                                   |
+| `IrpPtr`            | I/O Request Packet pointer               | Useful for correlating request/completion pairs                                   |
+| `FileKey`           | Kernel file-object identifier            |                                                                                   |
+| `FileAttributes`    | File attribute flags                     | See [FileAttributes](#fileattributes-values). _`create` only_                     |
+| `IoFlags`           | I/O flags                                | See [IoFlags](#ioflags-values). _`read`, `write` only_                            |
 
 > **Note:** `DesiredAccess` is **not** available in Windows ETW FileIO events. Capturing it would require a minifilter driver (e.g., Process Monitor).
 
@@ -49,7 +49,6 @@ Operations are grouped by category below.
 |                     | `rename`            | Rename or move a file                                      |
 | **Metadata**        | `query_info`        | Query file metadata (`IRP_MJ_QUERY_INFORMATION`)           |
 |                     | `set_info`          | Set file metadata (`IRP_MJ_SET_INFORMATION`)               |
-|                     | `query`             | Generic query operation                                    |
 | **Directory**       | `dir_enum`          | Enumerate directory contents                               |
 |                     | `dir_notify`        | Directory change notification (`ReadDirectoryChangesW`)    |
 | **Memory Mapping**  | `map_file`          | Map a file section into memory                             |
@@ -123,7 +122,7 @@ Pipe-separated flags (applicable to `read` / `write`):
 
 ### InfoClass Values
 
-Information type for `query` / `query_info` / `set_info` / `fs_control` operations:
+Information type for `query_info` / `set_info` / `fs_control` operations:
 
 - `FileBasicInformation`, `FileStandardInformation`, `FileNameInformation`
 - `FileRenameInformation`, `FileDispositionInformation`, `FileAllocationInformation`
@@ -179,3 +178,10 @@ The tracer resolves names via the `FileObject`-based cache (populated by `create
 - The `FileObject` was not seen in any prior `create` or `rename` event.
 
 This is most common at the **beginning of a trace session** and becomes less frequent as the cache is populated over time.
+
+### Why `query_info` instead of `query`
+
+The ETW kernel event for file information queries is named `FileIOQueryInfo`, which maps to `IRP_MJ_QUERY_INFORMATION`. We use `query_info` as the operation name (rather than a shorter `query`) for two reasons:
+
+1. **ETW alignment** — `query_info` directly mirrors the ETW event name `FileIOQueryInfo`, making it straightforward to trace an operation back to its source event.
+2. **Consistent pairing** — `query_info` pairs naturally with `set_info` (`IRP_MJ_SET_INFORMATION` / `FileIOSetInfo`), keeping the naming symmetrical.

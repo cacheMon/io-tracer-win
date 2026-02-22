@@ -112,13 +112,6 @@ namespace IOTracesCORE.handlers
                 Resolve(d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
         }
 
-        public void OnQuery(FileIOInfoTraceData d)
-        {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            EmitWithInfoClass(d.TimeStamp, "query", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
-        }
-
         public void OnDirEnum(FileIODirEnumTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
