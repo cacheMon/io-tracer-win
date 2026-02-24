@@ -2,6 +2,16 @@
 
 Captures low-level disk I/O operations.
 
+## How Latency is Measured
+
+Disk latency is calculated by tracking the lifecycle of an I/O Request Packet (IRP) from its initiation to its completion using ETW (Event Tracing for Windows) events:
+
+1. **Initialization**: The tracer listens for initialization events like `DiskIOReadInit` and `DiskIOWriteInit`. When an I/O request is initiated, the tracer records the start time (`TimeStampRelativeMSec`) in an active requests dictionary, using the `Irp` (I/O Request Packet pointer) as the key.
+2. **Completion**: When the corresponding completion event occurs (`DiskIORead`, `DiskIOWrite`, or `DiskIOFlushBuffers`), the tracer uses the `Irp` of the completion event to look up the start time from the active requests dictionary.
+3. **Calculation**: The `Latency` (in milliseconds) is calculated as the difference between the completion event's timestamp and the recorded start timestamp.
+
+_Note: For `read` and `write` operations, if no matching start time is found for a given `Irp`, the completion event is ignored to avoid inaccurate data. For `flush` operations, if no start time is found, a latency of `0` is reported._
+
 **CSV Header:**
 `Ts,Pid,ThreadId,Comm,Sector,Operation,TraceSize,Latency,DiskNumber,Irp,IrpFlags`
 
