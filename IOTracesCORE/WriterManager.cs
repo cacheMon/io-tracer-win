@@ -279,7 +279,7 @@ namespace IOTracesCORE
             }
         }
 
-        public void FlushWrite(StringBuilder sb, string filepath, string tracetype)
+        public void FlushWrite(StringBuilder sb, string filepath, string tracetype, bool isFinalFsSnap = false)
         {
             string old_fp;
 
@@ -336,6 +336,20 @@ namespace IOTracesCORE
             try
             {
                 string compressed_fp = CompressFile(old_fp);
+
+                if (isFinalFsSnap && tracetype.Equals("filesystem_snapshot"))
+                {
+                    string dir = Path.GetDirectoryName(compressed_fp) ?? dir_path;
+                    string filename = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(compressed_fp)); // Remove .csv.zst
+                    int totalParts = fs_snap_part_counter - 1;
+                    string newFilename = $"{filename}_complete_parts{totalParts}.csv.zst";
+                    string newPath = Path.Combine(dir, newFilename);
+
+                    File.Move(compressed_fp, newPath);
+                    compressed_fp = newPath;
+                    Debug.WriteLine($"Filesystem snapshot completed with {totalParts} parts. Final file: {newPath}");
+                }
+
                 if (is_upload_automatically)
                 {
                     obj_storage.QueueFile(compressed_fp);
@@ -507,13 +521,13 @@ namespace IOTracesCORE
         {
             Debug.WriteLine("Compressing all remaining data...");
 
-            FlushWrite(fs_sb, fs_filepath, "filesystem");
-            FlushWrite(ds_sb, ds_filepath, "disk");
-            FlushWrite(mr_sb, mr_filepath, "memory");
-            FlushWrite(process_snap_sb, process_snap_filepath, "process");
-            FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
-            FlushWrite(nw_sb, nw_filepath, "network");
-            FlushWrite(driver_sb, driver_filepath, "driver");
+            if (fs_sb.Length > 0) FlushWrite(fs_sb, fs_filepath, "filesystem");
+            if (ds_sb.Length > 0) FlushWrite(ds_sb, ds_filepath, "disk");
+            if (mr_sb.Length > 0) FlushWrite(mr_sb, mr_filepath, "memory");
+            if (process_snap_sb.Length > 0) FlushWrite(process_snap_sb, process_snap_filepath, "process");
+            if (fs_snap_sb.Length > 0) FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+            if (nw_sb.Length > 0) FlushWrite(nw_sb, nw_filepath, "network");
+            if (driver_sb.Length > 0) FlushWrite(driver_sb, driver_filepath, "driver");
             Debug.WriteLine("Flushed all StringBuilders.");
 
             // Filesystem snapshot compression is now handled by FinalizeFilesystemSnapshot
@@ -530,14 +544,9 @@ namespace IOTracesCORE
         {
             Debug.WriteLine($"Finalizing filesystem snapshot (complete: {isComplete})...");
 
-            // Flush any remaining data in the buffer
-            if (fs_snap_sb.Length > 0)
-            {
-                FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
-            }
-
             if (!isComplete)
             {
+                fs_snap_sb.Clear();
                 // Snapshot was interrupted - delete all part files
                 Debug.WriteLine("Snapshot was incomplete. Deleting all filesystem snapshot files...");
 
@@ -570,38 +579,7 @@ namespace IOTracesCORE
                 return;
             }
 
-            // Rename the last part file to include "complete" marker
-            try
-            {
-                // Find the last compressed file (it should have been compressed by FlushWrite)
-                string lastCompressedFile = $"{fs_snap_filepath}.zst";
-
-                if (File.Exists(lastCompressedFile))
-                {
-                    // Generate new name with "complete" marker
-                    string dir = Path.GetDirectoryName(lastCompressedFile) ?? dir_path;
-                    string filename = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(lastCompressedFile)); // Remove .csv.zst
-                    string newFilename = $"{filename}_complete_parts{fs_snap_part_counter}.csv.zst";
-                    string newPath = Path.Combine(dir, newFilename);
-
-                    File.Move(lastCompressedFile, newPath);
-
-                    if (is_upload_automatically)
-                    {
-                        obj_storage.QueueFile(newPath);
-                    }
-
-                    Debug.WriteLine($"Filesystem snapshot completed with {fs_snap_part_counter} parts. Final file: {newPath}");
-                }
-                else
-                {
-                    Debug.WriteLine($"Warning: Last compressed file not found: {lastCompressedFile}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Error renaming final snapshot file: {ex.Message}");
-            }
+            FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot", true);
         }
 
         public void FinalizeProcessSnapshot(bool isComplete)
