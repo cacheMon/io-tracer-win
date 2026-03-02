@@ -39,6 +39,21 @@ namespace IOTracesCORE
         private static readonly TimeSpan MIN_FLUSH_INTERVAL = TimeSpan.FromSeconds(10);
         private static DateTime _lastFlushUtc = DateTime.UtcNow;
 
+        // Cache GC memory info to avoid querying it on every event write
+        private static long _cachedAvailableMemory = 0;
+        private static DateTime _memCacheTime = DateTime.MinValue;
+        private static readonly TimeSpan MEM_CACHE_TTL = TimeSpan.FromSeconds(5);
+
+        private static long GetAvailableMemoryCached()
+        {
+            if (DateTime.UtcNow - _memCacheTime > MEM_CACHE_TTL)
+            {
+                _cachedAvailableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+                _memCacheTime = DateTime.UtcNow;
+            }
+            return _cachedAvailableMemory;
+        }
+
         private bool is_anonymous;
         private bool is_upload_automatically;
         public static int amount_compressed_file = 0;
@@ -205,12 +220,6 @@ namespace IOTracesCORE
                 return;
             }
 
-            string process_name = EscapeCsvField(data.Comm);
-
-            if (process_name.Equals("IOTracesCORE"))
-            {
-                return;
-            }
             disk_event_counter += 1;
             ds_sb.Append(data.FormatAsCsv());
             // DebugLogger.LogRaw(data.FormatAsCsv());
@@ -227,13 +236,6 @@ namespace IOTracesCORE
                 return;
             }
 
-            string process_name = EscapeCsvField(data.Comm);
-
-            if (process_name.Equals("IOTracesCORE"))
-            {
-                return;
-            }
-            //event_counter += 1;
             nw_sb.Append(data.FormatAsCsv());
             if (IsTimeToFlush(nw_sb, lowThreshold: true))
             {
@@ -245,13 +247,6 @@ namespace IOTracesCORE
         public void Write(DriverTrace data)
         {
             if (data.Comm.Equals("IOTracesCORE"))
-            {
-                return;
-            }
-
-            string process_name = EscapeCsvField(data.Comm);
-
-            if (process_name.Equals("IOTracesCORE"))
             {
                 return;
             }
@@ -398,8 +393,7 @@ namespace IOTracesCORE
         {
             long sbBytes = sb.Length * sizeof(char);
 
-            var gcInfo = GC.GetGCMemoryInfo();
-            long availableMemory = gcInfo.TotalAvailableMemoryBytes;
+            long availableMemory = GetAvailableMemoryCached();
 
             long adaptiveLimit = (long)(availableMemory * MEMORY_PRESSURE_RATIO);
 

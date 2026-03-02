@@ -277,8 +277,7 @@ namespace IOTracesCORE
                         KernelTraceEventParser.Keywords.NetworkTCPIP |
                         KernelTraceEventParser.Keywords.Memory |
                         KernelTraceEventParser.Keywords.MemoryHardFaults |
-                        KernelTraceEventParser.Keywords.VirtualAlloc |
-                        KernelTraceEventParser.Keywords.ContextSwitch
+                        KernelTraceEventParser.Keywords.VirtualAlloc
                     );
 
                     var memoryManagerGuid = new Guid("d1d93ef7-e1f2-4f45-9943-03d245fe6c00");
