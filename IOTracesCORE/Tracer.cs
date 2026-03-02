@@ -145,11 +145,18 @@ namespace IOTracesCORE
             _ = Task.Run(() => fsSnapper.Run());
             Task __ = Task.Run(() => psHandler.Run());
             systemSnapper.CaptureSpecSnapshot();
+
             if (isUploadAutomatically)
             {
+                // Register the stop callback so the upload worker can halt the ETW session
+                ObjectStorageHandler.OnStopSessionRequested = () =>
+                {
+                    Debug.WriteLine("[Tracer] Stop requested by upload worker — stopping ETW session.");
+                    session?.Stop();
+                };
+
                 objHandler.UploadThread(cancellationToken);
             }
-
 
             cancellationToken.Register(() =>
             {
@@ -158,12 +165,91 @@ namespace IOTracesCORE
                     Console.WriteLine("\nShutdown requested. Cleaning up...");
                     isShuttingDown = true;
 
+                    // Unblock the resume gate so the loop can observe the cancellation
+                    ObjectStorageHandler.ResumeGate.Set();
+
                     if (session != null)
                     {
                         session.Stop();
                     }
                 }
             });
+
+            try
+            {
+                // ── Outer restart loop ────────────────────────────────────────────────
+                // The loop runs one ETW session per iteration. When the upload worker
+                // detects a connection failure it:
+                //   1. Resets ResumeGate (blocking here after the session ends)
+                //   2. Stops the current session via OnStopSessionRequested
+                //   3. Retries connectivity; on success it Sets ResumeGate again
+                // This loop then spins up a brand-new session.
+                while (!cancellationToken.IsCancellationRequested && !isShuttingDown)
+                {
+                    // Wait until connectivity is confirmed (or we are shutting down)
+                    ObjectStorageHandler.ResumeGate.Wait(cancellationToken);
+
+                    if (cancellationToken.IsCancellationRequested || isShuttingDown)
+                        break;
+
+                    Debug.WriteLine("[Tracer] Starting new ETW session.");
+                    RunOneSession(sessionName, cancellationToken);
+                    Debug.WriteLine("[Tracer] ETW session ended.");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal cancellation path — fall through to finally
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"An error occurred during tracing: {ex.Message}");
+                if (!isShuttingDown)
+                {
+                    CleanupAndExitAsync().GetAwaiter().GetResult();
+                }
+            }
+            finally
+            {
+                if (!isShuttingDown)
+                {
+                    isShuttingDown = true;
+                }
+                Form pleaseWaitForm = new Form()
+                {
+                    Width = 400,
+                    Height = 100,
+                    FormBorderStyle = FormBorderStyle.None,
+                    StartPosition = FormStartPosition.CenterScreen,
+                    BackColor = Color.White,
+                    TopMost = true
+                };
+
+                Label label = new Label()
+                {
+                    Text = "IO Tracing session has ended. The application performing cleaning operation. Please Wait....",
+                    Dock = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Font = new Font("Segoe UI", 10)
+                };
+
+                pleaseWaitForm.Controls.Add(label);
+                pleaseWaitForm.Show();
+                Application.DoEvents();
+                CleanupAndExitAsync().GetAwaiter().GetResult();
+                pleaseWaitForm.Close();
+                pleaseWaitForm.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Creates and runs a single ETW kernel session. Returns when
+        /// <see cref="TraceEventSession.Stop"/> is called (either by user shutdown
+        /// or by the upload worker via <see cref="ObjectStorageHandler.OnStopSessionRequested"/>).
+        /// </summary>
+        private void RunOneSession(string sessionName, CancellationToken cancellationToken)
+        {
+            CleanupOrphanedSession(sessionName);
 
             try
             {
@@ -251,105 +337,24 @@ namespace IOTracesCORE
                     kernel.TcpIpRetransmit += nwHandler.OnRetransmit;
                     kernel.TcpIpFail += nwHandler.OnFail;
 
-                    // kernel.MemoryHardFault += memHandler.OnMemoryHardFault;
-                    // kernel.MemoryTransitionFault += memHandler.OnMemoryTransitionFault;
-                    // kernel.MemoryDemandZeroFault += memHandler.OnMemoryDemandZeroFault;
-                    // kernel.MemoryCopyOnWrite += memHandler.OnMemoryCopyOnWrite;
-                    // kernel.MemoryAccessViolation += memHandler.OnMemoryAccessViolation;
-                    // kernel.MemoryGuardMemory += memHandler.OnMemoryGuardMemory;
-                    // kernel.VirtualMemAlloc += memHandler.OnVirtualMemAlloc;
-                    // kernel.VirtualMemFree += memHandler.OnVirtualMemFree;
-
-                    // Extneded Cache Handlers
-                    // kernel.FileIORead += cacheHandler.OnCacheRead;
-                    // kernel.FileIOWrite += cacheHandler.OnCacheWrite;
-                    // kernel.FileIOFlush += cacheHandler.OnCacheFlush;
-                    // kernel.FileIOMapFile += cacheHandler.OnCacheMap;
-                    // kernel.FileIOUnmapFile += cacheHandler.OnCacheUnmap;
-
-                    // kernel.VirtualMemAlloc += cacheHandler.OnWorkingSetExpansion;
-
-                    // Dynamic event handlers for Memory Manager provider
                     source.Dynamic.All += (TraceEvent data) =>
                     {
-                        // if (data.ProviderName == "Microsoft-Windows-Kernel-Memory")
-                        // {
-                        //     switch (data.EventName)
-                        //     {
-                        //         case "WorkingSetTrim":
-                        //             cacheHandler.OnWorkingSetTrim(data);
-                        //             break;
-                        //         case "ModifiedPageWrite":
-                        //             cacheHandler.OnModifiedPageWrite(data);
-                        //             break;
-                        //         case "ModifiedPageQueue":
-                        //             cacheHandler.OnModifiedPageQueue(data);
-                        //             break;
-                        //         case "StandbyInsert":
-                        //             cacheHandler.OnStandbyInsert(data);
-                        //             break;
-                        //         case "StandbyRemove":
-                        //             cacheHandler.OnStandbyRemove(data);
-                        //             break;
-                        //         case "LowMemory":
-                        //             cacheHandler.OnLowMemory(data);
-                        //             break;
-                        //         case "OutOfMemory":
-                        //             cacheHandler.OnOutOfMemory(data);
-                        //             break;
-                        //         case "PrefetchStart":
-                        //             cacheHandler.OnPrefetchStart(data);
-                        //             break;
-                        //     }
-                        // }
                         if (data.ProviderName == "Microsoft-Windows-TCPIP")
                         {
                             nwHandler.OnTcpHandshake(data);
                         }
                     };
 
-
-                    source.Process();
+                    source.Process(); // blocks until session.Stop() is called
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!isShuttingDown && !cancellationToken.IsCancellationRequested)
             {
-                Debug.WriteLine($"An error occurred during tracing: {ex.Message}");
-                if (!isShuttingDown)
-                {
-                    CleanupAndExitAsync().GetAwaiter().GetResult();
-                }
+                Debug.WriteLine($"[Tracer] Session error: {ex.Message}");
             }
             finally
             {
-                if (!isShuttingDown)
-                {
-                    isShuttingDown = true;
-                }
-                Form pleaseWaitForm = new Form()
-                {
-                    Width = 400,
-                    Height = 100,
-                    FormBorderStyle = FormBorderStyle.None,
-                    StartPosition = FormStartPosition.CenterScreen,
-                    BackColor = Color.White,
-                    TopMost = true
-                };
-
-                Label label = new Label()
-                {
-                    Text = "IO Tracing session has ended. The application performing cleaning operation. Please Wait....",
-                    Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    Font = new Font("Segoe UI", 10)
-                };
-
-                pleaseWaitForm.Controls.Add(label);
-                pleaseWaitForm.Show();
-                Application.DoEvents();
-                CleanupAndExitAsync().GetAwaiter().GetResult();
-                pleaseWaitForm.Close();
-                pleaseWaitForm.Dispose();
+                session = null;
             }
         }
 

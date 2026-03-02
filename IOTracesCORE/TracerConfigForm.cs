@@ -12,12 +12,9 @@ namespace IOTracesCORE
 {
     public class TracerConfigForm : Form
     {
-        private TextBox txtOutputPath;
-        private Button btnBrowseOutput;
         private CheckBox chkAnonymous;
         private CheckBox chkEnableUpload;
         private CheckBox chkAutoStart;
-        private Label lblOutputPath;
         private Label lblAnonymous;
         private Label lblStatus;
         private Button btnRunTracer;
@@ -51,7 +48,7 @@ namespace IOTracesCORE
         private void InitializeComponent()
         {
             Text = "IO-Tracer Configuration";
-            ClientSize = new Size(520, 200);
+            ClientSize = new Size(520, 170);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -60,53 +57,15 @@ namespace IOTracesCORE
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(16),
-                RowCount = 6,
+                RowCount = 5,
                 ColumnCount = 1
             };
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); 
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); 
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); 
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); 
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); 
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); 
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             Controls.Add(root);
-
-            var outputLayout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                ColumnCount = 3,
-                AutoSize = true
-            };
-            outputLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
-            outputLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            outputLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
-
-            lblOutputPath = new Label
-            {
-                Text = "Output path",
-                TextAlign = ContentAlignment.MiddleLeft,
-                Dock = DockStyle.Fill
-            };
-
-            txtOutputPath = new TextBox
-            {
-                Dock = DockStyle.Fill,
-                Text = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                    "WorkloadTrace")
-            };
-
-            btnBrowseOutput = new Button
-            {
-                Text = "Browse…",
-                Dock = DockStyle.Fill
-            };
-            btnBrowseOutput.Click += BtnBrowseOutput_Click;
-
-            outputLayout.Controls.Add(lblOutputPath, 0, 0);
-            outputLayout.Controls.Add(txtOutputPath, 1, 0);
-            outputLayout.Controls.Add(btnBrowseOutput, 2, 0);
-            root.Controls.Add(outputLayout);
 
             chkAnonymous = new CheckBox
             {
@@ -177,20 +136,6 @@ namespace IOTracesCORE
         }
 
 
-        private void BtnBrowseOutput_Click(object sender, EventArgs e)
-        {
-            using (var dialog = new FolderBrowserDialog())
-            {
-                dialog.Description = "Select output folder for trace files";
-                dialog.SelectedPath = txtOutputPath.Text;
-
-                if (dialog.ShowDialog() == DialogResult.OK)
-                {
-                    txtOutputPath.Text = dialog.SelectedPath;
-                    SaveConfiguration();
-                }
-            }
-        }
 
         private async void ChkEnableUpload_CheckedChanged(object sender, EventArgs e)
         {
@@ -199,6 +144,7 @@ namespace IOTracesCORE
                 isConnectionSafe = false;
                 lblStatus.Text = "Uploads disabled. Traces will be stored locally.";
                 lblStatus.ForeColor = Color.Orange;
+                btnRunTracer.Text = "Start Tracing";
                 SaveConfiguration();
                 return;
             }
@@ -206,6 +152,7 @@ namespace IOTracesCORE
             lblStatus.Text = "Testing connection…";
             lblStatus.ForeColor = Color.Blue;
             chkEnableUpload.Enabled = false;
+            btnRunTracer.Enabled = false;
 
             bool ok = await TestUploadConnection();
 
@@ -214,16 +161,18 @@ namespace IOTracesCORE
                 isConnectionSafe = true;
                 lblStatus.Text = "Connection OK. Traces will upload automatically.";
                 lblStatus.ForeColor = Color.Green;
+                btnRunTracer.Text = "Start Tracing";
             }
             else
             {
                 isConnectionSafe = false;
-                chkEnableUpload.Checked = false;
-                lblStatus.Text = "Upload unavailable. Traces will be stored locally.";
+                lblStatus.Text = "Upload unavailable. Connection error.";
                 lblStatus.ForeColor = Color.Red;
+                btnRunTracer.Text = "Retry Connection";
             }
 
             chkEnableUpload.Enabled = true;
+            btnRunTracer.Enabled = true;
             SaveConfiguration();
         }
 
@@ -244,7 +193,7 @@ namespace IOTracesCORE
                     MessageBoxIcon.Error
                 );
                 chkAutoStart.CheckedChanged -= ChkAutoStart_CheckedChanged;
-                chkAutoStart.Checked = !chkAutoStart.Checked; 
+                chkAutoStart.Checked = !chkAutoStart.Checked;
                 chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
             }
         }
@@ -267,8 +216,43 @@ namespace IOTracesCORE
             }
         }
 
-        private void BtnRunTracer_Click(object sender, EventArgs e)
+        private async void BtnRunTracer_Click(object sender, EventArgs e)
         {
+            if (btnRunTracer.Text == "Retry Connection")
+            {
+                btnRunTracer.Enabled = false;
+                lblStatus.Text = "Testing connection…";
+                lblStatus.ForeColor = Color.Blue;
+
+                bool ok = await TestUploadConnection();
+                btnRunTracer.Enabled = true;
+
+                if (ok)
+                {
+                    isConnectionSafe = true;
+                    lblStatus.Text = "Connection OK. Traces will upload automatically.";
+                    lblStatus.ForeColor = Color.Green;
+                    btnRunTracer.Text = "Start Tracing";
+                    return;
+                }
+                else
+                {
+                    isConnectionSafe = false;
+                    lblStatus.Text = "Upload unavailable. Connection error.";
+                    lblStatus.ForeColor = Color.Red;
+                    btnRunTracer.Text = "Retry Connection";
+
+                    MessageBox.Show(
+                        "Connection failed. Please check your internet connection and try again.",
+                        "Upload unavailable",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning
+                    );
+
+                    return;
+                }
+            }
+
             SaveConfiguration();
 
             if (!IsAdministrator())
@@ -289,9 +273,9 @@ namespace IOTracesCORE
                     var psi = new ProcessStartInfo
                     {
                         FileName = Application.ExecutablePath,
-                        Arguments = "",     
+                        Arguments = "",
                         UseShellExecute = true,
-                        Verb = "runas"       
+                        Verb = "runas"
                     };
 
                     Process.Start(psi);
@@ -315,18 +299,18 @@ namespace IOTracesCORE
 
             if (wantUpload && !isConnectionSafe)
             {
-                var res = MessageBox.Show(
-                    "Automatic upload could not be verified. Continue with LOCAL-ONLY logging?",
+                MessageBox.Show(
+                    "Automatic upload could not be verified. Please retry the connection first.",
                     "Upload unavailable",
-                    MessageBoxButtons.YesNo,
+                    MessageBoxButtons.OK,
                     MessageBoxIcon.Warning
                 );
-                if (res == DialogResult.No) return;
-                finalUpload = false;
+                return;
             }
 
+            string outputPath = Path.Combine(Path.GetTempPath(), "IOTraces");
             ObjectStorageHandler obj = new();
-            RunTracer(txtOutputPath.Text, chkAnonymous.Checked, finalUpload, obj);
+            RunTracer(outputPath, chkAnonymous.Checked, finalUpload, obj);
         }
 
         private void RunTracer(string outputPath, bool anonymous, bool upload, ObjectStorageHandler obj)
@@ -359,7 +343,6 @@ namespace IOTracesCORE
             {
                 var cfg = new PersistedConfig
                 {
-                    OutputPath = txtOutputPath.Text,
                     Anonymous = chkAnonymous.Checked,
                     UploadEnabled = chkEnableUpload.Checked,
                 };
@@ -386,10 +369,6 @@ namespace IOTracesCORE
                 var cfg = JsonSerializer.Deserialize<PersistedConfig>(json);
 
                 if (cfg == null) return;
-
-                txtOutputPath.Text = string.IsNullOrWhiteSpace(cfg.OutputPath)
-                    ? txtOutputPath.Text
-                    : cfg.OutputPath;
 
                 chkAnonymous.Checked = cfg.Anonymous;
                 chkEnableUpload.Checked = true;
