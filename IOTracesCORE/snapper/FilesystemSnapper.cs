@@ -84,6 +84,11 @@ namespace IOTracesCORE.snapper
                     {
                         if (interrupted) return;
 
+                        if (random.Next(0, 100) < 30)
+                        {
+                            Thread.Sleep(random.Next(1, 10));
+                        }
+
                         if ((fsi.Attributes & FileAttributes.Directory) == FileAttributes.Directory)
                         {
                             if ((fsi.Attributes & FileAttributes.ReparsePoint) != FileAttributes.ReparsePoint)
