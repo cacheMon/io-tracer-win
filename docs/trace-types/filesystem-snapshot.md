@@ -37,3 +37,36 @@ To optimize memory usage during large filesystem scans, snapshots are automatica
 ```csv
 2026-02-09 23:00:00.000,C:/Users/User/Documents/test.txt,1024,2026-02-08 23:00:00.000,2026-02-08 23:23:45.123,2026-02-09 10:00:00.000,Archive,.txt,False
 ```
+
+## Known Limitations
+
+### File Count Lower Than System Total
+
+The snapshot file count will typically be **lower** than the total reported by tools like Windows Explorer, `os.walk` (Python), or `Get-ChildItem` (PowerShell). This is intentional, not a bug.
+
+**Root cause: Reparse points are not traversed.**
+
+The snapper explicitly skips directories that have the `ReparsePoint` attribute set (see `FilesystemSnapper.cs`):
+
+```csharp
+if ((fsi.Attributes & FileAttributes.ReparsePoint) != FileAttributes.ReparsePoint)
+{
+    dirs.Push(fsi.FullName); // Only recurse into real directories
+}
+```
+
+NTFS uses reparse points to implement **junctions**, **symbolic links**, and **volume mount points**. Common examples on Windows:
+
+| Path                         | Points To              |
+| :--------------------------- | :--------------------- |
+| `C:\Documents and Settings`  | `C:\Users`             |
+| `C:\Users\All Users`         | `C:\ProgramData`       |
+| `C:\Users\Default User`      | `C:\Users\Default`     |
+| `C:\Program Files (x86)\...` | Various SysWOW64 paths |
+
+Tools that follow these reparse points (e.g., Python's `os.walk` on Windows) will **traverse the same physical files multiple times** under different path prefixes, inflating their counts significantly.
+
+**The tracer's count reflects unique, physical file paths only.** This avoids double-counting and provides a more accurate representation of the actual files on disk.
+
+> [!NOTE]
+> The discrepancy between the tracer and naive enumeration tools can be hundreds of thousands of files on a typical Windows installation, depending on how many junctions exist on the system.
