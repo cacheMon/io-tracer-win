@@ -17,6 +17,7 @@ namespace IOTracesCORE.snapper
         private bool interrupted;
         private bool snapshotCompleted;
         private readonly bool is_anonymouse;
+        private Random random = new Random();
 
         private readonly Dictionary<int, List<(DateTime ts, TimeSpan totalCpu)>> samples =
             new Dictionary<int, List<(DateTime, TimeSpan)>>();
@@ -81,6 +82,11 @@ FROM Win32_Process";
             {
                 foreach (ManagementObject mo in results)
                 {
+                    if (random.Next(0, 100) < 20)
+                    {
+                        Thread.Sleep(random.Next(1, 10));
+                    }
+
                     int pid = Convert.ToInt32(mo["ProcessId"] ?? 0);
                     if (pid == 0) continue; // skip idle/system if needed
 
