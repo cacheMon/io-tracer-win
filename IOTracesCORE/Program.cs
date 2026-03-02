@@ -74,11 +74,12 @@ namespace IOTracesCORE
             {
                 TimeSpan Total_current_session = WriterManager.active_session;
                 TimeSpan Total_trace_duration = WriterManager.trace_duration;
+                string snapStatus = WriterManager.fs_snapshot_complete ? "Completed" : "In progress...";
                 MessageBox.Show(
                     $"Computer ID: {PathHasher.deviceId}\n" +
                     $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
-                    $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n\n" +
-                    $"Active session elapsed (HH:MM:SS): {Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
+                    $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n" +
+                    $"Filesystem snapshot: {WriterManager.fs_snapshot_file_count:N0} files ({snapStatus})\n\n" +
                     $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours",
                     "Status",
                     MessageBoxButtons.OK,
@@ -95,11 +96,13 @@ namespace IOTracesCORE
 
                 TimeSpan Total_current_session = WriterManager.active_session;
                 TimeSpan Total_trace_duration = WriterManager.trace_duration;
+                string snapStatus = WriterManager.fs_snapshot_complete ? "Completed" : "In progress...";
 
                 MessageBox.Show(
                     $"Computer ID: {PathHasher.deviceId}\n" +
                     $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
-                    $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n\n" +
+                    $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n" +
+                    $"Filesystem snapshot: {WriterManager.fs_snapshot_file_count:N0} files ({snapStatus})\n\n" +
                     $"Active session elapsed (HH:MM:SS): {Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
                     $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours",
                     "Status",

@@ -45,6 +45,8 @@ namespace IOTracesCORE
         public static int disk_event_counter = 0;
         public static int file_event_counter = 0;
         public static int memory_event_counter = 0;
+        public static int fs_snapshot_file_count = 0;
+        public static bool fs_snapshot_complete = false;
         public static TimeSpan active_session = TimeSpan.FromSeconds(0);
         public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
 
@@ -142,6 +144,7 @@ namespace IOTracesCORE
 
         public void Write(FilesystemInfo fs)
         {
+            fs_snapshot_file_count++;
             fs_snap_sb.Append(fs.FormatAsCsv());
             if (IsTimeToFlush(fs_snap_sb, true))
             {
@@ -543,6 +546,11 @@ namespace IOTracesCORE
         public void FinalizeFilesystemSnapshot(bool isComplete)
         {
             Debug.WriteLine($"Finalizing filesystem snapshot (complete: {isComplete})...");
+
+            if (isComplete)
+            {
+                fs_snapshot_complete = true;
+            }
 
             if (!isComplete)
             {
