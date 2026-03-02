@@ -14,7 +14,9 @@ namespace IOTracesCORE.cloudstorage
 {
     internal class R2Client
     {
-        static readonly HttpClient http = new HttpClient();
+        // 20 s is long enough for large files on slow connections but short
+        // enough to detect a dropped internet link without a noticeable lag.
+        static readonly HttpClient http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
 
         private string EndpointUrl = "https://io-tracer-worker.1a1a11a.workers.dev";
         private string CurrentDate = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
@@ -25,7 +27,6 @@ namespace IOTracesCORE.cloudstorage
         {
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
 
                 var currentVersion = VersionManager.Instance.GetCurrentVersion();
                 if (
@@ -70,7 +71,7 @@ namespace IOTracesCORE.cloudstorage
                 };
 
 
-                var uploadResponse = await http.SendAsync(uploadRequest, cts.Token);
+                var uploadResponse = await http.SendAsync(uploadRequest);
                 uploadResponse.EnsureSuccessStatusCode();
 
                 Debug.WriteLine($"{file.FullName} successfully uploaded");

@@ -284,6 +284,11 @@ namespace IOTracesCORE
 
         public void FlushWrite(StringBuilder sb, string filepath, string tracetype, bool isFinalFsSnap = false)
         {
+            // Block all writer threads (ETW, fsSnapper, psSnapper) while the
+            // upload worker is reconnecting. The gate is reset on disconnect and
+            // set again once internet connectivity is restored.
+            ObjectStorageHandler.ResumeGate.Wait();
+
             string old_fp;
 
             if (tracetype.Equals("filesystem"))

@@ -51,6 +51,9 @@ namespace IOTracesCORE
             // Subscribe to reward unlock event to update UI
             RewardManager.Instance.OnRewardUnlocked += OnRewardUnlocked;
 
+            // Subscribe to connection state changes to show balloon tips
+            ObjectStorageHandler.OnConnectionStateChanged += OnConnectionStateChanged;
+
             string currentVersion = VersionManager.Instance.GetCurrentVersion();
             trayIcon = new NotifyIcon
             {
@@ -75,12 +78,14 @@ namespace IOTracesCORE
                 TimeSpan Total_current_session = WriterManager.active_session;
                 TimeSpan Total_trace_duration = WriterManager.trace_duration;
                 string snapStatus = WriterManager.fs_snapshot_complete ? "Completed" : "In progress...";
+                string connStatus = ObjectStorageHandler.IsConnected ? "Connected" : ObjectStorageHandler.ConnectionStatus;
                 MessageBox.Show(
                     $"Computer ID: {PathHasher.deviceId}\n" +
                     $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
                     $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n" +
                     $"Filesystem snapshot: {WriterManager.fs_snapshot_file_count:N0} files ({snapStatus})\n\n" +
-                    $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours",
+                    $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours\n" +
+                    $"Internet / Upload: {connStatus}",
                     "Status",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
@@ -98,13 +103,16 @@ namespace IOTracesCORE
                 TimeSpan Total_trace_duration = WriterManager.trace_duration;
                 string snapStatus = WriterManager.fs_snapshot_complete ? "Completed" : "In progress...";
 
+                string connStatus = ObjectStorageHandler.IsConnected ? "Connected" : ObjectStorageHandler.ConnectionStatus;
+
                 MessageBox.Show(
                     $"Computer ID: {PathHasher.deviceId}\n" +
                     $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
                     $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n" +
                     $"Filesystem snapshot: {WriterManager.fs_snapshot_file_count:N0} files ({snapStatus})\n\n" +
                     $"Active session elapsed (HH:MM:SS): {Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
-                    $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours",
+                    $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours\n" +
+                    $"Internet / Upload: {connStatus}",
                     "Status",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
@@ -245,6 +253,37 @@ namespace IOTracesCORE
         {
             cancellationTokenSource?.Cancel();
             Thread.Sleep(2000);
+        }
+
+        private static void OnConnectionStateChanged(string status)
+        {
+            if (trayIcon == null) return;
+
+            // Marshal to UI thread if needed
+            var strip = trayIcon.ContextMenuStrip;
+            if (strip != null && strip.InvokeRequired)
+            {
+                strip.BeginInvoke(new Action(() => OnConnectionStateChanged(status)));
+                return;
+            }
+
+            bool connected = ObjectStorageHandler.IsConnected;
+            if (connected)
+            {
+                trayIcon.ShowBalloonTip(
+                    4000,
+                    "✅ Connection Restored",
+                    "Internet connection re-established. Event collection and upload are resuming.",
+                    ToolTipIcon.Info);
+            }
+            else
+            {
+                trayIcon.ShowBalloonTip(
+                    4000,
+                    "⚠️ Connection Lost",
+                    $"Upload error detected. Tracing paused. {status}",
+                    ToolTipIcon.Warning);
+            }
         }
 
         private static void OnApplicationExit(object? sender, EventArgs e)
