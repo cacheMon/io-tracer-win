@@ -6,6 +6,7 @@ using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO;
 using System.Xml.Linq;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
@@ -14,20 +15,41 @@ namespace IOTracesCORE.handlers
     class FilesystemHandlers
     {
         private readonly WriterManager wm;
+        private readonly ProcessCommandLineCache processCache;
 
         private readonly ConcurrentDictionary<ulong, string> nameByObj = new();
 
-        public FilesystemHandlers(WriterManager old_wm) => wm = old_wm;
+        public FilesystemHandlers(WriterManager old_wm, ProcessCommandLineCache processCache)
+        {
+            wm = old_wm;
+            this.processCache = processCache;
+        }
 
         private static string Clean(string s) => string.IsNullOrEmpty(s) ? "" : s.Trim();
 
         private static bool IsIgnored(string s) => !string.IsNullOrEmpty(s) && s.Contains("IOTracer", StringComparison.OrdinalIgnoreCase);
 
+        private static string MarkDirectoryIfNoExtension(string s)
+        {
+            var n = Clean(s);
+            if (string.IsNullOrEmpty(n)) return n;
+            if (n.EndsWith("\\", StringComparison.Ordinal) || n.EndsWith("/", StringComparison.Ordinal)) return n;
+
+            // Heuristic requested: if there's no extension, treat as directory and mark with a trailing '\'.
+            // Avoid changing drive letters and alternate data streams (":" after the last path separator).
+            if (Path.GetExtension(n).Length != 0) return n;
+            var lastSep = Math.Max(n.LastIndexOf('\\'), n.LastIndexOf('/'));
+            var lastColon = n.LastIndexOf(':');
+            if (lastColon > lastSep) return n;
+
+            return n + "\\";
+        }
+
         private string Resolve(ulong fileObject, string eventName)
         {
             var n = Clean(eventName);
-            if (!string.IsNullOrEmpty(n)) return n;
-            return nameByObj.TryGetValue(fileObject, out var cached) ? cached : "";
+            if (!string.IsNullOrEmpty(n)) return MarkDirectoryIfNoExtension(n);
+            return nameByObj.TryGetValue(fileObject, out var cached) ? MarkDirectoryIfNoExtension(cached) : "";
         }
 
         // Emit for simple operations with basic enhanced fields
@@ -36,7 +58,7 @@ namespace IOTracesCORE.handlers
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
-                null, null, null, null, null, null, irpPtr, fileKey, null, null));
+                null, null, null, null, null, null, irpPtr, fileKey, null, null, processCache.Get(pid)));
         }
 
         // Extended emit for Create operations with all flags
@@ -56,7 +78,7 @@ namespace IOTracesCORE.handlers
                 FileIOFlags.FormatCreateDisposition(createDisposition),
                 null, null, null, irpPtr, fileKey,
                 FileIOFlags.FormatFileAttributes(fileAttributes),
-                null));
+                null, processCache.Get(pid)));
         }
 
         // Extended emit for Read/Write operations with offset and IoFlags
@@ -66,7 +88,7 @@ namespace IOTracesCORE.handlers
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
                 null, null, null, offset, null, null, irpPtr, fileKey, null,
-                FileIOFlags.FormatIoFlags(ioFlags)));
+                FileIOFlags.FormatIoFlags(ioFlags), processCache.Get(pid)));
         }
 
         // Extended emit for MapFile operations with view size
@@ -75,7 +97,7 @@ namespace IOTracesCORE.handlers
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
-                null, null, null, null, (long)viewSize, null, null, fileKey, null, null));
+                null, null, null, null, (long)viewSize, null, null, fileKey, null, null, processCache.Get(pid)));
         }
 
         // Extended emit for Query/SetInfo operations with info class
@@ -85,7 +107,7 @@ namespace IOTracesCORE.handlers
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
                 null, null, null, null, null, FileIOFlags.FormatInfoClass(infoClass),
-                irpPtr, fileKey, null, null));
+                irpPtr, fileKey, null, null, processCache.Get(pid)));
         }
 
 

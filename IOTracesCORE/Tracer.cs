@@ -20,6 +20,7 @@ namespace IOTracesCORE
         private readonly DriverHandlers driverHandler;
         private readonly MemoryHandlers memHandler;
         private readonly CacheHandlers cacheHandler;
+        private readonly ProcessCommandLineCache processCache;
         private readonly ProcessSnapper psHandler;
         private readonly FilesystemSnapper fsSnapper;
         private TraceEventSession? session;
@@ -46,11 +47,12 @@ namespace IOTracesCORE
             objHandler = obj;
             isUploadAutomatically = upload;
             wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler);
-            fsHandler = new FilesystemHandlers(wm);
+            processCache = new ProcessCommandLineCache();
+            fsHandler = new FilesystemHandlers(wm, processCache);
             dsHandler = new DiskHandlers(wm);
             memHandler = new MemoryHandlers(wm);
             cacheHandler = new CacheHandlers(wm);
-            psHandler = new ProcessSnapper(wm, anonymouse);
+            psHandler = new ProcessSnapper(wm, anonymouse, processCache);
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
             systemSnapper = new SystemSnapper(wm);
             nwHandler = new NetworkHandlers(wm);
@@ -271,6 +273,7 @@ namespace IOTracesCORE
                     session.EnableKernelProvider(
                         KernelTraceEventParser.Keywords.FileIO |
                         KernelTraceEventParser.Keywords.FileIOInit |
+                        KernelTraceEventParser.Keywords.Process |
                         KernelTraceEventParser.Keywords.DiskIO |
                         KernelTraceEventParser.Keywords.DiskIOInit |
                         KernelTraceEventParser.Keywords.Driver |
@@ -310,6 +313,8 @@ namespace IOTracesCORE
                     kernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
                     kernel.FileIOSetInfo += fsHandler.OnSetInfo;
                     kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
+                    kernel.ProcessStart += data => processCache.RefreshFromProcess(data.ProcessID);
+                    kernel.ProcessStop += data => processCache.Remove(data.ProcessID);
 
                     kernel.DiskIORead += dsHandler.OnDiskRead;
                     kernel.DiskIOReadInit += dsHandler.OnDiskInit;

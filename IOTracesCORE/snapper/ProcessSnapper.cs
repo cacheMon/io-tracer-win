@@ -14,6 +14,7 @@ namespace IOTracesCORE.snapper
     internal class ProcessSnapper
     {
         private readonly WriterManager wm;
+        private readonly ProcessCommandLineCache processCache;
         private bool interrupted;
         private bool snapshotCompleted;
         private readonly bool is_anonymouse;
@@ -28,9 +29,10 @@ namespace IOTracesCORE.snapper
         private static readonly TimeSpan Interval2m = TimeSpan.FromMinutes(2);
         private static readonly TimeSpan Interval1h = TimeSpan.FromHours(1);
 
-        public ProcessSnapper(WriterManager wm, bool is_anonymouse)
+        public ProcessSnapper(WriterManager wm, bool is_anonymouse, ProcessCommandLineCache processCache)
         {
             this.wm = wm;
+            this.processCache = processCache;
             interrupted = false;
             snapshotCompleted = false;
             this.is_anonymouse = is_anonymouse;
@@ -130,6 +132,7 @@ FROM Win32_Process";
 
                     string name = (string)mo["Name"] ?? "";
                     string commandLine = (string)mo["CommandLine"] ?? "";
+                    processCache.Upsert(pid, commandLine);
                     if (is_anonymouse)
                     {
                         commandLine = PathHasher.Hash(commandLine, 16);
