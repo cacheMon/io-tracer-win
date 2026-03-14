@@ -147,24 +147,40 @@ Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Of
 
 ## Cache-Based Filename Resolution
 
-Many ETW filesystem events (e.g., `read`, `write`, `flush`, `close`, `dir_notify`, `query_info`, `set_info`, `fs_control`) do **not** reliably include the filename. To work around this, the tracer maintains an in-memory `FileObject → Filename` cache (`nameByObj`) and uses a two-step resolution strategy via the `Resolve()` method:
+Many ETW filesystem events (e.g., `read`, `write`, `flush`, `close`, `dir_notify`, `query_info`, `set_info`, `fs_control`) do **not** reliably include the filename. To work around this, the tracer maintains an in-memory cache (`nameByObj`) keyed by kernel file-object pointer and uses a multi-step resolution strategy via the `Resolve()` method.
+
+### Background: ETW FileKey vs FileObject
+
+Windows ETW uses two different pointer-sized identifiers across event types for what is conceptually the same file:
+
+| Event type | Field used as name-lookup key |
+| :--- | :--- |
+| `FileIOCreate` | `FileObject` (NT file object pointer) |
+| `FileIOName` / `FileIOFileRundown` | `FileKey` (ETW internal file key, exposed by TraceEvent as `FileKey`) |
+| `FileIOReadWrite` (read, write) | `FileKey` |
+| `FileIOSimpleOp` (close, flush, cleanup) | Either field depending on kernel version / event source |
+| `FileIOInfo` (query_info, set_info, etc.) | Either field depending on kernel version / event source |
+
+Because the exact field varies, `Resolve()` always tries **both** `FileKey` and `FileObject` before giving up.
 
 ### Resolution Strategy
 
-For every event that carries a `FileObject` handle, the tracer resolves the filename as follows:
+For every event that carries file-object identifiers, the tracer resolves the filename as follows:
 
 1. **Event-supplied name first** — if the ETW event itself provides a non-empty `FileName`, that value is used directly.
-2. **Cache fallback** — if the event's `FileName` is empty, the tracer looks up the `FileObject` in the cache. If a mapping exists, the cached name is returned.
-3. **Empty result** — if neither source yields a name, the filename is recorded as an empty string.
+2. **Cache lookup by `FileKey`** — if the event name is empty, look up `FileKey` in the cache.
+3. **Cache lookup by `FileObject`** — if that also misses, try `FileObject` as a fallback.
+4. **Empty result** — if no source yields a name, the filename is recorded as an empty string.
 
 ### Cache Lifecycle
 
-| Phase        | Trigger                        | Action                                                                       |
-| :----------- | :----------------------------- | :--------------------------------------------------------------------------- |
-| **Populate** | `create` event (`OnCreate`)    | Maps `FileObject → FileName` when the filename is non-empty.                 |
-| **Update**   | `rename` event (`OnRename`)    | Overwrites the mapping with the new filename after a rename.                 |
-| **Consume**  | Any I/O event (e.g., `OnRead`) | Calls `Resolve()` which reads from the cache when the event name is missing. |
-| **Evict**    | `close` event (`OnClose`)      | Removes the `FileObject` entry after the handle is closed.                   |
+| Phase        | Trigger                                          | Action                                                                                  |
+| :----------- | :----------------------------------------------- | :-------------------------------------------------------------------------------------- |
+| **Populate** | `create` event (`OnCreate`)                      | Maps `FileObject → FileName` when the filename is non-empty.                            |
+| **Populate** | `name` / `file_rundown` events (`OnName`, `OnFileRundown`) | Maps `FileKey → FileName` for files that were already open when the trace started. |
+| **Update**   | `rename` event (`OnRename`)                      | Overwrites both `FileKey` and `FileObject` entries with the new filename.               |
+| **Consume**  | Any I/O event (e.g., `OnRead`)                   | Calls `Resolve()` which tries `FileKey` then `FileObject` when the event name is empty. |
+| **Evict**    | `close` event (`OnClose`)                        | Removes both `FileKey` and `FileObject` entries after the handle is closed.             |
 
 ### Which Operations Use the Cache
 
@@ -174,11 +190,12 @@ For every event that carries a `FileObject` handle, the tracer resolves the file
 
 > **Note:** `create` and `rename` are special — they both **populate** the cache _and_ call `Resolve()`, so they benefit from the cache if their own `FileName` happens to be empty.
 
-### Why the Cache Can Miss
+### Why the Cache Can Still Miss
 
-- **Pre-existing handles** — files opened _before_ tracing started have no corresponding `create` event, so they never enter the cache.
-- **`FileObject` reuse** — after a `close` evicts an entry, the kernel may reassign the same `FileObject` value to a new file. The cache only reflects the most recent mapping.
-- **`dir_notify` mismatch** — the directory handle used for `ReadDirectoryChangesW` notifications typically differs from the handle seen in `create`, so the cache lookup returns nothing (see [Known Limitations](#empty-filename-on-dir_notify-events)).
+- **Pre-existing handles with no rundown** — files that were open when the trace started are normally covered by `file_rundown` / `name` events that fire at session startup. However, if a file object was not enumerated in those rundown events, it will never enter the cache.
+- **`FileIOName` timing** — ETW fires a `FileIOName` event shortly after `FileIOCreate` to register the ETW file key. If the very first read or write arrives before that name event is processed, the lookup fails. This is uncommon but possible under high I/O load.
+- **Key reuse** — after a `close` evicts an entry, the kernel may reassign the same file-object pointer or file key to a new file. The cache only holds the most recent mapping.
+- **`dir_notify` mismatch** — the directory handle used for `ReadDirectoryChangesW` notifications typically differs from handles seen in `create` or rundown events, so both cache lookups return nothing (see [Known Limitations](#empty-filename-on-dir_notify-events)).
 
 ---
 
@@ -199,20 +216,21 @@ Windows ETW `DirNotify` events — fired when a process watches a directory for 
 
 ### Empty `Filename` on `fs_control` events
 
-`IRP_MJ_FILE_SYSTEM_CONTROL` events may lack a `Filename`. The tracer attempts resolution via the `FileObject`-based cache, but this fails when:
+`IRP_MJ_FILE_SYSTEM_CONTROL` events may lack a `Filename`. The tracer attempts resolution via the two-key cache (`FileKey`, then `FileObject`), but this fails when:
 
-- The file handle was opened **before** tracing started (no prior `create` event).
+- The file handle was opened **before** tracing started and was not covered by a `file_rundown` or `name` event.
 - The operation targets a **volume or device** rather than a specific file (e.g., `FSCTL_QUERY_USN_JOURNAL`, `FSCTL_GET_REPARSE_POINT`).
-- The `FileObject` was not seen in any prior `create` or `rename` event.
+- Neither `FileKey` nor `FileObject` from this event matches anything in the cache.
 
 ### Empty `Filename` on other I/O events
 
-`read`, `write`, `flush`, `close`, `query`, `query_info`, and `set_info` events may also have an empty `Filename`. These operations use ETW event types (`FileIOReadWriteTraceData`, `FileIOSimpleOpTraceData`, `FileIOInfoTraceData`) that do not always include the filename.
+`read`, `write`, `flush`, `close`, `query_info`, and `set_info` events may also have an empty `Filename`. The ETW event types for these operations (`FileIOReadWriteTraceData`, `FileIOSimpleOpTraceData`, `FileIOInfoTraceData`) do not include the filename.
 
-The tracer resolves names via the `FileObject`-based cache (populated by `create` and `rename` events), but resolution fails when:
+The tracer resolves names via the cache — trying `FileKey` first, then `FileObject` — but resolution fails when:
 
-- The file handle was opened **before** tracing started.
-- The `FileObject` was not seen in any prior `create` or `rename` event.
+- The file was open **before** tracing started and no `file_rundown` / `name` event covered it.
+- The `FileIOName` event that would have registered the ETW file key for a newly created file has not yet been processed (transient race at high I/O rates).
+- Neither identifier matches a cache entry (e.g., the file object was never seen in a `create`, `rename`, `name`, or `file_rundown` event).
 
 This is most common at the **beginning of a trace session** and becomes less frequent as the cache is populated over time.
 

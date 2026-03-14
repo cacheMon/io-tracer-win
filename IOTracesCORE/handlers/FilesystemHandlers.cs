@@ -45,11 +45,22 @@ namespace IOTracesCORE.handlers
             return n + "\\";
         }
 
-        private string Resolve(ulong fileObject, string eventName)
+        private string Resolve(ulong key, string eventName)
         {
             var n = Clean(eventName);
             if (!string.IsNullOrEmpty(n)) return MarkDirectoryIfNoExtension(n);
-            return nameByObj.TryGetValue(fileObject, out var cached) ? MarkDirectoryIfNoExtension(cached) : "";
+            return nameByObj.TryGetValue(key, out var cached) ? MarkDirectoryIfNoExtension(cached) : "";
+        }
+
+        // Tries key1 first, then key2 as fallback — handles events where ETW FileKey vs
+        // FileObject meaning differs across event types (create vs read/write/close).
+        private string Resolve(ulong key1, ulong key2, string eventName)
+        {
+            var n = Clean(eventName);
+            if (!string.IsNullOrEmpty(n)) return MarkDirectoryIfNoExtension(n);
+            if (nameByObj.TryGetValue(key1, out var cached)) return MarkDirectoryIfNoExtension(cached);
+            if (nameByObj.TryGetValue(key2, out cached)) return MarkDirectoryIfNoExtension(cached);
+            return "";
         }
 
         // Emit for simple operations with basic enhanced fields
@@ -115,7 +126,7 @@ namespace IOTracesCORE.handlers
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             EmitReadWrite(d.TimeStamp, "read", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), d.IoSize, d.Offset,
+                Resolve(d.FileKey, d.FileObject, d.FileName), d.IoSize, d.Offset,
                 d.IrpPtr, d.FileKey, d.IoFlags);
         }
 
@@ -123,7 +134,7 @@ namespace IOTracesCORE.handlers
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             EmitReadWrite(d.TimeStamp, "write", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), d.IoSize, d.Offset,
+                Resolve(d.FileKey, d.FileObject, d.FileName), d.IoSize, d.Offset,
                 d.IrpPtr, d.FileKey, d.IoFlags);
         }
 
@@ -131,20 +142,22 @@ namespace IOTracesCORE.handlers
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "flush", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
         }
 
         public void OnDirEnum(FileIODirEnumTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "dir_enum", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
         }
 
         public void OnCreate(FileIOCreateTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Clean(d.FileName);
+            // Store under FileObject (the only key available in create events).
+            // FileIOName fires shortly after and stores under FileKey for read/write lookups.
             if (!string.IsNullOrEmpty(name)) nameByObj[d.FileObject] = name;
 
             // Capturing CreateOptions, ShareAccess, CreateDisposition, and FileAttributes
@@ -165,7 +178,7 @@ namespace IOTracesCORE.handlers
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "delete", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
         }
 
         public void OnFileDelete(FileIONameTraceData d)
@@ -178,44 +191,51 @@ namespace IOTracesCORE.handlers
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "close", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
-            nameByObj.TryRemove(d.FileObject, out _); // drop mapping after close
+                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+            nameByObj.TryRemove(d.FileKey, out _);
+            nameByObj.TryRemove(d.FileObject, out _);
         }
 
         public void OnRename(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Clean(d.FileName);
-            if (!string.IsNullOrEmpty(name)) nameByObj[d.FileObject] = name;
+            if (!string.IsNullOrEmpty(name))
+            {
+                nameByObj[d.FileKey] = name;
+                nameByObj[d.FileObject] = name;
+            }
             Emit(d.TimeStamp, "rename", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
         }
 
         public void OnCleanup(FileIOSimpleOpTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "cleanup", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
         }
 
         public void OnDirNotify(FileIODirEnumTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "dir_notify", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
         }
 
         public void OnFileRundown(FileIONameTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "file_rundown", d.ProcessID, d.ThreadID, d.ProcessName, Clean(d.FileName), 0);
+            var name = Clean(d.FileName);
+            if (!string.IsNullOrEmpty(name)) nameByObj[d.FileKey] = name;
+            Emit(d.TimeStamp, "file_rundown", d.ProcessID, d.ThreadID, d.ProcessName, name, 0);
         }
 
         public void OnFSControl(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             EmitWithInfoClass(d.TimeStamp, "fs_control", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
         }
 
         public void OnMapFile(MapFileTraceData d)
@@ -242,21 +262,23 @@ namespace IOTracesCORE.handlers
         public void OnName(FileIONameTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "name", d.ProcessID, d.ThreadID, d.ProcessName, Clean(d.FileName), 0);
+            var name = Clean(d.FileName);
+            if (!string.IsNullOrEmpty(name)) nameByObj[d.FileKey] = name;
+            Emit(d.TimeStamp, "name", d.ProcessID, d.ThreadID, d.ProcessName, name, 0);
         }
 
         public void OnQueryInfo(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             EmitWithInfoClass(d.TimeStamp, "query_info", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
         }
 
         public void OnSetInfo(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             EmitWithInfoClass(d.TimeStamp, "set_info", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
         }
 
         public void OnUnmapFile(MapFileTraceData d)
