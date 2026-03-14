@@ -148,8 +148,10 @@ namespace IOTracesCORE.handlers
         public void OnDirEnum(FileIODirEnumTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            // d.FileName is the search pattern (e.g. "*.txt", "Get-WmiObject*"), not the directory path.
+            // Resolve the directory name from the cache instead.
             Emit(d.TimeStamp, "dir_enum", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, ""), 0, d.IrpPtr, d.FileKey);
         }
 
         public void OnCreate(FileIOCreateTraceData d)
@@ -219,8 +221,9 @@ namespace IOTracesCORE.handlers
         public void OnDirNotify(FileIODirEnumTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            // Same as dir_enum: d.FileName is a filter pattern, not the directory path.
             Emit(d.TimeStamp, "dir_notify", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+                Resolve(d.FileKey, d.FileObject, ""), 0, d.IrpPtr, d.FileKey);
         }
 
         public void OnFileRundown(FileIONameTraceData d)

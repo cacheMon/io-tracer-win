@@ -197,6 +197,8 @@ For every event that carries file-object identifiers, the tracer resolves the fi
 - **Key reuse** — after a `close` evicts an entry, the kernel may reassign the same file-object pointer or file key to a new file. The cache only holds the most recent mapping.
 - **`dir_notify` mismatch** — the directory handle used for `ReadDirectoryChangesW` notifications typically differs from handles seen in `create` or rundown events, so both cache lookups return nothing (see [Known Limitations](#empty-filename-on-dir_notify-events)).
 
+> **Note:** For `dir_enum` and `dir_notify`, the ETW `FileName` field contains the **search pattern** passed to `NtQueryDirectoryFile` (e.g., `*.txt`, `Get-WmiObject*`), not the directory path. The tracer ignores this field and resolves the directory name exclusively from the cache.
+
 ---
 
 ## Known Limitations
