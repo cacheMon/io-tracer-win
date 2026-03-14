@@ -2,6 +2,7 @@
 using CsvHelper.Configuration;
 using IOTracesCORE.utils;
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 
@@ -34,6 +35,7 @@ namespace IOTracesCORE.trace
         // driver would be required (similar to how Process Monitor captures it).
         public string? FileAttributes { get; set; }     // For Create - file attributes
         public string? IoFlags { get; set; }            // For Read/Write - IO operation flags
+        public string CommandLine { get; set; }
 
         private readonly StringWriter buffer = new StringWriter();
         private readonly CsvWriter csv;
@@ -77,8 +79,10 @@ namespace IOTracesCORE.trace
             csv.WriteField(FileKey?.ToString() ?? "");
             csv.WriteField(FileAttributes ?? "");
             csv.WriteField(IoFlags ?? "");
+            csv.WriteField(CommandLine);
 
             csv.NextRecord();
+            Debug.WriteLine(buffer.ToString());
             return buffer.ToString();
         }
 
@@ -91,7 +95,7 @@ namespace IOTracesCORE.trace
                 string comm,
                 string filename,
                 int size
-            ) : this(ts, op, pid, threadId, comm, filename, size, null, null, null, null, null, null, null, null, null, null)
+            ) : this(ts, op, pid, threadId, comm, filename, size, null, null, null, null, null, null, null, null, null, null, null)
         {
         }
 
@@ -113,7 +117,8 @@ namespace IOTracesCORE.trace
                 ulong? irpPtr,
                 ulong? fileKey,
                 string? fileAttributes,
-                string? ioFlags
+                string? ioFlags,
+                string? commandLine
             )
         {
             Ts = ts;
@@ -135,6 +140,7 @@ namespace IOTracesCORE.trace
             FileKey = fileKey;
             FileAttributes = fileAttributes;
             IoFlags = ioFlags;
+            CommandLine = string.IsNullOrEmpty(commandLine) ? "" : commandLine;
 
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
