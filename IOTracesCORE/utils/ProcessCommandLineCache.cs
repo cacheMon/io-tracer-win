@@ -9,7 +9,11 @@ namespace IOTracesCORE.utils
 
         public string Get(int pid)
         {
-            return commandLineByPid.TryGetValue(pid, out var commandLine) ? commandLine : "";
+            if (commandLineByPid.TryGetValue(pid, out var commandLine))
+                return commandLine;
+
+            RefreshFromProcess(pid);
+            return commandLineByPid.TryGetValue(pid, out commandLine) ? commandLine : "";
         }
 
         public void Upsert(int pid, string? commandLine)
