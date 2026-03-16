@@ -27,7 +27,15 @@ namespace IOTracesCORE.handlers
 
         private static string Clean(string s) => string.IsNullOrEmpty(s) ? "" : s.Trim();
 
-        private static bool IsIgnored(string s) => !string.IsNullOrEmpty(s) && s.Contains("IOTracer", StringComparison.OrdinalIgnoreCase);
+        private static bool IsIgnored(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            if (s.Contains("IOTracer", StringComparison.OrdinalIgnoreCase)) return true;
+            // Wildcard characters are never valid in Windows file paths — these are leaked
+            // directory enumeration search patterns (e.g. "Get-WmiObject*" from PowerShell dir_enum events).
+            if (s.IndexOfAny(new[] { '*', '?' }) >= 0) return true;
+            return false;
+        }
 
         private static string MarkDirectoryIfNoExtension(string s)
         {
