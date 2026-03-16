@@ -3,7 +3,7 @@
 Captures detailed file system I/O operations via Windows ETW kernel tracing.
 
 **CSV Header:**
-`Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Offset,ViewSize,InfoClass,ThreadId,IrpPtr,FileKey,FileAttributes,IoFlags,CommandLine`
+`Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Offset,ViewSize,FileInfoClass,FsctlCode,ThreadId,IrpPtr,FileKey,FileAttributes,IoFlags,CommandLine`
 
 **Fields:**
 
@@ -20,7 +20,8 @@ Captures detailed file system I/O operations via Windows ETW kernel tracing.
 | `CreateDisposition` | Action to take on file creation          | See [CreateDisposition](#createdisposition-values). _`create` only_               |
 | `Offset`            | Byte offset of the operation             | _`read`, `write` only_                                                            |
 | `ViewSize`          | Size of the mapped view                  | _`map_file` family only_                                                          |
-| `InfoClass`         | `FILE_INFORMATION_CLASS` for `query_info`/`set_info`; FSCTL control code for `fs_control` | See [InfoClass](#infoclass-values). _`query_info`, `set_info`, `fs_control` only_ |
+| `FileInfoClass`     | `FILE_INFORMATION_CLASS` for file metadata queries/sets | See [FileInfoClass](#fileinfoclass-values). _`query_info`, `set_info` only_        |
+| `FsctlCode`         | FSCTL control code for file-system control requests      | See [FsctlCode](#fsctlcode-values). _`fs_control` only_                            |
 | `ThreadId`          | Thread ID of the operation               |                                                                                   |
 | `IrpPtr`            | I/O Request Packet pointer               | Useful for correlating request/completion pairs                                   |
 | `FileKey`           | Kernel file-object identifier            |                                                                                   |
@@ -121,18 +122,11 @@ Pipe-separated flags (applicable to `read` / `write`):
 - `IRP_INPUT_OPERATION`, `IRP_SYNCHRONOUS_PAGING_IO`
 - `IRP_DEFER_IO_COMPLETION`, `IRP_OB_QUERY_NAME`, `IRP_HOLD_DEVICE_QUEUE`, `IRP_UM_DRIVER_INITIATED_IO`
 
-### InfoClass Values
+### FileInfoClass Values
 
-The `InfoClass` field is interpreted differently depending on the operation:
+Populated for `query_info` and `set_info` operations. Contains the decoded `FILE_INFORMATION_CLASS` integer from the ETW `FileIOInfo` event (decoded via `FileIOFlags.FormatInfoClass()`).
 
-| Operation | Encoding | Decoder |
-| :--- | :--- | :--- |
-| `query_info`, `set_info` | `FILE_INFORMATION_CLASS` integer | `FileIOFlags.FormatInfoClass()` |
-| `fs_control` | FSCTL control code (`CTL_CODE` macro value) | `FileIOFlags.FormatFsctlCode()` |
-
-> **Background:** ETW reuses the same `InfoClass` field for both `FileIOInfo` event types. For `query_info` / `set_info` the kernel stores a `FILE_INFORMATION_CLASS` enum value (small integers, 1–84+). For `fs_control` (`IRP_MJ_FILE_SYSTEM_CONTROL`) it stores the raw FSCTL control code, which encodes device type, access, function number, and transfer method via the `CTL_CODE` macro — producing large values like `0x000900EB`. Previously these appeared as unrecognised hex strings; they now decode to named constants.
-
-#### FILE_INFORMATION_CLASS values (`query_info` / `set_info`)
+#### FILE_INFORMATION_CLASS values
 
 Common values:
 
@@ -142,9 +136,11 @@ Common values:
 - `FileIdBothDirectoryInformation`, `FileIdFullDirectoryInformation`
 - `FileNetworkOpenInformation`, `FileAttributeTagInformation`
 - `FileRemoteProtocolInformation`, `FileStatInformation`
-- … and other `File*Information` values (full list in `FileIOFlags.FileInfoClassValue`).
+- … and other `File*Information` values (full list in `FileIOFlags.FileInfoClassValue` / `FormatInfoClass()`).
 
-#### FSCTL control code values (`fs_control`)
+### FsctlCode Values
+
+Populated for `fs_control` operations. Contains the decoded FSCTL control code from the ETW `FileIOInfo` event (decoded via `FileIOFlags.FormatFsctlCode()`). The raw value is produced by the `CTL_CODE` macro and encodes device type, access, function number, and transfer method — e.g. `0x000900EB`.
 
 Single value. Common codes from `winioctl.h`:
 
@@ -194,18 +190,18 @@ Single value. Common codes from `winioctl.h`:
 | `FSCTL_SET_INTEGRITY_INFORMATION` | `0x0009C280` | ReFS/NTFS integrity streams |
 | `FSCTL_DUPLICATE_EXTENTS_TO_FILE` | `0x00098344` | Block-clone / copy-on-write |
 
-Any code not in the above list is emitted as `0xXXXXXXXX`. The full set of recognised codes is defined in `FileIOFlags.FsctlCode`.
+Any code not in the above list is emitted as `0xXXXXXXXX`. The full set of recognised codes is defined in `FileIOFlags.FsctlCode` / `FormatFsctlCode()`.
 
 ---
 
 ## Example
 
 ```csv
-Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Offset,ViewSize,InfoClass,ThreadId,IrpPtr,FileKey,FileAttributes,IoFlags,CommandLine
-2026-02-08 23:23:45.123456,create,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,FILE_NON_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT,FILE_SHARE_READ,FILE_OPEN_IF,,,,5678,9876543210,18446744071562067968,FILE_ATTRIBUTE_NORMAL,,notepad.exe C:\Users\User\Documents\test.txt
-2026-02-08 23:23:45.125789,read,1234,notepad.exe,C:\Users\User\Documents\test.txt,4096,,,,0,,,5678,9876543210,18446744071562067968,,IRP_PAGING_IO|IRP_NOCACHE,notepad.exe C:\Users\User\Documents\test.txt
-2026-02-08 23:23:45.130012,write,1234,notepad.exe,C:\Users\User\Documents\test.txt,512,,,,4096,,,5678,9876543210,18446744071562067968,,IRP_SYNCHRONOUS_API,notepad.exe C:\Users\User\Documents\test.txt
-2026-02-08 23:23:45.140000,close,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,,,9876543210,18446744071562067968,,,notepad.exe C:\Users\User\Documents\test.txt
+Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Offset,ViewSize,FileInfoClass,FsctlCode,ThreadId,IrpPtr,FileKey,FileAttributes,IoFlags,CommandLine
+2026-02-08 23:23:45.123456,create,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,FILE_NON_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT,FILE_SHARE_READ,FILE_OPEN_IF,,,,,5678,9876543210,18446744071562067968,FILE_ATTRIBUTE_NORMAL,,notepad.exe C:\Users\User\Documents\test.txt
+2026-02-08 23:23:45.125789,read,1234,notepad.exe,C:\Users\User\Documents\test.txt,4096,,,,0,,,,5678,9876543210,18446744071562067968,,IRP_PAGING_IO|IRP_NOCACHE,notepad.exe C:\Users\User\Documents\test.txt
+2026-02-08 23:23:45.130012,write,1234,notepad.exe,C:\Users\User\Documents\test.txt,512,,,,4096,,,,5678,9876543210,18446744071562067968,,IRP_SYNCHRONOUS_API,notepad.exe C:\Users\User\Documents\test.txt
+2026-02-08 23:23:45.140000,close,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,,,,9876543210,18446744071562067968,,,notepad.exe C:\Users\User\Documents\test.txt
 ```
 
 ---

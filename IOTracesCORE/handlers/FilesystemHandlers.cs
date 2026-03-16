@@ -77,7 +77,7 @@ namespace IOTracesCORE.handlers
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
-                null, null, null, null, null, null, irpPtr, fileKey, null, null, processCache.Get(pid)));
+                null, null, null, null, null, null, null, irpPtr, fileKey, null, null, processCache.Get(pid)));
         }
 
         // Extended emit for Create operations with all flags
@@ -95,7 +95,7 @@ namespace IOTracesCORE.handlers
                 FileIOFlags.FormatCreateOptions(createOptions),
                 FileIOFlags.FormatShareAccess(shareAccess),
                 FileIOFlags.FormatCreateDisposition(createDisposition),
-                null, null, null, irpPtr, fileKey,
+                null, null, null, null, irpPtr, fileKey,
                 FileIOFlags.FormatFileAttributes(fileAttributes),
                 null, processCache.Get(pid)));
         }
@@ -106,7 +106,7 @@ namespace IOTracesCORE.handlers
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
-                null, null, null, offset, null, null, irpPtr, fileKey, null,
+                null, null, null, offset, null, null, null, irpPtr, fileKey, null,
                 FileIOFlags.FormatIoFlags(ioFlags), processCache.Get(pid)));
         }
 
@@ -116,7 +116,7 @@ namespace IOTracesCORE.handlers
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
-                null, null, null, null, (long)viewSize, null, null, fileKey, null, null, processCache.Get(pid)));
+                null, null, null, null, (long)viewSize, null, null, null, fileKey, null, null, processCache.Get(pid)));
         }
 
         // Extended emit for Query/SetInfo operations with info class
@@ -125,7 +125,7 @@ namespace IOTracesCORE.handlers
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
-                null, null, null, null, null, FileIOFlags.FormatInfoClass(infoClass),
+                null, null, null, null, null, FileIOFlags.FormatInfoClass(infoClass), null,
                 irpPtr, fileKey, null, null, processCache.Get(pid)));
         }
 
@@ -135,7 +135,7 @@ namespace IOTracesCORE.handlers
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
-                null, null, null, null, null, FileIOFlags.FormatFsctlCode(fsctlCode),
+                null, null, null, null, null, null, FileIOFlags.FormatFsctlCode(fsctlCode),
                 irpPtr, fileKey, null, null, processCache.Get(pid)));
         }
 

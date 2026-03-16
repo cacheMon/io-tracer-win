@@ -23,7 +23,8 @@ namespace IOTracesCORE.trace
         public string? CreateDisposition { get; set; }  // For Create operations - open/create behavior
         public long? Offset { get; set; }               // For Read/Write operations
         public long? ViewSize { get; set; }             // For MapFile operations
-        public string? InfoClass { get; set; }          // For Query/SetInfo operations
+        public string? FileInfoClass { get; set; }       // For query_info/set_info - FILE_INFORMATION_CLASS value
+        public string? FsctlCode { get; set; }           // For fs_control - FSCTL control code
 
         // Additional fields for better IO event differentiation
         public int ThreadId { get; set; }               // Thread ID for concurrency analysis
@@ -71,7 +72,8 @@ namespace IOTracesCORE.trace
             csv.WriteField(CreateDisposition ?? "");
             csv.WriteField(Offset?.ToString() ?? "");
             csv.WriteField(ViewSize?.ToString() ?? "");
-            csv.WriteField(InfoClass ?? "");
+            csv.WriteField(FileInfoClass ?? "");
+            csv.WriteField(FsctlCode ?? "");
 
             // Write additional IO differentiation fields
             csv.WriteField(ThreadId);
@@ -95,7 +97,7 @@ namespace IOTracesCORE.trace
                 string comm,
                 string filename,
                 int size
-            ) : this(ts, op, pid, threadId, comm, filename, size, null, null, null, null, null, null, null, null, null, null, null)
+            ) : this(ts, op, pid, threadId, comm, filename, size, null, null, null, null, null, null, null, null, null, null, null, null)
         {
         }
 
@@ -113,7 +115,8 @@ namespace IOTracesCORE.trace
                 string? createDisposition,
                 long? offset,
                 long? viewSize,
-                string? infoClass,
+                string? fileInfoClass,
+                string? fsctlCode,
                 ulong? irpPtr,
                 ulong? fileKey,
                 string? fileAttributes,
@@ -134,7 +137,8 @@ namespace IOTracesCORE.trace
             CreateDisposition = createDisposition;
             Offset = offset;
             ViewSize = viewSize;
-            InfoClass = infoClass;
+            FileInfoClass = fileInfoClass;
+            FsctlCode = fsctlCode;
 
             IrpPtr = irpPtr;
             FileKey = fileKey;
