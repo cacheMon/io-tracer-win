@@ -184,9 +184,90 @@ namespace IOTracesCORE.trace
             FileMaximumInformation
         }
 
+        /// <summary>
+        /// FSCTL (File System Control) codes passed in the InfoClass field of fs_control events.
+        /// Source: winioctl.h (Windows SDK).
+        /// Formula: CTL_CODE(FILE_DEVICE_FILE_SYSTEM=0x9, Function, Method, Access)
+        ///          = (0x9 &lt;&lt; 16) | (Access &lt;&lt; 14) | (Function &lt;&lt; 2) | Method
+        /// Method:  METHOD_BUFFERED=0, METHOD_IN_DIRECT=1, METHOD_OUT_DIRECT=2, METHOD_NEITHER=3
+        /// Access:  FILE_ANY_ACCESS=0, FILE_READ_ACCESS=1, FILE_WRITE_ACCESS=2
+        /// </summary>
+        public enum FsctlCode : uint
+        {
+            FSCTL_REQUEST_OPLOCK_LEVEL_1    = 0x00090000,
+            FSCTL_REQUEST_OPLOCK_LEVEL_2    = 0x00090004,
+            FSCTL_REQUEST_BATCH_OPLOCK      = 0x00090008,
+            FSCTL_OPLOCK_BREAK_ACKNOWLEDGE  = 0x0009000C,
+            FSCTL_OPBATCH_ACK_CLOSE_PENDING = 0x00090010,
+            FSCTL_OPLOCK_BREAK_NOTIFY       = 0x00090014,
+            FSCTL_LOCK_VOLUME               = 0x00090018,
+            FSCTL_UNLOCK_VOLUME             = 0x0009001C,
+            FSCTL_DISMOUNT_VOLUME           = 0x00090020,
+            FSCTL_IS_VOLUME_MOUNTED         = 0x00090028,
+            FSCTL_IS_PATHNAME_VALID         = 0x0009002C,
+            FSCTL_MARK_VOLUME_DIRTY         = 0x00090030,
+            FSCTL_QUERY_RETRIEVAL_POINTERS  = 0x0009003B, // METHOD_NEITHER
+            FSCTL_GET_COMPRESSION           = 0x0009003C,
+            FSCTL_SET_COMPRESSION           = 0x0009C040, // READ|WRITE access
+            FSCTL_OPLOCK_BREAK_ACK_NO_2     = 0x00090050,
+            FSCTL_INVALIDATE_VOLUMES        = 0x00090054,
+            FSCTL_QUERY_FAT_BPB             = 0x00090058,
+            FSCTL_REQUEST_FILTER_OPLOCK     = 0x0009005C,
+            FSCTL_FILESYSTEM_GET_STATISTICS = 0x00090060,
+            FSCTL_GET_NTFS_VOLUME_DATA      = 0x00090064,
+            FSCTL_GET_NTFS_FILE_RECORD      = 0x00090068,
+            FSCTL_GET_VOLUME_BITMAP         = 0x0009006F, // METHOD_NEITHER
+            FSCTL_GET_RETRIEVAL_POINTERS    = 0x00090073, // METHOD_NEITHER
+            FSCTL_MOVE_FILE                 = 0x00090074,
+            FSCTL_IS_VOLUME_DIRTY           = 0x00090078,
+            FSCTL_ALLOW_EXTENDED_DASD_IO    = 0x00090083, // METHOD_NEITHER
+            FSCTL_FIND_FILES_BY_SID         = 0x0009008F, // METHOD_NEITHER
+            FSCTL_SET_OBJECT_ID             = 0x00090098,
+            FSCTL_GET_OBJECT_ID             = 0x0009009C,
+            FSCTL_DELETE_OBJECT_ID          = 0x000900A0,
+            FSCTL_SET_REPARSE_POINT         = 0x000900A4,
+            FSCTL_GET_REPARSE_POINT         = 0x000900A8,
+            FSCTL_DELETE_REPARSE_POINT      = 0x000900AC,
+            FSCTL_ENUM_USN_DATA             = 0x000900B3, // METHOD_NEITHER
+            FSCTL_SECURITY_ID_CHECK         = 0x000940B7, // METHOD_NEITHER, READ_ACCESS
+            FSCTL_READ_USN_JOURNAL          = 0x000900BB, // METHOD_NEITHER
+            FSCTL_SET_OBJECT_ID_EXTENDED    = 0x000900BC,
+            FSCTL_CREATE_OR_GET_OBJECT_ID   = 0x000900C0,
+            FSCTL_SET_SPARSE                = 0x000900C4,
+            FSCTL_SET_ZERO_DATA             = 0x000980C8, // WRITE_ACCESS
+            FSCTL_QUERY_ALLOCATED_RANGES    = 0x000940CF, // METHOD_NEITHER, READ_ACCESS
+            FSCTL_ENABLE_UPGRADE            = 0x000900D0,
+            FSCTL_SET_ENCRYPTION            = 0x000900D7, // METHOD_NEITHER
+            FSCTL_ENCRYPTION_FSCTL_IO       = 0x000900DB, // METHOD_NEITHER
+            FSCTL_WRITE_RAW_ENCRYPTED       = 0x000900DF, // METHOD_NEITHER
+            FSCTL_READ_RAW_ENCRYPTED        = 0x000900E3, // METHOD_NEITHER
+            FSCTL_CREATE_USN_JOURNAL        = 0x000900E7, // METHOD_NEITHER
+            FSCTL_READ_FILE_USN_DATA        = 0x000900EB, // METHOD_NEITHER
+            FSCTL_WRITE_USN_CLOSE_RECORD    = 0x000900EF, // METHOD_NEITHER
+            FSCTL_EXTEND_VOLUME             = 0x000900F0,
+            FSCTL_QUERY_USN_JOURNAL         = 0x000900F4,
+            FSCTL_DELETE_USN_JOURNAL        = 0x000900F8,
+            FSCTL_MARK_HANDLE               = 0x000900FC,
+            FSCTL_SIS_COPYFILE              = 0x00090100,
+            FSCTL_REQUEST_OPLOCK            = 0x00090240,
+            FSCTL_CSV_TUNNEL_REQUEST        = 0x00090244,
+            FSCTL_IS_CSV_FILE               = 0x00090248,
+            FSCTL_QUERY_FILE_SYSTEM_RECOGNITION = 0x00090250,
+            FSCTL_GET_INTEGRITY_INFORMATION = 0x0009027C,
+            FSCTL_SET_INTEGRITY_INFORMATION = 0x0009C280, // READ|WRITE access
+            FSCTL_DUPLICATE_EXTENTS_TO_FILE = 0x00098344, // WRITE_ACCESS
+        }
+
+        public static string FormatFsctlCode(int code)
+        {
+            if (Enum.IsDefined(typeof(FsctlCode), (uint)code))
+                return ((FsctlCode)(uint)code).ToString();
+            return $"0x{code:X8}";
+        }
+
         public static string FormatCreateOptions(int flags)
         {
-            if (flags == 0) return "NONE";
+            if (flags == 0) return "";
 
             var result = new List<string>();
             var enumFlags = (CreateOptionsFlags)flags;
@@ -204,7 +285,7 @@ namespace IOTracesCORE.trace
 
         public static string FormatShareAccess(int flags)
         {
-            if (flags == 0) return "FILE_SHARE_NONE";
+            if (flags == 0) return "";
 
             var result = new List<string>();
             var enumFlags = (ShareAccessFlags)flags;
@@ -284,7 +365,7 @@ namespace IOTracesCORE.trace
 
         public static string FormatFileAttributes(int flags)
         {
-            if (flags == 0) return "NONE";
+            if (flags == 0) return "";
 
             var result = new List<string>();
             var enumFlags = (FileAttributeFlags)flags;
@@ -340,7 +421,7 @@ namespace IOTracesCORE.trace
 
         public static string FormatIoFlags(int flags)
         {
-            if (flags == 0) return "NONE";
+            if (flags == 0) return "";
 
             var result = new List<string>();
             var enumFlags = (IoOperationFlags)flags;

@@ -129,6 +129,16 @@ namespace IOTracesCORE.handlers
                 irpPtr, fileKey, null, null, processCache.Get(pid)));
         }
 
+        // fs_control events carry an FSCTL code in InfoClass, not a FILE_INFORMATION_CLASS value
+        private void EmitFsControl(DateTime ts, string op, int pid, int tid, string proc, string name,
+            int fsctlCode, ulong? irpPtr = null, ulong? fileKey = null)
+        {
+            if (IsIgnored(name)) return;
+            wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
+                null, null, null, null, null, FileIOFlags.FormatFsctlCode(fsctlCode),
+                irpPtr, fileKey, null, null, processCache.Get(pid)));
+        }
+
 
         public void OnRead(FileIOReadWriteTraceData d)
         {
@@ -245,7 +255,7 @@ namespace IOTracesCORE.handlers
         public void OnFSControl(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            EmitWithInfoClass(d.TimeStamp, "fs_control", d.ProcessID, d.ThreadID, d.ProcessName,
+            EmitFsControl(d.TimeStamp, "fs_control", d.ProcessID, d.ThreadID, d.ProcessName,
                 Resolve(d.FileKey, d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
         }
 
