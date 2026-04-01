@@ -13,7 +13,7 @@ namespace IOTracesCORE.trace
     class DiskTrace
     {
         public DiskTrace(DateTime ts, int pid, int threadId, string comm, long sector, string operation, int traceSize, double latency,
-                         int diskNumber = -1, ulong irp = 0, ulong irpFlags = 0)
+                         int diskNumber = -1, ulong? irp = null, ulong irpFlags = 0)
         {
             Ts = ts;
             Pid = pid;
@@ -49,7 +49,7 @@ namespace IOTracesCORE.trace
             csv.WriteField(TraceSize);
             csv.WriteField(Latency);
             csv.WriteField(DiskNumber);
-            csv.WriteField(string.Format("0x{0:X}", Irp));
+            csv.WriteField(Irp.HasValue ? string.Format("0x{0:X}", Irp.Value) : "");
 
             csv.WriteField(IrpFlagsHelper.ToString(IrpFlags));
 
@@ -70,7 +70,7 @@ namespace IOTracesCORE.trace
         public int TraceSize { get; set; }
         public double Latency { get; set; }
         public int DiskNumber { get; set; }
-        public ulong Irp { get; set; }
+        public ulong? Irp { get; set; }
 
         public ulong IrpFlags { get; set; }
 

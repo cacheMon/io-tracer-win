@@ -28,7 +28,7 @@ namespace IOTracesCORE.trace
 
         // Additional fields for better IO event differentiation
         public int ThreadId { get; set; }               // Thread ID for concurrency analysis
-        public ulong? IrpPtr { get; set; }              // IRP pointer for correlation
+        public ulong? Irp { get; set; }                 // IRP pointer for correlation
         public ulong? FileKey { get; set; }             // Unique file identifier
         // NOTE: DesiredAccess is NOT available from Windows ETW FileIO events.
         // Neither the NT Kernel Logger (FileIOCreateTraceData) nor Microsoft-Windows-Kernel-File
@@ -77,7 +77,7 @@ namespace IOTracesCORE.trace
 
             // Write additional IO differentiation fields
             csv.WriteField(ThreadId);
-            csv.WriteField(IrpPtr?.ToString() ?? "");
+            csv.WriteField(Irp.HasValue ? string.Format("0x{0:X}", Irp.Value) : "");
             csv.WriteField(FileKey?.ToString() ?? "");
             csv.WriteField(FileAttributes ?? "");
             csv.WriteField(IoFlags ?? "");
@@ -117,7 +117,7 @@ namespace IOTracesCORE.trace
                 long? viewSize,
                 string? fileInfoClass,
                 string? fsctlCode,
-                ulong? irpPtr,
+                ulong? irp,
                 ulong? fileKey,
                 string? fileAttributes,
                 string? ioFlags,
@@ -140,7 +140,7 @@ namespace IOTracesCORE.trace
             FileInfoClass = fileInfoClass;
             FsctlCode = fsctlCode;
 
-            IrpPtr = irpPtr;
+            Irp = irp;
             FileKey = fileKey;
             FileAttributes = fileAttributes;
             IoFlags = ioFlags;

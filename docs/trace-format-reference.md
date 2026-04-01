@@ -34,7 +34,7 @@ Captures detailed file system operations.
 
 **CSV Header:**
 ```
-Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Offset,ViewSize,InfoClass,ThreadId,IrpPtr,FileKey,FileAttributes,IoFlags
+Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Offset,ViewSize,InfoClass,ThreadId,Irp,FileKey,FileAttributes,IoFlags
 ```
 
 **Fields:**
@@ -54,7 +54,7 @@ Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Of
 | `ViewSize` | integer | Size of the view | Only for `map_file` family ops |
 | `InfoClass` | string | Type of information being queried/set | Only for Info ops |
 | `ThreadId` | integer | Thread ID of the operation | |
-| `IrpPtr` | pointer | Pointer to I/O Request Packet | Hex format: `0x...` |
+| `Irp` | pointer | Pointer to I/O Request Packet | Hex format: `0x...` |
 | `FileKey` | integer | Unique file object identifier from kernel | |
 | `FileAttributes` | flags | File attributes | Pipe-separated. Only for `create` ops |
 | `IoFlags` | flags | I/O specific flags | Pipe-separated. Only for `read`, `write` ops |

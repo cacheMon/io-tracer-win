@@ -73,11 +73,11 @@ namespace IOTracesCORE.handlers
 
         // Emit for simple operations with basic enhanced fields
         private void Emit(DateTime ts, string op, int pid, int tid, string proc, string name, int size,
-            ulong? irpPtr = null, ulong? fileKey = null)
+            ulong? irp = null, ulong? fileKey = null)
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
-                null, null, null, null, null, null, null, irpPtr, fileKey, null, null, processCache.Get(pid)));
+                null, null, null, null, null, null, null, irp, fileKey, null, null, processCache.Get(pid)));
         }
 
         // Extended emit for Create operations with all flags
@@ -87,7 +87,7 @@ namespace IOTracesCORE.handlers
         // CreateOptions, ShareAccess, CreateDisposition, FileAttributes, FileName.
         // To capture DesiredAccess, a minifilter driver would be required (like Process Monitor uses).
         private void EmitCreate(DateTime ts, string op, int pid, int tid, string proc, string name, int size,
-            int createOptions, int shareAccess, int createDisposition, ulong irpPtr, ulong fileKey,
+            int createOptions, int shareAccess, int createDisposition, ulong irp, ulong fileKey,
             int fileAttributes)
         {
             if (IsIgnored(name)) return;
@@ -95,18 +95,18 @@ namespace IOTracesCORE.handlers
                 FileIOFlags.FormatCreateOptions(createOptions),
                 FileIOFlags.FormatShareAccess(shareAccess),
                 FileIOFlags.FormatCreateDisposition(createDisposition),
-                null, null, null, null, irpPtr, fileKey,
+                null, null, null, null, irp, fileKey,
                 FileIOFlags.FormatFileAttributes(fileAttributes),
                 null, processCache.Get(pid)));
         }
 
         // Extended emit for Read/Write operations with offset and IoFlags
         private void EmitReadWrite(DateTime ts, string op, int pid, int tid, string proc, string name, int size,
-            long offset, ulong irpPtr, ulong fileKey, int ioFlags)
+            long offset, ulong irp, ulong fileKey, int ioFlags)
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
-                null, null, null, offset, null, null, null, irpPtr, fileKey, null,
+                null, null, null, offset, null, null, null, irp, fileKey, null,
                 FileIOFlags.FormatIoFlags(ioFlags), processCache.Get(pid)));
         }
 
@@ -121,22 +121,22 @@ namespace IOTracesCORE.handlers
 
         // Extended emit for Query/SetInfo operations with info class
         private void EmitWithInfoClass(DateTime ts, string op, int pid, int tid, string proc, string name,
-            int infoClass, ulong? irpPtr = null, ulong? fileKey = null)
+            int infoClass, ulong? irp = null, ulong? fileKey = null)
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
                 null, null, null, null, null, FileIOFlags.FormatInfoClass(infoClass), null,
-                irpPtr, fileKey, null, null, processCache.Get(pid)));
+                irp, fileKey, null, null, processCache.Get(pid)));
         }
 
         // fs_control events carry an FSCTL code in InfoClass, not a FILE_INFORMATION_CLASS value
         private void EmitFsControl(DateTime ts, string op, int pid, int tid, string proc, string name,
-            int fsctlCode, ulong? irpPtr = null, ulong? fileKey = null)
+            int fsctlCode, ulong? irp = null, ulong? fileKey = null)
         {
             if (IsIgnored(name)) return;
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
                 null, null, null, null, null, null, FileIOFlags.FormatFsctlCode(fsctlCode),
-                irpPtr, fileKey, null, null, processCache.Get(pid)));
+                irp, fileKey, null, null, processCache.Get(pid)));
         }
 
 
