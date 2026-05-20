@@ -17,6 +17,7 @@ namespace IOTracesCORE.utils
             public string OutputPath { get; set; } = "";
             public bool Anonymous { get; set; }
             public bool UploadEnabled { get; set; }
+            public bool DevMode { get; set; }
         }
 
         public class TraceMetadata

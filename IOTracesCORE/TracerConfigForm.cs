@@ -15,6 +15,7 @@ namespace IOTracesCORE
         private CheckBox chkAnonymous;
         private CheckBox chkEnableUpload;
         private CheckBox chkAutoStart;
+        private CheckBox chkDevMode;
         private Label lblAnonymous;
         private Label lblStatus;
         private Button btnRunTracer;
@@ -83,6 +84,15 @@ namespace IOTracesCORE
             };
             chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
             root.Controls.Add(chkAutoStart);
+
+            chkDevMode = new CheckBox
+            {
+                Text = "Dev Mode (logs stored locally only)",
+                AutoSize = true,
+                Margin = new Padding(0, 6, 0, 0)
+            };
+            chkDevMode.CheckedChanged += ChkDevMode_CheckedChanged;
+            root.Controls.Add(chkDevMode);
 
             lblStatus = new Label
             {
@@ -198,6 +208,20 @@ namespace IOTracesCORE
             }
         }
 
+        private void ChkDevMode_CheckedChanged(object? sender, EventArgs e)
+        {
+            if (chkDevMode.Checked)
+            {
+                chkEnableUpload.Checked = false;
+                chkEnableUpload.Enabled = false;
+            }
+            else
+            {
+                chkEnableUpload.Enabled = true;
+            }
+            SaveConfiguration();
+        }
+
         private async Task<bool> TestUploadConnection()
         {
             try
@@ -294,7 +318,7 @@ namespace IOTracesCORE
                 return;
             }
 
-            bool wantUpload = chkEnableUpload.Checked;
+            bool wantUpload = chkEnableUpload.Checked && !chkDevMode.Checked;
             bool finalUpload = wantUpload && isConnectionSafe;
 
             if (wantUpload && !isConnectionSafe)
@@ -345,6 +369,7 @@ namespace IOTracesCORE
                 {
                     Anonymous = chkAnonymous.Checked,
                     UploadEnabled = chkEnableUpload.Checked,
+                    DevMode = chkDevMode.Checked,
                 };
 
                 string json = JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented = true });
@@ -371,6 +396,7 @@ namespace IOTracesCORE
                 if (cfg == null) return;
 
                 chkAnonymous.Checked = cfg.Anonymous;
+                chkDevMode.Checked = cfg.DevMode;
                 chkEnableUpload.Checked = true;
             }
             catch (Exception ex)
