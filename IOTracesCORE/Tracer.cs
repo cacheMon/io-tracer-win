@@ -42,11 +42,11 @@ namespace IOTracesCORE
             CTRL_SHUTDOWN_EVENT = 6
         }
 
-        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output")
+        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output", bool devMode = false)
         {
             objHandler = obj;
             isUploadAutomatically = upload;
-            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler);
+            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode);
             processCache = new ProcessCommandLineCache();
             fsHandler = new FilesystemHandlers(wm, processCache);
             dsHandler = new DiskHandlers(wm);

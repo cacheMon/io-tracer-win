@@ -13,10 +13,8 @@ namespace IOTracesCORE
 {
     class WriterManager
     {
-        // Debug: Set to false to disable empty filename logging
-        private const bool ENABLE_EMPTY_FILENAME_LOGGING = true;
-
         private string dir_path;
+        private bool is_dev_mode;
         private string fs_filepath;
         private string ds_filepath;
         private string mr_filepath;
@@ -69,7 +67,7 @@ namespace IOTracesCORE
         public static TimeSpan active_session = TimeSpan.FromSeconds(0);
         public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
 
-        public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj)
+        public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj, bool dev_mode = false)
         {
             amount_compressed_file = 0;
 
@@ -83,6 +81,7 @@ namespace IOTracesCORE
 
             obj_storage = obj;
             is_upload_automatically = upload;
+            is_dev_mode = dev_mode;
 
 
             dir_path = $"{dirpath}\\{DateTime.UtcNow:yyyyMMdd_HHmmss}";
@@ -286,7 +285,7 @@ namespace IOTracesCORE
 
         public void LogEmptyFilename(DateTime ts, string op, int pid, int tid, string comm)
         {
-            if (!ENABLE_EMPTY_FILENAME_LOGGING) return;
+            if (!is_dev_mode) return;
 
             try
             {

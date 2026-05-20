@@ -334,10 +334,10 @@ namespace IOTracesCORE
 
             string outputPath = Path.Combine(Path.GetTempPath(), "IOTraces");
             ObjectStorageHandler obj = new();
-            RunTracer(outputPath, chkAnonymous.Checked, finalUpload, obj);
+            RunTracer(outputPath, chkAnonymous.Checked, finalUpload, obj, chkDevMode.Checked);
         }
 
-        private void RunTracer(string outputPath, bool anonymous, bool upload, ObjectStorageHandler obj)
+        private void RunTracer(string outputPath, bool anonymous, bool upload, ObjectStorageHandler obj, bool devMode)
         {
             EnsureOutputDirectoryExists(outputPath);
 
@@ -348,7 +348,7 @@ namespace IOTracesCORE
             {
                 try
                 {
-                    Tracer trc = new Tracer(anonymous, upload, obj, outputPath);
+                    Tracer trc = new Tracer(anonymous, upload, obj, outputPath, devMode);
                     trc.Trace(cancellationToken);
                 }
                 catch (OperationCanceledException) { }
