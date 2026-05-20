@@ -49,7 +49,7 @@ namespace IOTracesCORE
         private void InitializeComponent()
         {
             Text = "IO-Tracer Configuration";
-            ClientSize = new Size(520, 170);
+            ClientSize = new Size(520, 220);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -58,9 +58,10 @@ namespace IOTracesCORE
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(16),
-                RowCount = 5,
+                RowCount = 6,
                 ColumnCount = 1
             };
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -212,6 +213,23 @@ namespace IOTracesCORE
         {
             if (chkDevMode.Checked)
             {
+                var result = MessageBox.Show(
+                    "Dev Mode disables cloud uploads and stores traces locally only.\n\n" +
+                    "This is intended for development and testing purposes.\n\n" +
+                    "Are you sure you want to enable Dev Mode?",
+                    "Enable Dev Mode",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning
+                );
+
+                if (result == DialogResult.No)
+                {
+                    chkDevMode.CheckedChanged -= ChkDevMode_CheckedChanged;
+                    chkDevMode.Checked = false;
+                    chkDevMode.CheckedChanged += ChkDevMode_CheckedChanged;
+                    return;
+                }
+
                 chkEnableUpload.Checked = false;
                 chkEnableUpload.Enabled = false;
             }
