@@ -101,6 +101,8 @@ namespace IOTracesCORE
                     session = null;
                 }
 
+                fsHandler?.Dispose();
+
                 fsSnapper.Stop();
                 psHandler.Stop();
 
