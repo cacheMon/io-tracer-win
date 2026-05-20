@@ -84,7 +84,6 @@ namespace IOTracesCORE.trace
             csv.WriteField(CommandLine);
 
             csv.NextRecord();
-            Debug.WriteLine(buffer.ToString());
             return buffer.ToString();
         }
 

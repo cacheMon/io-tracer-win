@@ -15,6 +15,7 @@ namespace IOTracesCORE
         private CheckBox chkAnonymous;
         private CheckBox chkEnableUpload;
         private CheckBox chkAutoStart;
+        private CheckBox chkDevMode;
         private Label lblAnonymous;
         private Label lblStatus;
         private Button btnRunTracer;
@@ -48,7 +49,7 @@ namespace IOTracesCORE
         private void InitializeComponent()
         {
             Text = "IO-Tracer Configuration";
-            ClientSize = new Size(520, 170);
+            ClientSize = new Size(520, 220);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -57,9 +58,10 @@ namespace IOTracesCORE
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(16),
-                RowCount = 5,
+                RowCount = 6,
                 ColumnCount = 1
             };
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -83,6 +85,15 @@ namespace IOTracesCORE
             };
             chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
             root.Controls.Add(chkAutoStart);
+
+            chkDevMode = new CheckBox
+            {
+                Text = "Dev Mode (logs stored locally only)",
+                AutoSize = true,
+                Margin = new Padding(0, 6, 0, 0)
+            };
+            chkDevMode.CheckedChanged += ChkDevMode_CheckedChanged;
+            root.Controls.Add(chkDevMode);
 
             lblStatus = new Label
             {
@@ -198,6 +209,37 @@ namespace IOTracesCORE
             }
         }
 
+        private void ChkDevMode_CheckedChanged(object? sender, EventArgs e)
+        {
+            if (chkDevMode.Checked)
+            {
+                var result = MessageBox.Show(
+                    "Dev Mode disables cloud uploads and stores traces locally only.\n\n" +
+                    "This is intended for development and testing purposes.\n\n" +
+                    "Are you sure you want to enable Dev Mode?",
+                    "Enable Dev Mode",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning
+                );
+
+                if (result == DialogResult.No)
+                {
+                    chkDevMode.CheckedChanged -= ChkDevMode_CheckedChanged;
+                    chkDevMode.Checked = false;
+                    chkDevMode.CheckedChanged += ChkDevMode_CheckedChanged;
+                    return;
+                }
+
+                chkEnableUpload.Checked = false;
+                chkEnableUpload.Enabled = false;
+            }
+            else
+            {
+                chkEnableUpload.Enabled = true;
+            }
+            SaveConfiguration();
+        }
+
         private async Task<bool> TestUploadConnection()
         {
             try
@@ -294,7 +336,7 @@ namespace IOTracesCORE
                 return;
             }
 
-            bool wantUpload = chkEnableUpload.Checked;
+            bool wantUpload = chkEnableUpload.Checked && !chkDevMode.Checked;
             bool finalUpload = wantUpload && isConnectionSafe;
 
             if (wantUpload && !isConnectionSafe)
@@ -310,10 +352,10 @@ namespace IOTracesCORE
 
             string outputPath = Path.Combine(Path.GetTempPath(), "IOTraces");
             ObjectStorageHandler obj = new();
-            RunTracer(outputPath, chkAnonymous.Checked, finalUpload, obj);
+            RunTracer(outputPath, chkAnonymous.Checked, finalUpload, obj, chkDevMode.Checked);
         }
 
-        private void RunTracer(string outputPath, bool anonymous, bool upload, ObjectStorageHandler obj)
+        private void RunTracer(string outputPath, bool anonymous, bool upload, ObjectStorageHandler obj, bool devMode)
         {
             EnsureOutputDirectoryExists(outputPath);
 
@@ -324,7 +366,7 @@ namespace IOTracesCORE
             {
                 try
                 {
-                    Tracer trc = new Tracer(anonymous, upload, obj, outputPath);
+                    Tracer trc = new Tracer(anonymous, upload, obj, outputPath, devMode);
                     trc.Trace(cancellationToken);
                 }
                 catch (OperationCanceledException) { }
@@ -345,6 +387,7 @@ namespace IOTracesCORE
                 {
                     Anonymous = chkAnonymous.Checked,
                     UploadEnabled = chkEnableUpload.Checked,
+                    DevMode = chkDevMode.Checked,
                 };
 
                 string json = JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented = true });
@@ -371,6 +414,7 @@ namespace IOTracesCORE
                 if (cfg == null) return;
 
                 chkAnonymous.Checked = cfg.Anonymous;
+                chkDevMode.Checked = cfg.DevMode;
                 chkEnableUpload.Checked = true;
             }
             catch (Exception ex)

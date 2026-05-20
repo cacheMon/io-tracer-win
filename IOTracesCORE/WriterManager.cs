@@ -14,6 +14,7 @@ namespace IOTracesCORE
     class WriterManager
     {
         private string dir_path;
+        private bool is_dev_mode;
         private string fs_filepath;
         private string ds_filepath;
         private string mr_filepath;
@@ -31,6 +32,7 @@ namespace IOTracesCORE
         private readonly StringBuilder process_snap_sb;
 
         private int fs_snap_part_counter = 1;
+        private string empty_filename_filepath;
 
         private ObjectStorageHandler obj_storage;
 
@@ -65,7 +67,7 @@ namespace IOTracesCORE
         public static TimeSpan active_session = TimeSpan.FromSeconds(0);
         public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
 
-        public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj)
+        public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj, bool dev_mode = false)
         {
             amount_compressed_file = 0;
 
@@ -79,6 +81,7 @@ namespace IOTracesCORE
 
             obj_storage = obj;
             is_upload_automatically = upload;
+            is_dev_mode = dev_mode;
 
 
             dir_path = $"{dirpath}\\{DateTime.UtcNow:yyyyMMdd_HHmmss}";
@@ -89,6 +92,9 @@ namespace IOTracesCORE
             driver_filepath = GenerateFilePath("driver");
             process_snap_filepath = GenerateFilePath("process");
             fs_snap_filepath = GenerateFilePathWithPart("filesystem_snapshot", fs_snap_part_counter);
+
+            string tmp_dir = Path.Combine(dirpath, "tmp");
+            empty_filename_filepath = Path.Combine(tmp_dir, $"empty_filenames_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt");
             this.is_anonymous = is_anonymous;
 
             StartEventRateDetector();
@@ -274,6 +280,30 @@ namespace IOTracesCORE
             if (IsTimeToFlush(mr_sb))
             {
                 FlushWrite(mr_sb, mr_filepath, "memory");
+            }
+        }
+
+        public void LogEmptyFilename(DateTime ts, string op, int pid, int tid, string comm)
+        {
+            if (!is_dev_mode) return;
+
+            try
+            {
+                string? dir = Path.GetDirectoryName(empty_filename_filepath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    EnsureDirectoryExists(dir);
+                }
+
+                string logEntry = $"{ts:yyyy-MM-dd HH:mm:ss.ffffff} | Op: {op} | PID: {pid} | TID: {tid} | Comm: {comm}\n";
+                using (var writer = new StreamWriter(empty_filename_filepath, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+                {
+                    writer.Write(logEntry);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error logging empty filename: {ex.Message}");
             }
         }
 

@@ -243,6 +243,83 @@ For every event that carries file-object identifiers, the tracer resolves the fi
 | **Consume**  | Any I/O event (e.g., `OnRead`)                   | Calls `Resolve()` which tries `FileKey` then `FileObject` when the event name is empty. |
 | **Evict**    | `close` event (`OnClose`)                        | Removes both `FileKey` and `FileObject` entries after the handle is closed.             |
 
+### Complete Filename Resolution (Deferred Emit Queue)
+
+To capture every resolvable filename, the tracer implements a three-layer resolution strategy:
+
+#### Layer 1: Decouple Cache Population from Process Filtering
+
+The cache is now populated **regardless of process filter**. When `OnCreate`, `OnName`, `OnFileRundown`, or `OnRename` fires, the filename is stored in `nameByObj` before the `ProcessFilter.ShouldTrace` check. This ensures that:
+
+- Files opened by non-traced processes (e.g., `svchost`, `System`) are still indexed
+- Traced processes can resolve reads/writes on those files via the cache
+- Only the emission is filtered; the cache is global
+
+**Impact:** Eliminates empty filenames on cross-process file operations (e.g., traced app reading a file opened by a filtered background service).
+
+#### Layer 2: Cross-Populate FileKey ↔ FileObject
+
+The `Resolve(ulong key1, ulong key2, string eventName)` method now writes back to both keys when a match is found:
+
+```csharp
+if (nameByObj.TryGetValue(key1, out var cached))
+{
+    if (key2 != 0 && key2 != key1) nameByObj.TryAdd(key2, cached);  // ← writes back
+    return MarkDirectoryIfNoExtension(cached);
+}
+```
+
+Once a filename is found via `FileObject` (populated by `create`), it is immediately indexed under `FileKey` for future lookups. Subsequent reads using only `FileKey` will hit on the first try.
+
+**Impact:** Eliminates double-lookups and stale entries from kernel file-object reuse. Reduces lookup cost on hot paths.
+
+#### Layer 3: Deferred Emit Queue with Timer Flush
+
+For events that still resolve to empty after Layers 1 and 2:
+
+1. **Enqueue:** The event is not emitted immediately. Instead, a lambda closure capturing all its fields is queued in `_pending`, indexed by `FileKey`.
+
+2. **Drain on Name:** When `OnName` or `OnFileRundown` fires and populates the cache, `DrainPending(fileKey, resolvedName)` immediately dequeues and invokes all pending lambdas with the resolved filename.
+
+3. **Timer Flush:** A background `System.Threading.Timer` (50ms interval) scans `_pending` for stale entries (>100ms old) and flushes them with best-effort resolution (cached name or empty string).
+
+**Impact:** Handles transient timing races where `read` fires between `create` and `name` events (typically <100μs apart, but can be delayed under high load). Events are emitted with correct filenames instead of empty strings.
+
+**Example flow:**
+```
+OnCreate fires: FileObject=0xABCD, FileName="C:\file.txt"
+  → nameByObj[0xABCD] = "C:\file.txt"
+
+OnRead fires: FileKey=0x1234, FileObject=0xABCD, FileName=""
+  → Resolve(0x1234, 0xABCD, "") tries:
+    1. nameByObj[0x1234] → miss (OnName hasn't fired yet)
+    2. nameByObj[0xABCD] → HIT! Returns "C:\file.txt"
+    3. Also stores: nameByObj[0x1234] = "C:\file.txt" (cross-populate)
+  → Emits immediately (not deferred)
+
+OnName fires (shortly after): FileKey=0x1234, FileName="C:\file.txt"
+  → nameByObj[0x1234] = "C:\file.txt" (already there from cross-populate)
+  → DrainPending(0x1234, "C:\file.txt") → queue is empty (already emitted)
+```
+
+In a race scenario where `OnName` is delayed:
+```
+OnCreate fires: FileObject=0xABCD, FileName="C:\file.txt"
+  → nameByObj[0xABCD] = "C:\file.txt"
+
+OnRead fires BEFORE OnName: FileKey=0x1234, FileObject=0xYYYY, FileName=""
+  → (FileObject differs! Perhaps reused pointer or cross-process)
+  → Resolve(0x1234, 0xYYYY, "") → both misses
+  → EnqueuePending(0x1234, 0xYYYY, lambda(...))
+
+OnName fires: FileKey=0x1234, FileName="C:\file.txt"
+  → nameByObj[0x1234] = "C:\file.txt"
+  → DrainPending(0x1234, "C:\file.txt") → invokes lambda with name
+  → Emits: read,... with correct filename
+```
+
+Timer fires after 100ms: any remaining deferred events are flushed with whatever resolution was achieved.
+
 ### Which Operations Use the Cache
 
 | Uses cache (`Resolve()`)                                                                                                           | Does **not** use cache (name taken directly from event)                                   |
@@ -253,16 +330,21 @@ For every event that carries file-object identifiers, the tracer resolves the fi
 
 ### Why the Cache Can Still Miss
 
-- **Pre-existing handles with no rundown** — files that were open when the trace started are normally covered by `file_rundown` / `name` events that fire at session startup. However, if a file object was not enumerated in those rundown events, it will never enter the cache.
-- **`FileIOName` timing** — ETW fires a `FileIOName` event shortly after `FileIOCreate` to register the ETW file key. If the very first read or write arrives before that name event is processed, the lookup fails. This is uncommon but possible under high I/O load.
-- **Key reuse** — after a `close` evicts an entry, the kernel may reassign the same file-object pointer or file key to a new file. The cache only holds the most recent mapping.
-- **`dir_notify` mismatch** — the directory handle used for `ReadDirectoryChangesW` notifications typically differs from handles seen in `create` or rundown events, so both cache lookups return nothing (see [Known Limitations](#empty-filename-on-dir_notify-events)).
+With the three-layer resolution strategy (decoupled cache, cross-population, and deferred emit), most timing and filtering issues are eliminated. However, some edge cases remain:
+
+- **Pre-existing handles with no rundown** — files that were open when the trace started are normally covered by `file_rundown` / `name` events that fire at session startup. However, if a file object was not enumerated in those rundown events, it will never enter the cache. The deferred queue cannot help (no `name` event will arrive).
+- **Kernel-internal objects with no filesystem path** — kernel paging, anonymous sections, and unnamed device objects have no resolvable filename in ETW. These are unfixable at user mode without a kernel minifilter driver.
+- **`dir_notify` handle mismatch** — the directory handle used for `ReadDirectoryChangesW` notifications typically differs from handles seen in `create` or rundown events, so both cache lookups return nothing (see [Known Limitations](#empty-filename-on-dir_notify-events)).
 
 > **Note:** For `dir_enum` and `dir_notify`, the ETW `FileName` field contains the **search pattern** passed to `NtQueryDirectoryFile` (e.g., `*.txt`, `Get-WmiObject*`), not the directory path. The tracer ignores this field and resolves the directory name exclusively from the cache.
+
+> **Improvement:** The deferred emit queue now handles **`FileIOName` timing races**. If a read fires before the corresponding `name` event (rare but possible under high load), the read is queued and emitted with the correct filename when `name` fires. Previously these would always result in empty filenames.
 
 ---
 
 ## Known Limitations
+
+> **Note on Implementation Status:** The three-layer filename resolution (decoupled cache population, cross-population, and deferred emit queue) has significantly reduced empty filenames. Most timing races and process-filter issues are now resolved. The limitations below apply to edge cases where ETW itself does not expose a filename or handle.
 
 ### Empty `Filename` on `dir_notify` events
 
@@ -289,13 +371,18 @@ Windows ETW `DirNotify` events — fired when a process watches a directory for 
 
 `read`, `write`, `flush`, `close`, `query_info`, and `set_info` events may also have an empty `Filename`. The ETW event types for these operations (`FileIOReadWriteTraceData`, `FileIOSimpleOpTraceData`, `FileIOInfoTraceData`) do not include the filename.
 
-The tracer resolves names via the cache — trying `FileKey` first, then `FileObject` — but resolution fails when:
+The tracer resolves names via the cache and deferred emit queue. Most cases are now handled:
 
-- The file was open **before** tracing started and no `file_rundown` / `name` event covered it.
-- The `FileIOName` event that would have registered the ETW file key for a newly created file has not yet been processed (transient race at high I/O rates).
-- Neither identifier matches a cache entry (e.g., the file object was never seen in a `create`, `rename`, `name`, or `file_rundown` event).
+- ✅ **Cache population from all processes** — Cache entries are now populated even for non-traced processes. Traced apps reading files opened by background services now resolve correctly.
+- ✅ **Cross-population** — Once a filename is found via `FileKey` or `FileObject`, it is stored under both keys. Subsequent lookups are O(1) and avoid transient races.
+- ✅ **Deferred queue** — If resolution still returns empty, the event is queued. When the `FileIOName` event fires, the pending event is immediately emitted with the resolved filename. This handles timing races where `read` fires before `name` (rare but possible under extreme load).
 
-This is most common at the **beginning of a trace session** and becomes less frequent as the cache is populated over time.
+Resolution still **cannot** resolve when:
+
+- The file was open **before** tracing started and no `file_rundown` / `name` event enumerated it. The deferred queue cannot help since no future `name` event will arrive.
+- The operation targets a kernel-internal object with no filesystem path (paging file, unnamed sections, volume/device operations).
+
+At **session startup**, until `file_rundown` and initial `name` events populate the cache, some reads from pre-existing files may be empty. This window closes within milliseconds as the cache is seeded.
 
 ### Why `query_info` instead of `query`
 

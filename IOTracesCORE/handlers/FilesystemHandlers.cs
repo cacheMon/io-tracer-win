@@ -12,18 +12,26 @@ using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace IOTracesCORE.handlers
 {
-    class FilesystemHandlers
+    class FilesystemHandlers : IDisposable
     {
         private readonly WriterManager wm;
         private readonly ProcessCommandLineCache processCache;
 
         private readonly ConcurrentDictionary<ulong, string> nameByObj = new();
+        private readonly ConcurrentDictionary<ulong, ConcurrentQueue<(DateTime addedAt, Action<string> emit)>>
+            _pending = new();
+        private readonly System.Threading.Timer _flushTimer;
+        private static readonly TimeSpan MaxPendingAge = TimeSpan.FromMilliseconds(100);
 
-        public FilesystemHandlers(WriterManager old_wm, ProcessCommandLineCache processCache)
+        public FilesystemHandlers(WriterManager wm, ProcessCommandLineCache processCache)
         {
-            wm = old_wm;
+            this.wm = wm;
             this.processCache = processCache;
+            _flushTimer = new System.Threading.Timer(FlushStalePending, null,
+                TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50));
         }
+
+        public void Dispose() => _flushTimer?.Dispose();
 
         private static string Clean(string s) => string.IsNullOrEmpty(s) ? "" : s.Trim();
 
@@ -53,6 +61,14 @@ namespace IOTracesCORE.handlers
             return n + "\\";
         }
 
+        private void LogEmptyFilenameIfNeeded(string name, DateTime ts, string op, int pid, int tid, string proc)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                wm.LogEmptyFilename(ts, op, pid, tid, proc);
+            }
+        }
+
         private string Resolve(ulong key, string eventName)
         {
             var n = Clean(eventName);
@@ -62,13 +78,55 @@ namespace IOTracesCORE.handlers
 
         // Tries key1 first, then key2 as fallback — handles events where ETW FileKey vs
         // FileObject meaning differs across event types (create vs read/write/close).
+        // Cross-populates the other key when found, so future lookups find the name via either key.
         private string Resolve(ulong key1, ulong key2, string eventName)
         {
             var n = Clean(eventName);
             if (!string.IsNullOrEmpty(n)) return MarkDirectoryIfNoExtension(n);
-            if (nameByObj.TryGetValue(key1, out var cached)) return MarkDirectoryIfNoExtension(cached);
-            if (nameByObj.TryGetValue(key2, out cached)) return MarkDirectoryIfNoExtension(cached);
+
+            if (nameByObj.TryGetValue(key1, out var cached))
+            {
+                if (key2 != 0 && key2 != key1) nameByObj.TryAdd(key2, cached);
+                return MarkDirectoryIfNoExtension(cached);
+            }
+
+            if (nameByObj.TryGetValue(key2, out cached))
+            {
+                if (key1 != 0 && key1 != key2) nameByObj.TryAdd(key1, cached);
+                return MarkDirectoryIfNoExtension(cached);
+            }
+
             return "";
+        }
+
+        private void EnqueuePending(ulong fileKey, ulong fileObject, Action<string> emit)
+        {
+            ulong key = fileKey != 0 ? fileKey : fileObject;
+            if (key == 0) { emit(""); return; }
+            _pending.GetOrAdd(key, _ => new ConcurrentQueue<(DateTime, Action<string>)>())
+                    .Enqueue((DateTime.UtcNow, emit));
+        }
+
+        private void DrainPending(ulong fileKey, string resolvedName)
+        {
+            if (fileKey == 0) return;
+            if (!_pending.TryRemove(fileKey, out var queue)) return;
+            while (queue.TryDequeue(out var item))
+                item.emit(resolvedName);
+        }
+
+        private void FlushStalePending(object? state)
+        {
+            var cutoff = DateTime.UtcNow - MaxPendingAge;
+            foreach (var kvp in _pending)
+            {
+                if (!kvp.Value.TryPeek(out var oldest) || oldest.addedAt > cutoff) continue;
+                if (!_pending.TryRemove(kvp.Key, out var queue)) continue;
+                nameByObj.TryGetValue(kvp.Key, out var cachedName);
+                var finalName = string.IsNullOrEmpty(cachedName) ? "" : MarkDirectoryIfNoExtension(cachedName);
+                while (queue.TryDequeue(out var item))
+                    item.emit(finalName);
+            }
         }
 
         // Emit for simple operations with basic enhanced fields
@@ -143,24 +201,64 @@ namespace IOTracesCORE.handlers
         public void OnRead(FileIOReadWriteTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            EmitReadWrite(d.TimeStamp, "read", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), d.IoSize, d.Offset,
-                d.IrpPtr, d.FileKey, d.IoFlags);
+            var name = Resolve(d.FileKey, d.FileObject, d.FileName);
+            if (!string.IsNullOrEmpty(name))
+            {
+                EmitReadWrite(d.TimeStamp, "read", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, d.IoSize, d.Offset, d.IrpPtr, d.FileKey, d.IoFlags);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var size = d.IoSize; var offset = d.Offset; var irp = d.IrpPtr; var fk = d.FileKey; var flags = d.IoFlags;
+            EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+            {
+                LogEmptyFilenameIfNeeded(resolvedName, ts, "read", pid, tid, proc);
+                EmitReadWrite(ts, "read", pid, tid, proc, resolvedName, size, offset, irp, fk, flags);
+            });
         }
 
         public void OnWrite(FileIOReadWriteTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            EmitReadWrite(d.TimeStamp, "write", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), d.IoSize, d.Offset,
-                d.IrpPtr, d.FileKey, d.IoFlags);
+            var name = Resolve(d.FileKey, d.FileObject, d.FileName);
+            if (!string.IsNullOrEmpty(name))
+            {
+                EmitReadWrite(d.TimeStamp, "write", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, d.IoSize, d.Offset, d.IrpPtr, d.FileKey, d.IoFlags);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var size = d.IoSize; var offset = d.Offset; var irp = d.IrpPtr; var fk = d.FileKey; var flags = d.IoFlags;
+            EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+            {
+                LogEmptyFilenameIfNeeded(resolvedName, ts, "write", pid, tid, proc);
+                EmitReadWrite(ts, "write", pid, tid, proc, resolvedName, size, offset, irp, fk, flags);
+            });
         }
 
         public void OnFlush(FileIOSimpleOpTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "flush", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+            var name = Resolve(d.FileKey, d.FileObject, d.FileName);
+            if (!string.IsNullOrEmpty(name))
+            {
+                Emit(d.TimeStamp, "flush", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, 0, d.IrpPtr, d.FileKey);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var irp = d.IrpPtr; var fk = d.FileKey;
+            EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+            {
+                LogEmptyFilenameIfNeeded(resolvedName, ts, "flush", pid, tid, proc);
+                Emit(ts, "flush", pid, tid, proc, resolvedName, 0, irp, fk);
+            });
         }
 
         public void OnDirEnum(FileIODirEnumTraceData d)
@@ -168,17 +266,33 @@ namespace IOTracesCORE.handlers
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             // d.FileName is the search pattern (e.g. "*.txt", "Get-WmiObject*"), not the directory path.
             // Resolve the directory name from the cache instead.
-            Emit(d.TimeStamp, "dir_enum", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, ""), 0, d.IrpPtr, d.FileKey);
+            var name = Resolve(d.FileKey, d.FileObject, "");
+            if (!string.IsNullOrEmpty(name))
+            {
+                Emit(d.TimeStamp, "dir_enum", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, 0, d.IrpPtr, d.FileKey);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var irp = d.IrpPtr; var fk = d.FileKey;
+            EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+            {
+                LogEmptyFilenameIfNeeded(resolvedName, ts, "dir_enum", pid, tid, proc);
+                Emit(ts, "dir_enum", pid, tid, proc, resolvedName, 0, irp, fk);
+            });
         }
 
         public void OnCreate(FileIOCreateTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Clean(d.FileName);
             // Store under FileObject (the only key available in create events).
             // FileIOName fires shortly after and stores under FileKey for read/write lookups.
+            // Cache population happens regardless of process filter so all files are indexed.
             if (!string.IsNullOrEmpty(name)) nameByObj[d.FileObject] = name;
+
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
 
             // Capturing CreateOptions, ShareAccess, CreateDisposition, and FileAttributes
             // Note: FileIOCreateTraceData uses FileObject as file identifier
@@ -197,8 +311,22 @@ namespace IOTracesCORE.handlers
         public void OnDelete(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "delete", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+            var name = Resolve(d.FileKey, d.FileObject, d.FileName);
+            if (!string.IsNullOrEmpty(name))
+            {
+                Emit(d.TimeStamp, "delete", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, 0, d.IrpPtr, d.FileKey);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var irp = d.IrpPtr; var fk = d.FileKey;
+            EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+            {
+                LogEmptyFilenameIfNeeded(resolvedName, ts, "delete", pid, tid, proc);
+                Emit(ts, "delete", pid, tid, proc, resolvedName, 0, irp, fk);
+            });
         }
 
         public void OnFileDelete(FileIONameTraceData d)
@@ -210,53 +338,134 @@ namespace IOTracesCORE.handlers
         public void OnClose(FileIOSimpleOpTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "close", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+            var name = Resolve(d.FileKey, d.FileObject, d.FileName);
+            if (!string.IsNullOrEmpty(name))
+            {
+                Emit(d.TimeStamp, "close", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, 0, d.IrpPtr, d.FileKey);
+            }
+            else
+            {
+                // Defer if name is empty—will be resolved by OnName or flushed by timer
+                var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+                var irp = d.IrpPtr; var fk = d.FileKey;
+                EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+                {
+                    LogEmptyFilenameIfNeeded(resolvedName, ts, "close", pid, tid, proc);
+                    Emit(ts, "close", pid, tid, proc, resolvedName, 0, irp, fk);
+                });
+            }
+
+            // Evict AFTER enqueuing so OnName can drain pending before keys are removed
             nameByObj.TryRemove(d.FileKey, out _);
             nameByObj.TryRemove(d.FileObject, out _);
         }
 
         public void OnRename(FileIOInfoTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Clean(d.FileName);
+            // Cache population happens regardless of process filter so all files are indexed.
             if (!string.IsNullOrEmpty(name))
             {
                 nameByObj[d.FileKey] = name;
                 nameByObj[d.FileObject] = name;
             }
-            Emit(d.TimeStamp, "rename", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            var resolvedName = Resolve(d.FileKey, d.FileObject, d.FileName);
+            if (!string.IsNullOrEmpty(resolvedName))
+            {
+                Emit(d.TimeStamp, "rename", d.ProcessID, d.ThreadID, d.ProcessName,
+                    resolvedName, 0, d.IrpPtr, d.FileKey);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var irp = d.IrpPtr; var fk = d.FileKey;
+            EnqueuePending(d.FileKey, d.FileObject, finalName =>
+            {
+                LogEmptyFilenameIfNeeded(finalName, ts, "rename", pid, tid, proc);
+                Emit(ts, "rename", pid, tid, proc, finalName, 0, irp, fk);
+            });
         }
 
         public void OnCleanup(FileIOSimpleOpTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            Emit(d.TimeStamp, "cleanup", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), 0, d.IrpPtr, d.FileKey);
+            var name = Resolve(d.FileKey, d.FileObject, d.FileName);
+            if (!string.IsNullOrEmpty(name))
+            {
+                Emit(d.TimeStamp, "cleanup", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, 0, d.IrpPtr, d.FileKey);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var irp = d.IrpPtr; var fk = d.FileKey;
+            EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+            {
+                LogEmptyFilenameIfNeeded(resolvedName, ts, "cleanup", pid, tid, proc);
+                Emit(ts, "cleanup", pid, tid, proc, resolvedName, 0, irp, fk);
+            });
         }
 
         public void OnDirNotify(FileIODirEnumTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             // Same as dir_enum: d.FileName is a filter pattern, not the directory path.
-            Emit(d.TimeStamp, "dir_notify", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, ""), 0, d.IrpPtr, d.FileKey);
+            var name = Resolve(d.FileKey, d.FileObject, "");
+            if (!string.IsNullOrEmpty(name))
+            {
+                Emit(d.TimeStamp, "dir_notify", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, 0, d.IrpPtr, d.FileKey);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var irp = d.IrpPtr; var fk = d.FileKey;
+            EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+            {
+                LogEmptyFilenameIfNeeded(resolvedName, ts, "dir_notify", pid, tid, proc);
+                Emit(ts, "dir_notify", pid, tid, proc, resolvedName, 0, irp, fk);
+            });
         }
 
         public void OnFileRundown(FileIONameTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Clean(d.FileName);
-            if (!string.IsNullOrEmpty(name)) nameByObj[d.FileKey] = name;
+            // Cache population happens regardless of process filter so all files are indexed.
+            if (!string.IsNullOrEmpty(name))
+            {
+                nameByObj[d.FileKey] = name;
+                DrainPending(d.FileKey, MarkDirectoryIfNoExtension(name));
+            }
+
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "file_rundown", d.ProcessID, d.ThreadID, d.ProcessName, name, 0);
         }
 
         public void OnFSControl(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            EmitFsControl(d.TimeStamp, "fs_control", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
+            var name = Resolve(d.FileKey, d.FileObject, d.FileName);
+            if (!string.IsNullOrEmpty(name))
+            {
+                EmitFsControl(d.TimeStamp, "fs_control", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, d.InfoClass, d.IrpPtr, d.FileKey);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var fsctlCode = d.InfoClass; var irp = d.IrpPtr; var fk = d.FileKey;
+            EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+            {
+                LogEmptyFilenameIfNeeded(resolvedName, ts, "fs_control", pid, tid, proc);
+                EmitFsControl(ts, "fs_control", pid, tid, proc, resolvedName, fsctlCode, irp, fk);
+            });
         }
 
         public void OnMapFile(MapFileTraceData d)
@@ -282,24 +491,58 @@ namespace IOTracesCORE.handlers
 
         public void OnName(FileIONameTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Clean(d.FileName);
-            if (!string.IsNullOrEmpty(name)) nameByObj[d.FileKey] = name;
+            // Cache population happens regardless of process filter so all files are indexed.
+            if (!string.IsNullOrEmpty(name))
+            {
+                nameByObj[d.FileKey] = name;
+                DrainPending(d.FileKey, MarkDirectoryIfNoExtension(name));
+            }
+
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "name", d.ProcessID, d.ThreadID, d.ProcessName, name, 0);
         }
 
         public void OnQueryInfo(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            EmitWithInfoClass(d.TimeStamp, "query_info", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
+            var name = Resolve(d.FileKey, d.FileObject, d.FileName);
+            if (!string.IsNullOrEmpty(name))
+            {
+                EmitWithInfoClass(d.TimeStamp, "query_info", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, d.InfoClass, d.IrpPtr, d.FileKey);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var infoClass = d.InfoClass; var irp = d.IrpPtr; var fk = d.FileKey;
+            EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+            {
+                LogEmptyFilenameIfNeeded(resolvedName, ts, "query_info", pid, tid, proc);
+                EmitWithInfoClass(ts, "query_info", pid, tid, proc, resolvedName, infoClass, irp, fk);
+            });
         }
 
         public void OnSetInfo(FileIOInfoTraceData d)
         {
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
-            EmitWithInfoClass(d.TimeStamp, "set_info", d.ProcessID, d.ThreadID, d.ProcessName,
-                Resolve(d.FileKey, d.FileObject, d.FileName), d.InfoClass, d.IrpPtr, d.FileKey);
+            var name = Resolve(d.FileKey, d.FileObject, d.FileName);
+            if (!string.IsNullOrEmpty(name))
+            {
+                EmitWithInfoClass(d.TimeStamp, "set_info", d.ProcessID, d.ThreadID, d.ProcessName,
+                    name, d.InfoClass, d.IrpPtr, d.FileKey);
+                return;
+            }
+
+            // Defer if name is empty—will be resolved by OnName or flushed by timer
+            var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+            var infoClass = d.InfoClass; var irp = d.IrpPtr; var fk = d.FileKey;
+            EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
+            {
+                LogEmptyFilenameIfNeeded(resolvedName, ts, "set_info", pid, tid, proc);
+                EmitWithInfoClass(ts, "set_info", pid, tid, proc, resolvedName, infoClass, irp, fk);
+            });
         }
 
         public void OnUnmapFile(MapFileTraceData d)
