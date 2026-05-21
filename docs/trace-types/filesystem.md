@@ -371,18 +371,43 @@ Windows ETW `DirNotify` events — fired when a process watches a directory for 
 
 `read`, `write`, `flush`, `close`, `query_info`, and `set_info` events may also have an empty `Filename`. The ETW event types for these operations (`FileIOReadWriteTraceData`, `FileIOSimpleOpTraceData`, `FileIOInfoTraceData`) do not include the filename.
 
-The tracer resolves names via the cache and deferred emit queue. Most cases are now handled:
+The tracer resolves names via the cache and deferred emit queue. Many cases are now handled:
 
 - ✅ **Cache population from all processes** — Cache entries are now populated even for non-traced processes. Traced apps reading files opened by background services now resolve correctly.
 - ✅ **Cross-population** — Once a filename is found via `FileKey` or `FileObject`, it is stored under both keys. Subsequent lookups are O(1) and avoid transient races.
 - ✅ **Deferred queue** — If resolution still returns empty, the event is queued. When the `FileIOName` event fires, the pending event is immediately emitted with the resolved filename. This handles timing races where `read` fires before `name` (rare but possible under extreme load).
 
+#### Unfixable ETW Limitation: Files Open Before Tracing Started
+
+Resolution **cannot** resolve filenames for files that were open **before tracing started** and were not enumerated by `file_rundown` or `FileIOName` events. This is a **fundamental Windows ETW kernel provider limitation**, not a user-mode tracer design issue.
+
+**Root cause:**
+
+- The Windows ETW FileIO kernel provider does not fire `FileIOName` events for file handles that existed before tracing began.
+- `file_rundown` and `FileIOFileRundown` events attempt to enumerate already-open handles at trace startup, but this enumeration is **incomplete** — not all pre-existing file objects are discovered.
+- When a read/write/flush/query_info/set_info operation later occurs on such a file, the ETW event carries no filename and the kernel provider fires no name event to resolve it.
+- The deferred queue mechanism works correctly but cannot help: it can only resolve names when `FileIOName` events arrive from the kernel, and they never arrive for pre-existing handles.
+
+**Impact:**
+
+- Operations on files open before trace start time frequently have empty `Filename` fields.
+- This affects `read`, `write`, `flush`, `query_info`, `set_info`, and `fs_control` operations on pre-existing file handles.
+- The percentage of empty filenames depends on how many files were open at trace startup and how long the trace runs. A 5-hour trace starting with dozens of open files (background services, system processes, persistent applications) will accumulate significant percentages of operations with missing filenames.
+
+**Why it cannot be fixed at user mode:**
+
+- Only the Windows kernel can enumerate file handles and fire name events.
+- A kernel minifilter driver (like Process Monitor uses) could intercept file operations at creation time and track all handles in a separate table, but user-mode ETW providers cannot.
+- The limitation is inherent to how the Windows ETW FileIO kernel provider was designed: it relies on event-embedded filenames and post-hoc `FileIOName` events, both of which are unavailable for pre-existing handles.
+
+#### Other Unfixable Cases
+
 Resolution still **cannot** resolve when:
 
-- The file was open **before** tracing started and no `file_rundown` / `name` event enumerated it. The deferred queue cannot help since no future `name` event will arrive.
-- The operation targets a kernel-internal object with no filesystem path (paging file, unnamed sections, volume/device operations).
+- The operation targets a **kernel-internal object** with no filesystem path (paging file, anonymous sections, volume/device operations).
+- Neither `FileKey` nor `FileObject` from the event matches anything in the cache.
 
-At **session startup**, until `file_rundown` and initial `name` events populate the cache, some reads from pre-existing files may be empty. This window closes within milliseconds as the cache is seeded.
+At **session startup**, until `file_rundown` and initial `name` events populate the cache, some reads from pre-existing files may be empty. This window closes within milliseconds as the cache is seeded. However, the bulk of empty filenames on pre-existing files persists for the entire trace duration.
 
 ### Why `query_info` instead of `query`
 

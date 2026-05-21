@@ -20,6 +20,8 @@ namespace IOTracesCORE.handlers
         private readonly ConcurrentDictionary<ulong, string> nameByObj = new();
         private readonly ConcurrentDictionary<ulong, ConcurrentQueue<(DateTime addedAt, Action<string> emit)>>
             _pending = new();
+        // Track alternate keys (FileObject, etc) for each FileKey so we can drain all related pending queues
+        private readonly ConcurrentDictionary<ulong, HashSet<ulong>> _keyAliases = new();
         private readonly System.Threading.Timer _flushTimer;
         private static readonly TimeSpan MaxPendingAge = TimeSpan.FromMilliseconds(100);
 
@@ -103,6 +105,14 @@ namespace IOTracesCORE.handlers
         {
             ulong key = fileKey != 0 ? fileKey : fileObject;
             if (key == 0) { emit(""); return; }
+
+            // Track both keys as aliases so DrainPending can find them via either key
+            if (fileKey != 0 && fileObject != 0 && fileKey != fileObject)
+            {
+                _keyAliases.GetOrAdd(fileKey, _ => new HashSet<ulong>()).Add(fileObject);
+                _keyAliases.GetOrAdd(fileObject, _ => new HashSet<ulong>()).Add(fileKey);
+            }
+
             _pending.GetOrAdd(key, _ => new ConcurrentQueue<(DateTime, Action<string>)>())
                     .Enqueue((DateTime.UtcNow, emit));
         }
@@ -110,9 +120,73 @@ namespace IOTracesCORE.handlers
         private void DrainPending(ulong fileKey, string resolvedName)
         {
             if (fileKey == 0) return;
-            if (!_pending.TryRemove(fileKey, out var queue)) return;
-            while (queue.TryDequeue(out var item))
-                item.emit(resolvedName);
+
+            // Cache the cleaned name once
+            var cleanedName = MarkDirectoryIfNoExtension(resolvedName);
+
+            // Primary drain: the exact key
+            if (_pending.TryRemove(fileKey, out var queue))
+            {
+                while (queue.TryDequeue(out var item))
+                {
+                    item.emit(cleanedName);
+                }
+            }
+
+            // Secondary drain: any alternate keys we've seen for this file
+            if (_keyAliases.TryGetValue(fileKey, out var aliases))
+            {
+                foreach (var altKey in aliases)
+                {
+                    if (_pending.TryRemove(altKey, out queue))
+                    {
+                        while (queue.TryDequeue(out var item))
+                        {
+                            item.emit(cleanedName);
+                        }
+                    }
+                }
+                _keyAliases.TryRemove(fileKey, out _);
+            }
+
+            // Tertiary drain: scan remaining pending queues and drain any that don't have a cached name yet.
+            // This handles multi-key scenarios: if a read queued under FileKey=Y, and OnName fires
+            // with FileKey=W, we won't find Y in the primary drain. So we scan remaining pending queues
+            // and drain those too (common in ETW where the kernel reuses identifiers).
+            // First, populate nameByObj under all seen keys so future resolutions work via any key.
+            if (!string.IsNullOrEmpty(resolvedName))
+            {
+                // Update cache under all alternate keys so Resolve() calls can find it
+                nameByObj.TryAdd(fileKey, resolvedName);
+                if (_keyAliases.TryGetValue(fileKey, out var altKeys))
+                {
+                    foreach (var altKey in altKeys)
+                        nameByObj.TryAdd(altKey, resolvedName);
+                }
+
+                // Now scan pending queues and drain those whose keys we haven't added to cache yet
+                var keysToRemove = new List<ulong>();
+                foreach (var kvp in _pending)
+                {
+                    // If this key isn't already in cache, update it and mark for draining
+                    if (!nameByObj.ContainsKey(kvp.Key))
+                    {
+                        nameByObj[kvp.Key] = resolvedName;
+                        keysToRemove.Add(kvp.Key);
+                    }
+                }
+
+                foreach (var key in keysToRemove)
+                {
+                    if (_pending.TryRemove(key, out queue))
+                    {
+                        while (queue.TryDequeue(out var item))
+                        {
+                            item.emit(cleanedName);
+                        }
+                    }
+                }
+            }
         }
 
         private void FlushStalePending(object? state)
@@ -125,7 +199,9 @@ namespace IOTracesCORE.handlers
                 nameByObj.TryGetValue(kvp.Key, out var cachedName);
                 var finalName = string.IsNullOrEmpty(cachedName) ? "" : MarkDirectoryIfNoExtension(cachedName);
                 while (queue.TryDequeue(out var item))
+                {
                     item.emit(finalName);
+                }
             }
         }
 
