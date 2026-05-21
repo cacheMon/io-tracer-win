@@ -23,6 +23,7 @@ namespace IOTracesCORE.handlers
         // Track alternate keys (FileObject, etc) for each FileKey so we can drain all related pending queues
         private readonly ConcurrentDictionary<ulong, HashSet<ulong>> _keyAliases = new();
         private readonly System.Threading.Timer _flushTimer;
+        private readonly MinifilterPortClient? _minifilterClient;
         private static readonly TimeSpan MaxPendingAge = TimeSpan.FromMilliseconds(100);
 
         public FilesystemHandlers(WriterManager wm, ProcessCommandLineCache processCache)
@@ -31,9 +32,14 @@ namespace IOTracesCORE.handlers
             this.processCache = processCache;
             _flushTimer = new System.Threading.Timer(FlushStalePending, null,
                 TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50));
+            _minifilterClient = MinifilterPortClient.TryConnect(nameByObj, _pending);
         }
 
-        public void Dispose() => _flushTimer?.Dispose();
+        public void Dispose()
+        {
+            _minifilterClient?.Dispose();
+            _flushTimer?.Dispose();
+        }
 
         private static string Clean(string s) => string.IsNullOrEmpty(s) ? "" : s.Trim();
 

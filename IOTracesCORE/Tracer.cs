@@ -106,6 +106,10 @@ namespace IOTracesCORE
                 fsSnapper.Stop();
                 psHandler.Stop();
 
+                // Unload minifilter driver
+                Debug.WriteLine("[Tracer] Unloading minifilter driver...");
+                DriverService.Unload();
+
                 await Task.Delay(1000);
 
                 // Check if filesystem snapshot completed before finalizing
@@ -145,6 +149,20 @@ namespace IOTracesCORE
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
             wm.InitiateDirectory();
             Console.WriteLine("Starting IOTracer...");
+
+            // Ensure minifilter driver is installed and loaded
+            string sysPath = Path.Combine(AppContext.BaseDirectory, "IOTracerMinifilter.sys");
+            if (File.Exists(sysPath))
+            {
+                Debug.WriteLine("[Tracer] Attempting to load minifilter driver...");
+                DriverService.EnsureInstalled(sysPath);
+                DriverService.EnsureLoaded();
+            }
+            else
+            {
+                Debug.WriteLine("[Tracer] Minifilter driver not found, tracing with ETW-only resolution");
+            }
+
             Console.WriteLine("IOTracer started, Press CTRL + C to exit, or close the console window!");
             _ = Task.Run(() => fsSnapper.Run());
             Task __ = Task.Run(() => psHandler.Run());
