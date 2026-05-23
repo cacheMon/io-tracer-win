@@ -29,7 +29,8 @@ namespace IOTracesCORE.trace
         // Additional fields for better IO event differentiation
         public int ThreadId { get; set; }               // Thread ID for concurrency analysis
         public ulong? Irp { get; set; }                 // IRP pointer for correlation
-        public ulong? FileKey { get; set; }             // Unique file identifier
+        public ulong? FileKey { get; set; }             // Kernel file-object identifier (ETW key)
+        public ulong? FileObject { get; set; }          // NT kernel file-object pointer
         // NOTE: DesiredAccess is NOT available from Windows ETW FileIO events.
         // Neither the NT Kernel Logger (FileIOCreateTraceData) nor Microsoft-Windows-Kernel-File
         // include DesiredAccess in their event schemas. To capture this field, a minifilter
@@ -79,6 +80,7 @@ namespace IOTracesCORE.trace
             csv.WriteField(ThreadId);
             csv.WriteField(Irp.HasValue ? string.Format("0x{0:X}", Irp.Value) : "");
             csv.WriteField(FileKey?.ToString() ?? "");
+            csv.WriteField(FileObject.HasValue ? string.Format("0x{0:X}", FileObject.Value) : "");
             csv.WriteField(FileAttributes ?? "");
             csv.WriteField(IoFlags ?? "");
             csv.WriteField(CommandLine);
@@ -96,7 +98,7 @@ namespace IOTracesCORE.trace
                 string comm,
                 string filename,
                 int size
-            ) : this(ts, op, pid, threadId, comm, filename, size, null, null, null, null, null, null, null, null, null, null, null, null)
+            ) : this(ts, op, pid, threadId, comm, filename, size, null, null, null, null, null, null, null, null, null, null, null, null, null)
         {
         }
 
@@ -120,7 +122,8 @@ namespace IOTracesCORE.trace
                 ulong? fileKey,
                 string? fileAttributes,
                 string? ioFlags,
-                string? commandLine
+                string? commandLine,
+                ulong? fileObject
             )
         {
             Ts = ts;
@@ -141,6 +144,7 @@ namespace IOTracesCORE.trace
 
             Irp = irp;
             FileKey = fileKey;
+            FileObject = fileObject;
             FileAttributes = fileAttributes;
             IoFlags = ioFlags;
             CommandLine = string.IsNullOrEmpty(commandLine) ? "" : commandLine;

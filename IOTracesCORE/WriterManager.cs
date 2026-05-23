@@ -213,7 +213,7 @@ namespace IOTracesCORE
             file_event_counter += 1;
             //event_counter += 1;
             fs_sb.Append(data.FormatAsCsv(is_anonymous));
-            if (IsTimeToFlush(fs_sb))
+            if (IsTimeToFlush(fs_sb, lowThreshold: true))
             {
                 FlushWrite(fs_sb, fs_filepath, "filesystem");
             }

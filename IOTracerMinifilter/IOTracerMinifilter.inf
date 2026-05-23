@@ -1,0 +1,72 @@
+;
+; IOTracerMinifilter.inf
+;
+; Installation file for IOTracer minifilter driver.
+; Altitude: 370030 (Activity Monitor - Observe-only)
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %ManufacturerName%
+DriverVer   = 01/01/2026, 1.0.0.0
+CatalogFile = IOTracerMinifilter.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+IOTracerMinifilter.DriverFiles = 12
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+IOTracerMinifilter.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = IOTracerMinifilter_Mfg,NT$ARCH$
+
+[IOTracerMinifilter_Mfg.NT$ARCH$]
+%IOTracerMinifilter.DeviceDesc% = IOTracerMinifilter_Device, Root\IOTracerMinifilter
+
+[IOTracerMinifilter_Device.NT]
+CopyFiles = IOTracerMinifilter.DriverFiles
+
+[IOTracerMinifilter_Device.NT.Services]
+AddService = %IOTracerMinifilterName%,0x00000002,IOTracerMinifilter.Service
+AddReg = IOTracerMinifilter.AddRegistry
+
+;
+; Service Installation Section
+;
+[IOTracerMinifilter.Service]
+DisplayName    = %IOTracerMinifilterName%
+Description    = %IOTracerMinifilterDesc%
+ServiceType    = 2                      ; SERVICE_FILE_SYSTEM_DRIVER
+StartType      = 3                      ; SERVICE_DEMAND_START
+ErrorControl   = 1                      ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\IOTracerMinifilter.sys
+LoadOrderGroup = "FSFilter Activity Monitor"
+
+;
+; Copy Files Section
+;
+[IOTracerMinifilter.DriverFiles]
+IOTracerMinifilter.sys
+
+;
+; Registry Entries
+;
+[IOTracerMinifilter.AddRegistry]
+HKR,,"InstanceSetupFunction",,"IOTracerMinifilterInstanceSetup"
+HKR,,"DebugFlags",0x00010001,0
+HKLM,"System\CurrentControlSet\Services\IOTracerMinifilter\Instances\IOTracerMinifilter Instance","Altitude",0x00000000,"370030"
+HKLM,"System\CurrentControlSet\Services\IOTracerMinifilter\Instances\IOTracerMinifilter Instance","Flags",0x00010001,0x0
+
+[Strings]
+ManufacturerName        = "Anthropic"
+IOTracerMinifilterName  = "IOTracerMinifilter"
+IOTracerMinifilter.DeviceDesc = "IOTracerMinifilter Device"
+IOTracerMinifilterDesc  = "IOTracer File Tracing Minifilter (Altitude 370030)"
+DiskName                = "IOTracerMinifilter Installation Media"
