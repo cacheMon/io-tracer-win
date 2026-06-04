@@ -83,6 +83,7 @@ namespace IOTracesCORE
                     $"Computer ID: {PathHasher.deviceId}\n" +
                     $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
                     $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n" +
+                    $"Disk write rate: {FormatBytesPerSec(WriterManager.dir_growth_bytes_per_sec)} (dir growth)\n" +
                     $"Filesystem snapshot: {WriterManager.fs_snapshot_file_count:N0} files ({snapStatus})\n\n" +
                     $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours\n" +
                     $"Internet / Upload: {connStatus}",
@@ -109,6 +110,7 @@ namespace IOTracesCORE
                     $"Computer ID: {PathHasher.deviceId}\n" +
                     $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
                     $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n" +
+                    $"Disk write rate: {FormatBytesPerSec(WriterManager.dir_growth_bytes_per_sec)} (dir growth)\n" +
                     $"Filesystem snapshot: {WriterManager.fs_snapshot_file_count:N0} files ({snapStatus})\n\n" +
                     $"Active session elapsed (HH:MM:SS): {Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
                     $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours\n" +
@@ -122,6 +124,15 @@ namespace IOTracesCORE
             var form = TracerConfigForm.Run(cancellationTokenSource.Token);
             form.FormClosed += (_, __) => { cancellationTokenSource?.Cancel(); };
             Application.Run(form);
+        }
+
+        private static string FormatBytesPerSec(long bytesPerSec)
+        {
+            if (bytesPerSec >= 1_048_576)
+                return $"{bytesPerSec / 1_048_576.0:F1} MB/sec";
+            if (bytesPerSec >= 1024)
+                return $"{bytesPerSec / 1024.0:F1} KB/sec";
+            return $"{bytesPerSec} B/sec";
         }
 
         private static string GetRewardButtonText()

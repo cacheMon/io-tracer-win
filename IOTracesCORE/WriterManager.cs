@@ -39,6 +39,7 @@ namespace IOTracesCORE
         private const double MEMORY_PRESSURE_RATIO = 0.01;
         private const long ABSOLUTE_MAX_BYTES = 256L * 1024 * 1024; // 256 MB
         private static readonly TimeSpan MIN_FLUSH_INTERVAL = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan FS_FLUSH_INTERVAL = TimeSpan.FromSeconds(2); // Shorter interval for filesystem traces
         private static DateTime _lastFlushUtc = DateTime.UtcNow;
 
         // Cache GC memory info to avoid querying it on every event write
@@ -58,6 +59,7 @@ namespace IOTracesCORE
 
         private bool is_anonymous;
         private bool is_upload_automatically;
+        private readonly string dir_growth_log_filepath;
         public static int amount_compressed_file = 0;
         public static int disk_event_counter = 0;
         public static int file_event_counter = 0;
@@ -66,6 +68,7 @@ namespace IOTracesCORE
         public static bool fs_snapshot_complete = false;
         public static TimeSpan active_session = TimeSpan.FromSeconds(0);
         public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
+        public static long dir_growth_bytes_per_sec = 0;
 
         public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj, bool dev_mode = false)
         {
@@ -95,6 +98,7 @@ namespace IOTracesCORE
 
             string tmp_dir = Path.Combine(dirpath, "tmp");
             empty_filename_filepath = Path.Combine(tmp_dir, $"empty_filenames_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt");
+            dir_growth_log_filepath = Path.Combine(tmp_dir, $"dir_growth_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt");
             this.is_anonymous = is_anonymous;
 
             StartEventRateDetector();
@@ -133,8 +137,26 @@ namespace IOTracesCORE
             eventRateThread.Start();
         }
 
+        private static long GetDirectoryBytes(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
+                return 0;
+            try
+            {
+                return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                                .Sum(f => new FileInfo(f).Length);
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
         private void EventRateDetector()
         {
+            long prevDirSize = 0;
+            int dirPollTick = 0;
+            const int DIR_POLL_INTERVAL = 30;
             while (true)
             {
                 int initial_count = disk_event_counter;
@@ -147,7 +169,33 @@ namespace IOTracesCORE
                 {
                     active_session += TimeSpan.FromSeconds(1);
                 }
+
+                // Option A: directory size growth rate — sampled every 30 seconds
+                if (++dirPollTick >= DIR_POLL_INTERVAL)
+                {
+                    dirPollTick = 0;
+                    long curSize = GetDirectoryBytes(dir_path);
+                    dir_growth_bytes_per_sec = (curSize - prevDirSize) / DIR_POLL_INTERVAL;
+                    prevDirSize = curSize;
+                    AppendDirGrowthLog(curSize);
+                }
             }
+        }
+
+        private void AppendDirGrowthLog(long dirSizeBytes)
+        {
+            try
+            {
+                string logDir = Path.GetDirectoryName(dir_growth_log_filepath)!;
+                Directory.CreateDirectory(logDir);
+                bool isNew = !File.Exists(dir_growth_log_filepath);
+                using var sw = new StreamWriter(dir_growth_log_filepath, append: true,
+                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                if (isNew)
+                    sw.WriteLine("timestamp,dir_size_bytes");
+                sw.WriteLine($"{DateTime.UtcNow:O},{dirSizeBytes}");
+            }
+            catch { }
         }
 
         private static string EscapeCsvField(string field)
@@ -213,7 +261,7 @@ namespace IOTracesCORE
             file_event_counter += 1;
             //event_counter += 1;
             fs_sb.Append(data.FormatAsCsv(is_anonymous));
-            if (IsTimeToFlush(fs_sb, lowThreshold: true))
+            if (IsTimeToFlush(fs_sb, ultraLowThreshold: true))
             {
                 FlushWrite(fs_sb, fs_filepath, "filesystem");
             }
@@ -419,7 +467,7 @@ namespace IOTracesCORE
 
         }
 
-        private static bool IsTimeToFlush(StringBuilder sb, bool isSnap = false, bool lowThreshold = false)
+        private static bool IsTimeToFlush(StringBuilder sb, bool isSnap = false, bool lowThreshold = false, bool ultraLowThreshold = false)
         {
             long sbBytes = sb.Length * sizeof(char);
 
@@ -435,8 +483,14 @@ namespace IOTracesCORE
             if (sbBytes >= adaptiveLimit)
                 return true;
 
-            if (DateTime.UtcNow - _lastFlushUtc >= MIN_FLUSH_INTERVAL)
+            TimeSpan flushInterval = ultraLowThreshold ? FS_FLUSH_INTERVAL : MIN_FLUSH_INTERVAL;
+
+            if (DateTime.UtcNow - _lastFlushUtc >= flushInterval)
             {
+                // For ultra-low-threshold (filesystem), flush any buffered data more aggressively
+                if (ultraLowThreshold && sbBytes > 0)
+                    return true;
+
                 // For low-threshold trace types (e.g. network), flush any buffered data
                 if (lowThreshold && sbBytes > 0)
                     return true;
