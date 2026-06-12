@@ -137,11 +137,9 @@ namespace IOTracesCORE
         {
             while (true)
             {
-                int initial_count = disk_event_counter;
                 Thread.Sleep(1000);
-                int final_count = disk_event_counter;
-                int events_in_interval = final_count - initial_count;
-                disk_event_counter = 0;
+                // Atomically read-and-reset so increments racing on the ETW thread are not lost.
+                int events_in_interval = Interlocked.Exchange(ref disk_event_counter, 0);
                 //Debug.WriteLine($"Rate: {events_in_interval}");
                 if (events_in_interval > 100)
                 {
@@ -155,7 +153,7 @@ namespace IOTracesCORE
             if (string.IsNullOrEmpty(field))
                 return "\"\"";
 
-            if (field.Contains(',') || field.Contains('\n') || field.Contains('"'))
+            if (field.Contains(',') || field.Contains('\n') || field.Contains('\r') || field.Contains('"'))
             {
                 return $"\"{field.Replace("\"", "\"\"")}\"";
             }
@@ -226,7 +224,7 @@ namespace IOTracesCORE
                 return;
             }
 
-            disk_event_counter += 1;
+            Interlocked.Increment(ref disk_event_counter);
             ds_sb.Append(data.FormatAsCsv());
             // DebugLogger.LogRaw(data.FormatAsCsv());
             if (IsTimeToFlush(ds_sb))
@@ -410,7 +408,7 @@ namespace IOTracesCORE
                 writer.Write(input);
             }
 
-            amount_compressed_file++;
+            Interlocked.Increment(ref amount_compressed_file);
 
             if (is_upload_automatically)
             {
@@ -451,32 +449,25 @@ namespace IOTracesCORE
 
         public static string CompressFile(string filepath)
         {
-            try
+            if (!File.Exists(filepath))
             {
-                if (!File.Exists(filepath))
-                {
-                    throw new FileNotFoundException("Input file does not exist.", filepath);
-                }
-
-                string compressed_fp = $"{filepath}.zst";
-
-                using (var input = File.OpenRead(filepath))
-                using (var output = File.Create(compressed_fp))
-                using (var compressor = new CompressionStream(output))
-                {
-                    input.CopyTo(compressor);
-                }
-
-                amount_compressed_file++;
-
-                File.Delete(Path.GetFullPath(filepath));
-
-                return compressed_fp;
+                throw new FileNotFoundException("Input file does not exist.", filepath);
             }
-            catch
+
+            string compressed_fp = $"{filepath}.zst";
+
+            using (var input = File.OpenRead(filepath))
+            using (var output = File.Create(compressed_fp))
+            using (var compressor = new CompressionStream(output))
             {
-                throw;
+                input.CopyTo(compressor);
             }
+
+            Interlocked.Increment(ref amount_compressed_file);
+
+            File.Delete(Path.GetFullPath(filepath));
+
+            return compressed_fp;
         }
 
 

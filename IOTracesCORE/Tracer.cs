@@ -27,6 +27,7 @@ namespace IOTracesCORE
         private ObjectStorageHandler objHandler;
         private bool isUploadAutomatically;
         private volatile bool isShuttingDown = false;
+        private int cleanupStarted = 0;
 
         [DllImport("kernel32.dll")]
         static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate handler, bool add);
@@ -91,6 +92,12 @@ namespace IOTracesCORE
 
         private async Task CleanupAndExitAsync()
         {
+            // Ctrl+C can arrive via both the Win32 console handler and
+            // Console.CancelKeyPress; ensure the cleanup body (and Environment.Exit)
+            // runs exactly once even if those paths race.
+            if (Interlocked.Exchange(ref cleanupStarted, 1) != 0)
+                return;
+
             try
             {
                 Debug.WriteLine("Performing cleanup operations...");
@@ -143,6 +150,20 @@ namespace IOTracesCORE
             string sessionName = "IOTracer";
             CleanupOrphanedSession(sessionName);
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
+
+            // Registered once here (not per-session) so reconnect-driven session
+            // restarts in RunOneSession don't accumulate duplicate handlers.
+            Console.CancelKeyPress += (_, e) =>
+            {
+                if (!isShuttingDown)
+                {
+                    Console.WriteLine("\nCtrl+C pressed. Cleaning up...");
+                    e.Cancel = true;
+                    isShuttingDown = true;
+                    CleanupAndExitAsync().GetAwaiter().GetResult();
+                }
+            };
+
             wm.InitiateDirectory();
             Console.WriteLine("Starting IOTracer...");
             Console.WriteLine("IOTracer started, Press CTRL + C to exit, or close the console window!");
@@ -260,17 +281,6 @@ namespace IOTracesCORE
                 using (session = new TraceEventSession(sessionName))
                 {
                     session.StopOnDispose = true;
-
-                    Console.CancelKeyPress += (_, e) =>
-                    {
-                        if (!isShuttingDown)
-                        {
-                            Console.WriteLine("\nCtrl+C pressed. Cleaning up...");
-                            e.Cancel = true;
-                            isShuttingDown = true;
-                            CleanupAndExitAsync().GetAwaiter().GetResult();
-                        }
-                    };
 
                     session.EnableKernelProvider(
                         KernelTraceEventParser.Keywords.FileIO |

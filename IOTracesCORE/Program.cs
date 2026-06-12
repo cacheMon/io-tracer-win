@@ -73,23 +73,7 @@ namespace IOTracesCORE
             contextMenu.Items.Add(rewardMenuItem);
             contextMenu.Items.Add("-");
 
-            contextMenu.Items.Add("Show Status", null, (s, e) =>
-            {
-                TimeSpan Total_current_session = WriterManager.active_session;
-                TimeSpan Total_trace_duration = WriterManager.trace_duration;
-                string snapStatus = WriterManager.fs_snapshot_complete ? "Completed" : "In progress...";
-                string connStatus = ObjectStorageHandler.IsConnected ? "Connected" : ObjectStorageHandler.ConnectionStatus;
-                MessageBox.Show(
-                    $"Computer ID: {PathHasher.deviceId}\n" +
-                    $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
-                    $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n" +
-                    $"Filesystem snapshot: {WriterManager.fs_snapshot_file_count:N0} files ({snapStatus})\n\n" +
-                    $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours\n" +
-                    $"Internet / Upload: {connStatus}",
-                    "Status",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-            });
+            contextMenu.Items.Add("Show Status", null, (s, e) => ShowStatus());
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("Exit", null, OnExitClicked);
 
@@ -99,29 +83,33 @@ namespace IOTracesCORE
                 if (e.Button != MouseButtons.Left)
                     return;
 
-                TimeSpan Total_current_session = WriterManager.active_session;
-                TimeSpan Total_trace_duration = WriterManager.trace_duration;
-                string snapStatus = WriterManager.fs_snapshot_complete ? "Completed" : "In progress...";
-
-                string connStatus = ObjectStorageHandler.IsConnected ? "Connected" : ObjectStorageHandler.ConnectionStatus;
-
-                MessageBox.Show(
-                    $"Computer ID: {PathHasher.deviceId}\n" +
-                    $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
-                    $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n" +
-                    $"Filesystem snapshot: {WriterManager.fs_snapshot_file_count:N0} files ({snapStatus})\n\n" +
-                    $"Active session elapsed (HH:MM:SS): {Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
-                    $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours\n" +
-                    $"Internet / Upload: {connStatus}",
-                    "Status",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                ShowStatus();
             };
 
 
             var form = TracerConfigForm.Run(cancellationTokenSource.Token);
             form.FormClosed += (_, __) => { cancellationTokenSource?.Cancel(); };
             Application.Run(form);
+        }
+
+        private static void ShowStatus()
+        {
+            TimeSpan Total_current_session = WriterManager.active_session;
+            TimeSpan Total_trace_duration = WriterManager.trace_duration;
+            string snapStatus = WriterManager.fs_snapshot_complete ? "Completed" : "In progress...";
+            string connStatus = ObjectStorageHandler.IsConnected ? "Connected" : ObjectStorageHandler.ConnectionStatus;
+
+            MessageBox.Show(
+                $"Computer ID: {PathHasher.deviceId}\n" +
+                $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
+                $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n" +
+                $"Filesystem snapshot: {WriterManager.fs_snapshot_file_count:N0} files ({snapStatus})\n\n" +
+                $"Active session elapsed (HH:MM:SS): {(long)Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
+                $"Trace Duration: {(long)Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours\n" +
+                $"Internet / Upload: {connStatus}",
+                "Status",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
         }
 
         private static string GetRewardButtonText()

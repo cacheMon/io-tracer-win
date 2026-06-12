@@ -27,22 +27,12 @@ namespace IOTracesCORE.cloudstorage
         {
             try
             {
-
-                var currentVersion = VersionManager.Instance.GetCurrentVersion();
-                if (
-                    string.IsNullOrWhiteSpace(currentVersion) ||
-                    currentVersion.Equals("unknown", StringComparison.OrdinalIgnoreCase)
-                )
+                string? dirName = file.DirectoryName;
+                string trace_type = string.IsNullOrEmpty(dirName) ? "unknown_type" : Path.GetFileName(dirName);
+                if (string.IsNullOrEmpty(trace_type))
                 {
-                    currentVersion = "dev";
+                    trace_type = "unknown_type";
                 }
-                else
-                {
-                    currentVersion = currentVersion.Replace('.', '_');
-                }
-
-                string dir_name = file.DirectoryName ?? "unknown_dir";
-                string trace_type = Path.GetFileName(file.DirectoryName) ?? "unknown_type";
 
                 var endpoint = $"{EndpointUrl}/windows_trace_v4_test/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}";
 

@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Allow the unit-test assembly to reach internal helper types. -->
     <InternalsVisibleTo Include="IOTracesCORE.Tests" />
   </ItemGroup>
 
