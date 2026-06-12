@@ -1,15 +1,9 @@
-﻿using Amazon.S3;
-using Amazon.S3.Model;
-using IOTracesCORE.utils;
+﻿using IOTracesCORE.utils;
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Net;
 using System.Net.Http;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace IOTracesCORE.cloudstorage
@@ -20,7 +14,6 @@ namespace IOTracesCORE.cloudstorage
         private R2Client r2Client;
         private ConcurrentQueue<string> uploadQueue = new();
         public static int UploadedFiles = 0;
-        private TimeSpan LastActiveHours = TimeSpan.FromSeconds(0);
         public static int LastFileEvent;
 
         // ── Connection state ──────────────────────────────────────────────────
@@ -65,7 +58,6 @@ namespace IOTracesCORE.cloudstorage
             File.Delete(filepath);
 
             LastFileEvent = WriterManager.file_event_counter;
-            LastActiveHours = WriterManager.active_session;
         }
 
         public void QueueFile(string filepath)

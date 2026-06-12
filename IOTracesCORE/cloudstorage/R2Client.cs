@@ -1,14 +1,7 @@
-﻿using Amazon.S3;
-using Amazon.S3.Model;
-using IOTracesCORE.utils;
+﻿using IOTracesCORE.utils;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Threading.Tasks;
-using static System.Net.WebRequestMethods;
 
 namespace IOTracesCORE.cloudstorage
 {
