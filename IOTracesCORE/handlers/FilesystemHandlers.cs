@@ -124,7 +124,7 @@ namespace IOTracesCORE.handlers
             // Cache the cleaned name once
             var cleanedName = MarkDirectoryIfNoExtension(resolvedName);
 
-            // Primary drain: the exact key
+            // Primary drain: the exact key from the name event
             if (_pending.TryRemove(fileKey, out var queue))
             {
                 while (queue.TryDequeue(out var item))
@@ -133,52 +133,23 @@ namespace IOTracesCORE.handlers
                 }
             }
 
-            // Secondary drain: any alternate keys we've seen for this file
-            if (_keyAliases.TryGetValue(fileKey, out var aliases))
+            // Secondary drain: the alternate keys recorded for THIS same file — i.e. the
+            // FileKey/FileObject pair captured together in a single EnqueuePending call. Those keys
+            // are safely correlated with fileKey, so we drain their queues and cache the name under
+            // them for future lookups.
+            //
+            // We deliberately do NOT scan the rest of _pending. That dictionary is global and holds
+            // pending events for every file; a key we have not explicitly correlated with this file
+            // may belong to a completely different file, so assigning this resolvedName to it would
+            // corrupt the filename in the output trace.
+            if (_keyAliases.TryRemove(fileKey, out var aliases))
             {
                 foreach (var altKey in aliases)
                 {
-                    if (_pending.TryRemove(altKey, out queue))
-                    {
-                        while (queue.TryDequeue(out var item))
-                        {
-                            item.emit(cleanedName);
-                        }
-                    }
-                }
-                _keyAliases.TryRemove(fileKey, out _);
-            }
-
-            // Tertiary drain: scan remaining pending queues and drain any that don't have a cached name yet.
-            // This handles multi-key scenarios: if a read queued under FileKey=Y, and OnName fires
-            // with FileKey=W, we won't find Y in the primary drain. So we scan remaining pending queues
-            // and drain those too (common in ETW where the kernel reuses identifiers).
-            // First, populate nameByObj under all seen keys so future resolutions work via any key.
-            if (!string.IsNullOrEmpty(resolvedName))
-            {
-                // Update cache under all alternate keys so Resolve() calls can find it
-                nameByObj.TryAdd(fileKey, resolvedName);
-                if (_keyAliases.TryGetValue(fileKey, out var altKeys))
-                {
-                    foreach (var altKey in altKeys)
+                    if (altKey != 0 && !string.IsNullOrEmpty(resolvedName))
                         nameByObj.TryAdd(altKey, resolvedName);
-                }
 
-                // Now scan pending queues and drain those whose keys we haven't added to cache yet
-                var keysToRemove = new List<ulong>();
-                foreach (var kvp in _pending)
-                {
-                    // If this key isn't already in cache, update it and mark for draining
-                    if (!nameByObj.ContainsKey(kvp.Key))
-                    {
-                        nameByObj[kvp.Key] = resolvedName;
-                        keysToRemove.Add(kvp.Key);
-                    }
-                }
-
-                foreach (var key in keysToRemove)
-                {
-                    if (_pending.TryRemove(key, out queue))
+                    if (_pending.TryRemove(altKey, out queue))
                     {
                         while (queue.TryDequeue(out var item))
                         {
