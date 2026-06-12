@@ -271,16 +271,22 @@ namespace IOTracesCORE.trace
 
             var result = new List<string>();
             var enumFlags = (CreateOptionsFlags)flags;
+            uint matched = 0;
 
             foreach (CreateOptionsFlags flag in Enum.GetValues(typeof(CreateOptionsFlags)))
             {
-                if (enumFlags.HasFlag(flag))
+                if (flag != 0 && enumFlags.HasFlag(flag))
                 {
                     result.Add(flag.ToString());
+                    matched |= (uint)flag;
                 }
             }
 
-            return result.Count > 0 ? string.Join("|", result) : $"0x{flags:X8}";
+            uint remaining = (uint)flags & ~matched;
+            if (remaining != 0)
+                result.Add($"0x{remaining:X8}");
+
+            return string.Join("|", result);
         }
 
         public static string FormatShareAccess(int flags)
@@ -289,16 +295,22 @@ namespace IOTracesCORE.trace
 
             var result = new List<string>();
             var enumFlags = (ShareAccessFlags)flags;
+            uint matched = 0;
 
             foreach (ShareAccessFlags flag in Enum.GetValues(typeof(ShareAccessFlags)))
             {
                 if (flag != ShareAccessFlags.FILE_SHARE_NONE && enumFlags.HasFlag(flag))
                 {
                     result.Add(flag.ToString());
+                    matched |= (uint)flag;
                 }
             }
 
-            return result.Count > 0 ? string.Join("|", result) : $"0x{flags:X8}";
+            uint remaining = (uint)flags & ~matched;
+            if (remaining != 0)
+                result.Add($"0x{remaining:X8}");
+
+            return string.Join("|", result);
         }
 
         public static string FormatCreateDisposition(int value)
@@ -369,16 +381,22 @@ namespace IOTracesCORE.trace
 
             var result = new List<string>();
             var enumFlags = (FileAttributeFlags)flags;
+            uint matched = 0;
 
             foreach (FileAttributeFlags flag in Enum.GetValues(typeof(FileAttributeFlags)))
             {
-                if (enumFlags.HasFlag(flag))
+                if (flag != 0 && enumFlags.HasFlag(flag))
                 {
                     result.Add(flag.ToString());
+                    matched |= (uint)flag;
                 }
             }
 
-            return result.Count > 0 ? string.Join("|", result) : $"0x{flags:X8}";
+            uint remaining = (uint)flags & ~matched;
+            if (remaining != 0)
+                result.Add($"0x{remaining:X8}");
+
+            return string.Join("|", result);
         }
 
         /// <summary>
@@ -425,16 +443,22 @@ namespace IOTracesCORE.trace
 
             var result = new List<string>();
             var enumFlags = (IoOperationFlags)flags;
+            uint matched = 0;
 
             foreach (IoOperationFlags flag in Enum.GetValues(typeof(IoOperationFlags)))
             {
-                if (enumFlags.HasFlag(flag))
+                if (flag != 0 && enumFlags.HasFlag(flag))
                 {
                     result.Add(flag.ToString());
+                    matched |= (uint)flag;
                 }
             }
 
-            return result.Count > 0 ? string.Join("|", result) : $"0x{flags:X8}";
+            uint remaining = (uint)flags & ~matched;
+            if (remaining != 0)
+                result.Add($"0x{remaining:X8}");
+
+            return string.Join("|", result);
         }
     }
 }

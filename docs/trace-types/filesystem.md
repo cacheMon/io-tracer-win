@@ -277,9 +277,14 @@ Once a filename is found via `FileObject` (populated by `create`), it is immedia
 
 For events that still resolve to empty after Layers 1 and 2:
 
-1. **Enqueue:** The event is not emitted immediately. Instead, a lambda closure capturing all its fields is queued in `_pending`, indexed by `FileKey`.
+1. **Enqueue:** The event is not emitted immediately. Instead, a lambda closure capturing all its fields is queued in `_pending`, indexed by `FileKey` (or `FileObject` when `FileKey` is `0`). When the event carries both a non-zero `FileKey` _and_ a non-zero `FileObject` that differ, `EnqueuePending` also records the pair in `_keyAliases` (a `key → {alternate keys}` map). Draining is always keyed on the `FileKey` from a name event, so this alias link lets the drain also reach an event that was queued under its alternate (`FileObject`) key.
 
-2. **Drain on Name:** When `OnName` or `OnFileRundown` fires and populates the cache, `DrainPending(fileKey, resolvedName)` immediately dequeues and invokes all pending lambdas with the resolved filename.
+2. **Drain on Name:** When `OnName` or `OnFileRundown` fires and populates the cache, `DrainPending(fileKey, resolvedName)` flushes pending events in two tiers:
+
+   - **Primary** — drain the queue indexed by the exact `FileKey` from the name event.
+   - **Secondary** — pull `_keyAliases[fileKey]` and drain the queue under each alternate key recorded for that **same** file (the `FileKey`/`FileObject` pair captured together in one enqueue), caching the resolved name under those keys for future lookups.
+
+   The drain only touches keys it has explicitly correlated with this file. It does **not** scan the rest of `_pending`: that dictionary is global across all files, so assigning this name to an unrelated, uncorrelated key would corrupt the filename in the output.
 
 3. **Timer Flush:** A background `System.Threading.Timer` (50ms interval) scans `_pending` for stale entries (>100ms old) and flushes them with best-effort resolution (cached name or empty string).
 

@@ -18,23 +18,37 @@ namespace IOTracesCORE.Tests
         }
 
         [Fact]
-        public void ToString_Read_ReturnsName()
+        public void ToString_ReadAndWrite_PreservesOrder()
         {
-            Assert.Equal("Read", IrpFlagsHelper.ToString(256));
+            // Read (256) | Write (512); Read is emitted before Write.
+            Assert.Equal("Read|Write", IrpFlagsHelper.ToString(256 | 512));
         }
 
         [Fact]
-        public void ToString_ReadAndWrite_JoinsInDeclaredOrder()
+        public void ToString_NormalPriority_Decoded()
         {
-            // 256 (Read) | 512 (Write)
-            Assert.Equal("Read|Write", IrpFlagsHelper.ToString(768));
+            // Priority is stored in bits 17-19. Normal == 2, so 2 << 17.
+            Assert.Equal("Priority:Normal", IrpFlagsHelper.ToString(2UL << 17));
         }
 
         [Fact]
-        public void ToString_NormalPriority_DecodesPriorityBits()
+        public void ToString_CriticalPriority_Decoded()
         {
-            // Priority value 2 shifted into bits 17-19 => 2 << 17 = 0x40000
-            Assert.Equal("Priority:Normal", IrpFlagsHelper.ToString(0x40000));
+            Assert.Equal("Priority:Critical", IrpFlagsHelper.ToString(4UL << 17));
+        }
+
+        [Fact]
+        public void ToString_UnmappedBit_ReturnsHex()
+        {
+            // Bit 16 (0x10000) is not part of any named flag or the priority mask.
+            Assert.Equal("0x10000", IrpFlagsHelper.ToString(0x10000));
+        }
+
+        [Fact]
+        public void ToString_MixedKnownAndUnmappedBits_ReturnsBoth()
+        {
+            // Nocache (0x1) | unmapped 0x10000: the unmapped bit must be preserved.
+            Assert.Equal("Nocache|0x10000", IrpFlagsHelper.ToString(0x10001));
         }
     }
 }
