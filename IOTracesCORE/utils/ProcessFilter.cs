@@ -18,6 +18,7 @@ namespace IOTracesCORE.utils
         public static bool ShouldTrace(int pid, string processName)
         {
             if (excludedPids.Contains(pid)) return false;
+            if (string.IsNullOrEmpty(processName)) return true;
             foreach (var name in excludedProcessNames)
             {
                 if (processName.Contains(name, StringComparison.OrdinalIgnoreCase))

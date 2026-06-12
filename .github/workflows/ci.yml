@@ -20,6 +20,7 @@ jobs:
     env:
       CONFIG: Release
       PROJECT: IOTracesCORE/IOTracesCORE.csproj
+      TEST_PROJECT: IOTracesCORE.Tests/IOTracesCORE.Tests.csproj
       OUT_DIR: publish\${{ matrix.rid }}
       ZIP_NAME: IOTracesCORE_${{ matrix.rid }}_${{ github.sha }}.zip
 
@@ -34,6 +35,9 @@ jobs:
 
       - name: Restore
         run: dotnet restore $env:PROJECT
+
+      - name: Test
+        run: dotnet test $env:TEST_PROJECT -c $env:CONFIG
 
       - name: Publish (${{ matrix.rid }})
         shell: pwsh

@@ -11,13 +11,15 @@ namespace IOTracesCORE.utils
     {
         public static string ToPowerOfTen(long count)
         {
-            if (count < 1_000_000)
+            long magnitude = Math.Abs(count);
+            if (magnitude < 1_000_000)
                 return count.ToString("N0");
 
-            int exponent = (int)Math.Floor(Math.Log10(count));
-            double mantissa = count / Math.Pow(10, exponent);
+            string sign = count < 0 ? "-" : "";
+            int exponent = (int)Math.Floor(Math.Log10(magnitude));
+            double mantissa = magnitude / Math.Pow(10, exponent);
 
-            return $"{mantissa:F2} × 10{ToSuperscript(exponent)}";
+            return $"{sign}{mantissa:F2} × 10{ToSuperscript(exponent)}";
         }
 
         public static string ToSuperscript(int number)
