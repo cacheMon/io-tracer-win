@@ -16,6 +16,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Allow the unit-test assembly to reach internal helper types. -->
+    <InternalsVisibleTo Include="IOTracesCORE.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="4.0.7.14" />
     <PackageReference Include="CredentialManagement" Version="1.0.2" />
     <PackageReference Include="CsvHelper" Version="33.1.0" />
