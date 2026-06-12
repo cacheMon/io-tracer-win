@@ -27,20 +27,6 @@ namespace IOTracesCORE.cloudstorage
         {
             try
             {
-
-                var currentVersion = VersionManager.Instance.GetCurrentVersion();
-                if (
-                    string.IsNullOrWhiteSpace(currentVersion) ||
-                    currentVersion.Equals("unknown", StringComparison.OrdinalIgnoreCase)
-                )
-                {
-                    currentVersion = "dev";
-                }
-                else
-                {
-                    currentVersion = currentVersion.Replace('.', '_');
-                }
-
                 string? dirName = file.DirectoryName;
                 string trace_type = string.IsNullOrEmpty(dirName) ? "unknown_type" : Path.GetFileName(dirName);
                 if (string.IsNullOrEmpty(trace_type))
