@@ -27,6 +27,7 @@ namespace IOTracesCORE
         private ObjectStorageHandler objHandler;
         private bool isUploadAutomatically;
         private volatile bool isShuttingDown = false;
+        private int cleanupStarted = 0;
 
         [DllImport("kernel32.dll")]
         static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate handler, bool add);
@@ -91,6 +92,12 @@ namespace IOTracesCORE
 
         private async Task CleanupAndExitAsync()
         {
+            // Ctrl+C can arrive via both the Win32 console handler and
+            // Console.CancelKeyPress; ensure the cleanup body (and Environment.Exit)
+            // runs exactly once even if those paths race.
+            if (Interlocked.Exchange(ref cleanupStarted, 1) != 0)
+                return;
+
             try
             {
                 Debug.WriteLine("Performing cleanup operations...");
