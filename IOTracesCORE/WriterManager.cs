@@ -408,7 +408,7 @@ namespace IOTracesCORE
                 writer.Write(input);
             }
 
-            amount_compressed_file++;
+            Interlocked.Increment(ref amount_compressed_file);
 
             if (is_upload_automatically)
             {
@@ -463,7 +463,7 @@ namespace IOTracesCORE
                 input.CopyTo(compressor);
             }
 
-            amount_compressed_file++;
+            Interlocked.Increment(ref amount_compressed_file);
 
             File.Delete(Path.GetFullPath(filepath));
 

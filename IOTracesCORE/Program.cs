@@ -104,8 +104,8 @@ namespace IOTracesCORE
                 $"Logs Created / Uploaded: {WriterManager.amount_compressed_file} / {ObjectStorageHandler.UploadedFiles}\n" +
                 $"File events collected: {DisplayHelper.ToPowerOfTen(WriterManager.file_event_counter)}\n" +
                 $"Filesystem snapshot: {WriterManager.fs_snapshot_file_count:N0} files ({snapStatus})\n\n" +
-                $"Active session elapsed (HH:MM:SS): {Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
-                $"Trace Duration: {Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours\n" +
+                $"Active session elapsed (HH:MM:SS): {(long)Total_current_session.TotalHours:00}:{Total_current_session.Minutes:00}:{Total_current_session.Seconds:00}\n" +
+                $"Trace Duration: {(long)Total_trace_duration.TotalDays:00} Days {Total_trace_duration.Hours:00} Hours\n" +
                 $"Internet / Upload: {connStatus}",
                 "Status",
                 MessageBoxButtons.OK,
