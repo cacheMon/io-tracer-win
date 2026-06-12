@@ -38,29 +38,30 @@ namespace IOTracesCORE.utils
             // Cast ulong to int for the enum, assuming flags fit in int range.
             var flags = (IrpFlags)(int)flagsVal;
             var result = new List<string>();
+            ulong matched = 0;
 
-            if ((flags & IrpFlags.Nocache) != 0) result.Add("Nocache");
+            if ((flags & IrpFlags.Nocache) != 0) { result.Add("Nocache"); matched |= (ulong)IrpFlags.Nocache; }
 
             // 0x2 can be PagingIo or MountCompletion
             // For disk traces, PagingIo is the standard meaning.
-            if ((flags & IrpFlags.PagingIo) != 0) result.Add("PagingIo");
+            if ((flags & IrpFlags.PagingIo) != 0) { result.Add("PagingIo"); matched |= (ulong)IrpFlags.PagingIo; }
 
-            if ((flags & IrpFlags.SynchronousApi) != 0) result.Add("SynchronousApi");
-            if ((flags & IrpFlags.AssociatedIrp) != 0) result.Add("AssociatedIrp");
-            if ((flags & IrpFlags.BufferedIO) != 0) result.Add("BufferedIO");
-            if ((flags & IrpFlags.DeallocateBuffer) != 0) result.Add("DeallocateBuffer");
+            if ((flags & IrpFlags.SynchronousApi) != 0) { result.Add("SynchronousApi"); matched |= (ulong)IrpFlags.SynchronousApi; }
+            if ((flags & IrpFlags.AssociatedIrp) != 0) { result.Add("AssociatedIrp"); matched |= (ulong)IrpFlags.AssociatedIrp; }
+            if ((flags & IrpFlags.BufferedIO) != 0) { result.Add("BufferedIO"); matched |= (ulong)IrpFlags.BufferedIO; }
+            if ((flags & IrpFlags.DeallocateBuffer) != 0) { result.Add("DeallocateBuffer"); matched |= (ulong)IrpFlags.DeallocateBuffer; }
 
             // 0x40 can be InputOperation or SynchronousPagingIO
             // SynchronousPagingIO is very common in file system filters and disk I/O.
-            if ((flags & IrpFlags.SynchronousPagingIO) != 0) result.Add("SynchronousPagingIO");
+            if ((flags & IrpFlags.SynchronousPagingIO) != 0) { result.Add("SynchronousPagingIO"); matched |= (ulong)IrpFlags.SynchronousPagingIO; }
 
-            if ((flags & IrpFlags.Create) != 0) result.Add("Create");
-            if ((flags & IrpFlags.Read) != 0) result.Add("Read");
-            if ((flags & IrpFlags.Write) != 0) result.Add("Write");
-            if ((flags & IrpFlags.Close) != 0) result.Add("Close");
-            if ((flags & IrpFlags.DeferIOCompletion) != 0) result.Add("DeferIOCompletion");
-            if ((flags & IrpFlags.ObQueryName) != 0) result.Add("ObQueryName");
-            if ((flags & IrpFlags.HoldDeviceQueue) != 0) result.Add("HoldDeviceQueue");
+            if ((flags & IrpFlags.Create) != 0) { result.Add("Create"); matched |= (ulong)IrpFlags.Create; }
+            if ((flags & IrpFlags.Read) != 0) { result.Add("Read"); matched |= (ulong)IrpFlags.Read; }
+            if ((flags & IrpFlags.Write) != 0) { result.Add("Write"); matched |= (ulong)IrpFlags.Write; }
+            if ((flags & IrpFlags.Close) != 0) { result.Add("Close"); matched |= (ulong)IrpFlags.Close; }
+            if ((flags & IrpFlags.DeferIOCompletion) != 0) { result.Add("DeferIOCompletion"); matched |= (ulong)IrpFlags.DeferIOCompletion; }
+            if ((flags & IrpFlags.ObQueryName) != 0) { result.Add("ObQueryName"); matched |= (ulong)IrpFlags.ObQueryName; }
+            if ((flags & IrpFlags.HoldDeviceQueue) != 0) { result.Add("HoldDeviceQueue"); matched |= (ulong)IrpFlags.HoldDeviceQueue; }
 
 
             if ((flags & IrpFlags.PriorityMask) != 0)
@@ -75,9 +76,13 @@ namespace IOTracesCORE.utils
                     case 4: result.Add("Priority:Critical"); break;
                     default: result.Add($"Priority:{priority}"); break;
                 }
+                matched |= (ulong)IrpFlags.PriorityMask;
             }
 
-            if (result.Count == 0) return $"0x{flagsVal:X}";
+            // Preserve any bits we did not map so trace data is never silently lost.
+            ulong remaining = flagsVal & ~matched;
+            if (remaining != 0)
+                result.Add($"0x{remaining:X}");
 
             return string.Join("|", result);
         }

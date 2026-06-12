@@ -75,5 +75,30 @@ namespace IOTracesCORE.Tests
             Assert.EndsWith(".txt", result);
             Assert.DoesNotContain("report", result);
         }
+
+        [Fact]
+        public void HashFilePath_JustFileName_DoesNotAppendToItself()
+        {
+            string result = PathHasher.HashFilePath("report.txt", @"C:\", anonymous: false);
+            Assert.DoesNotContain("report.txt", result);
+        }
+
+        [Fact]
+        public void HashDirectoryPath_SamePathAsRoot_ReturnsRootBaseWithoutDot()
+        {
+            string result = PathHasher.HashDirectoryPath(@"C:\Users", @"C:\Users", keepLevels: 2);
+            Assert.Equal(@"C:\Users", result);
+        }
+
+        [Fact]
+        public void HashDirectoryPath_WithKeepLevels_HashesCorrectSegments()
+        {
+            string result = PathHasher.HashDirectoryPath(
+                @"C:\Users\bob\Documents\Project", @"C:\Users", keepLevels: 1);
+
+            Assert.StartsWith(@"C:\Users\bob\", result);
+            Assert.DoesNotContain("Documents", result);
+            Assert.DoesNotContain("Project", result);
+        }
     }
 }

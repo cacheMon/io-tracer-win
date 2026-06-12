@@ -43,5 +43,12 @@ namespace IOTracesCORE.Tests
             // Bit 16 (0x10000) is not part of any named flag or the priority mask.
             Assert.Equal("0x10000", IrpFlagsHelper.ToString(0x10000));
         }
+
+        [Fact]
+        public void ToString_MixedKnownAndUnmappedBits_ReturnsBoth()
+        {
+            // Nocache (0x1) | unmapped 0x10000: the unmapped bit must be preserved.
+            Assert.Equal("Nocache|0x10000", IrpFlagsHelper.ToString(0x10001));
+        }
     }
 }

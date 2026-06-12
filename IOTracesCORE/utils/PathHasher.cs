@@ -28,7 +28,11 @@ namespace IOTracesCORE.utils
             var segments = relative.Split(
                 new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
                 StringSplitOptions.RemoveEmptyEntries
-            );
+            )
+            // When fullPath == rootBase the relative path is ".", which must not be
+            // treated as a real segment (otherwise the result gains a trailing "\.").
+            .Where(seg => seg != ".")
+            .ToArray();
 
             var transformed = segments
                 .Select((seg, i) => i < keepLevels ? seg : Hash(seg, hashLen))

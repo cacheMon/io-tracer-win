@@ -33,5 +33,13 @@ namespace IOTracesCORE.Tests
             // "iotrace" is a substring of the process name.
             Assert.False(ProcessFilter.ShouldTrace(1234, "my-iotrace-helper"));
         }
+
+        [Fact]
+        public void ShouldTrace_NullOrEmptyProcessName_DoesNotThrow()
+        {
+            // A missing process name must not crash the tracer; it is treated as traceable.
+            Assert.True(ProcessFilter.ShouldTrace(1234, null!));
+            Assert.True(ProcessFilter.ShouldTrace(1234, ""));
+        }
     }
 }

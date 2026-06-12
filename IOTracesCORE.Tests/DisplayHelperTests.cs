@@ -41,6 +41,15 @@ namespace IOTracesCORE.Tests
             Assert.Equal("1.50 × 10⁹", DisplayHelper.ToPowerOfTen(1_500_000_000));
         }
 
+        [Theory]
+        [InlineData(-1000L, "-1,000")]
+        [InlineData(-2_000_000L, "-2.00 × 10⁶")]
+        public void ToPowerOfTen_NegativeNumbers_FormatsCorrectly(long count, string expected)
+        {
+            using var _ = new CultureScope(CultureInfo.InvariantCulture);
+            Assert.Equal(expected, DisplayHelper.ToPowerOfTen(count));
+        }
+
         /// <summary>
         /// Temporarily overrides the current thread culture so that culture-sensitive
         /// number formatting (group separators, decimal points) is deterministic.

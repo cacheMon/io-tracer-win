@@ -47,6 +47,21 @@ namespace IOTracesCORE.Tests
             Assert.Equal("0x01000000", FileIOFlags.FormatCreateOptions(0x01000000));
         }
 
+        [Fact]
+        public void FormatCreateOptions_MixedKnownAndUnknownBits_ReturnsBoth()
+        {
+            // FILE_DIRECTORY_FILE (0x1) | unknown 0x01000000: the unknown bit must be
+            // preserved rather than silently dropped.
+            Assert.Equal("FILE_DIRECTORY_FILE|0x01000000", FileIOFlags.FormatCreateOptions(0x01000001));
+        }
+
+        [Fact]
+        public void FormatIoFlags_MixedKnownAndUnknownBits_ReturnsBoth()
+        {
+            // IRP_NOCACHE (0x1) | unknown 0x00010000.
+            Assert.Equal("IRP_NOCACHE|0x00010000", FileIOFlags.FormatIoFlags(0x00010001));
+        }
+
         // ---- FormatShareAccess ----
 
         [Fact]
