@@ -2,14 +2,14 @@
 {
     internal class VersionManager
     {
-        private static VersionManager? _instance;
-        private string Version = "Release";
+        private static readonly VersionManager _instance = new VersionManager();
+        private const string Version = "Release";
 
         private VersionManager()
         {
         }
 
-        public static VersionManager Instance => _instance ??= new VersionManager();
+        public static VersionManager Instance => _instance;
 
         public string GetCurrentVersion()
         {
