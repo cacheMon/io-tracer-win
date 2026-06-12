@@ -20,8 +20,10 @@ namespace IOTracesCORE.handlers
         private readonly ConcurrentDictionary<ulong, string> nameByObj = new();
         private readonly ConcurrentDictionary<ulong, ConcurrentQueue<(DateTime addedAt, Action<string> emit)>>
             _pending = new();
-        // Track alternate keys (FileObject, etc) for each FileKey so we can drain all related pending queues
-        private readonly ConcurrentDictionary<ulong, HashSet<ulong>> _keyAliases = new();
+        // Track alternate keys (FileObject, etc) for each FileKey so we can drain all related pending queues.
+        // The inner set is a ConcurrentDictionary (used as a set) so it can be safely mutated by the ETW
+        // callback thread while the flush-timer thread enumerates and removes entries during cleanup.
+        private readonly ConcurrentDictionary<ulong, ConcurrentDictionary<ulong, byte>> _keyAliases = new();
         private readonly System.Threading.Timer _flushTimer;
         private static readonly TimeSpan MaxPendingAge = TimeSpan.FromMilliseconds(100);
 
@@ -109,8 +111,8 @@ namespace IOTracesCORE.handlers
             // Track both keys as aliases so DrainPending can find them via either key
             if (fileKey != 0 && fileObject != 0 && fileKey != fileObject)
             {
-                _keyAliases.GetOrAdd(fileKey, _ => new HashSet<ulong>()).Add(fileObject);
-                _keyAliases.GetOrAdd(fileObject, _ => new HashSet<ulong>()).Add(fileKey);
+                _keyAliases.GetOrAdd(fileKey, _ => new ConcurrentDictionary<ulong, byte>()).TryAdd(fileObject, 0);
+                _keyAliases.GetOrAdd(fileObject, _ => new ConcurrentDictionary<ulong, byte>()).TryAdd(fileKey, 0);
             }
 
             _pending.GetOrAdd(key, _ => new ConcurrentQueue<(DateTime, Action<string>)>())
@@ -144,8 +146,11 @@ namespace IOTracesCORE.handlers
             // corrupt the filename in the output trace.
             if (_keyAliases.TryRemove(fileKey, out var aliases))
             {
-                foreach (var altKey in aliases)
+                foreach (var altKey in aliases.Keys)
                 {
+                    // Drop the reverse mapping (altKey -> fileKey) so _keyAliases does not grow unbounded.
+                    _keyAliases.TryRemove(altKey, out _);
+
                     if (altKey != 0 && !string.IsNullOrEmpty(resolvedName))
                         nameByObj.TryAdd(altKey, resolvedName);
 
@@ -160,6 +165,17 @@ namespace IOTracesCORE.handlers
             }
         }
 
+        // Removes a key's alias set along with the reverse mappings that point back at it,
+        // so _keyAliases does not accumulate stale entries after a pending event is resolved or flushed.
+        private void RemoveAliases(ulong key)
+        {
+            if (_keyAliases.TryRemove(key, out var aliases))
+            {
+                foreach (var altKey in aliases.Keys)
+                    _keyAliases.TryRemove(altKey, out _);
+            }
+        }
+
         private void FlushStalePending(object? state)
         {
             var cutoff = DateTime.UtcNow - MaxPendingAge;
@@ -167,6 +183,7 @@ namespace IOTracesCORE.handlers
             {
                 if (!kvp.Value.TryPeek(out var oldest) || oldest.addedAt > cutoff) continue;
                 if (!_pending.TryRemove(kvp.Key, out var queue)) continue;
+                RemoveAliases(kvp.Key);
                 nameByObj.TryGetValue(kvp.Key, out var cachedName);
                 var finalName = string.IsNullOrEmpty(cachedName) ? "" : MarkDirectoryIfNoExtension(cachedName);
                 while (queue.TryDequeue(out var item))
