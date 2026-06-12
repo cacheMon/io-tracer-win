@@ -277,9 +277,13 @@ Once a filename is found via `FileObject` (populated by `create`), it is immedia
 
 For events that still resolve to empty after Layers 1 and 2:
 
-1. **Enqueue:** The event is not emitted immediately. Instead, a lambda closure capturing all its fields is queued in `_pending`, indexed by `FileKey`.
+1. **Enqueue:** The event is not emitted immediately. Instead, a lambda closure capturing all its fields is queued in `_pending`, indexed by `FileKey` (or `FileObject` when `FileKey` is `0`). At the same time, `EnqueuePending` records the relationship between the event's `FileKey` and `FileObject` in `_keyAliases`, a `FileKey → {alternate keys}` map, so a later name event arriving under _either_ identifier can still find the queued event.
 
-2. **Drain on Name:** When `OnName` or `OnFileRundown` fires and populates the cache, `DrainPending(fileKey, resolvedName)` immediately dequeues and invokes all pending lambdas with the resolved filename.
+2. **Drain on Name:** When `OnName` or `OnFileRundown` fires and populates the cache, `DrainPending(fileKey, resolvedName)` flushes pending events in three tiers:
+
+   - **Primary** — drain the queue indexed by the exact `FileKey` from the name event.
+   - **Secondary** — follow `_keyAliases[fileKey]` and drain the queue under every alternate key recorded for that file (e.g. an event queued under its `FileObject` when the name event only carries the `FileKey`).
+   - **Tertiary** — propagate the resolved name into `nameByObj` under the key and all its aliases, then scan any remaining `_pending` queues and drain those not yet covered by the cache. This absorbs multi-key scenarios where the kernel reuses or remaps identifiers between the read and the name event.
 
 3. **Timer Flush:** A background `System.Threading.Timer` (50ms interval) scans `_pending` for stale entries (>100ms old) and flushes them with best-effort resolution (cached name or empty string).
 
