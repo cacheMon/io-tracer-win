@@ -128,10 +128,25 @@ namespace IOTracesCORE.cloudstorage
                     // Read the chunk size up front so we can track the buffer size by
                     // summing appended chunks instead of stat-ing the buffer each time.
                     long chunkSize = new FileInfo(compressedChunkPath).Length;
-                    using (var src = File.OpenRead(compressedChunkPath))
-                    using (var dst = new FileStream(state.BufferPath, FileMode.Append, FileAccess.Write))
+
+                    // Remember the buffer length before appending so a failed copy
+                    // (e.g. disk full) can be rolled back — otherwise a partial zstd
+                    // frame would corrupt the whole concatenated buffer.
+                    long resumeLength = File.Exists(state.BufferPath)
+                        ? new FileInfo(state.BufferPath).Length
+                        : 0;
+                    try
                     {
-                        src.CopyTo(dst);
+                        using (var src = File.OpenRead(compressedChunkPath))
+                        using (var dst = new FileStream(state.BufferPath, FileMode.Append, FileAccess.Write))
+                        {
+                            src.CopyTo(dst);
+                        }
+                    }
+                    catch
+                    {
+                        TruncateBuffer(state.BufferPath, resumeLength);
+                        throw;
                     }
                     copySucceeded = true;
 
@@ -214,6 +229,25 @@ namespace IOTracesCORE.cloudstorage
             else
             {
                 try { File.Delete(state.BufferPath); } catch { }
+            }
+        }
+
+        // Roll a buffer file back to a known-good length, discarding a partially
+        // appended frame. Best-effort: a failure here is logged, not propagated.
+        private static void TruncateBuffer(string bufferPath, long length)
+        {
+            try
+            {
+                if (!File.Exists(bufferPath))
+                {
+                    return;
+                }
+                using var fs = new FileStream(bufferPath, FileMode.Open, FileAccess.Write);
+                fs.SetLength(length);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to roll back buffer {bufferPath} to {length} bytes: {ex.Message}");
             }
         }
 
