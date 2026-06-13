@@ -87,17 +87,5 @@ namespace IOTracesCORE.utils
         }
 
         public event Action? OnRewardUnlocked;
-
-        public string GetStatusMessage()
-        {
-            if (_isUnlocked)
-            {
-                return $"Submission Unlocked!\n\nYour code: {REWARD_CODE}\n\nThank you for contributing to the research!";
-            }
-            else
-            {
-                return "Submission Locked\n\nUpload at least 1 trace file to unlock your reward code.\n\nKeep the tracer running and connected to the internet.";
-            }
-        }
     }
 }

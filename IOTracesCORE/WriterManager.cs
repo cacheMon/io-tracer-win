@@ -226,7 +226,6 @@ namespace IOTracesCORE
 
             Interlocked.Increment(ref disk_event_counter);
             ds_sb.Append(data.FormatAsCsv());
-            // DebugLogger.LogRaw(data.FormatAsCsv());
             if (IsTimeToFlush(ds_sb))
             {
                 FlushWrite(ds_sb, ds_filepath, "disk");
@@ -256,7 +255,6 @@ namespace IOTracesCORE
             }
 
             driver_sb.Append(data.FormatAsCsv());
-            // DebugLogger.LogRaw(data.FormatAsCsv());
 
             if (IsTimeToFlush(driver_sb))
             {
