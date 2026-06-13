@@ -69,8 +69,8 @@ namespace IOTracesCORE.utils
                 if (cfg == null) return;
 
                 WriterManager.trace_duration = TimeSpan.FromSeconds(cfg.TraceDuration);
-                WriterManager.file_event_counter += (int)cfg.FileEventsCount;
-                ObjectStorageHandler.LastFileEvent = (int)cfg.FileEventsCount;
+                WriterManager.file_event_counter += cfg.FileEventsCount;
+                ObjectStorageHandler.LastFileEvent = cfg.FileEventsCount;
                 Debug.WriteLine($"Loaded a session of {cfg.TraceDuration} seconds");
                 Debug.WriteLine($"Loaded {cfg.FileEventsCount} file events");
             }

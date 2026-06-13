@@ -31,6 +31,32 @@ namespace IOTracesCORE
         private readonly StringBuilder fs_snap_sb;
         private readonly StringBuilder process_snap_sb;
 
+        // Each StringBuilder + its file-rotation state is guarded by a per-trace-type
+        // lock. Most trace types are written only from the single ETW Process() thread,
+        // but the filesystem type is also written from the FilesystemHandlers flush
+        // timer (a thread-pool thread) when a deferred filename finally resolves, and
+        // the snapshot types are written from their own snapper threads. StringBuilder
+        // is not thread-safe, and FlushWrite mutates the rotating filepath fields, so
+        // every append + flush sequence must hold the matching lock.
+        private readonly object fs_lock = new();
+        private readonly object ds_lock = new();
+        private readonly object mr_lock = new();
+        private readonly object nw_lock = new();
+        private readonly object driver_lock = new();
+        private readonly object fs_snap_lock = new();
+        private readonly object process_snap_lock = new();
+
+        private object GetLock(string tracetype) => tracetype switch
+        {
+            "disk" => ds_lock,
+            "memory" => mr_lock,
+            "network" => nw_lock,
+            "driver" => driver_lock,
+            "process" => process_snap_lock,
+            "filesystem_snapshot" => fs_snap_lock,
+            _ => fs_lock, // "filesystem" and any fallback
+        };
+
         private int fs_snap_part_counter = 1;
         private string empty_filename_filepath;
 
@@ -60,7 +86,7 @@ namespace IOTracesCORE
         private bool is_upload_automatically;
         public static int amount_compressed_file = 0;
         public static int disk_event_counter = 0;
-        public static int file_event_counter = 0;
+        public static long file_event_counter = 0;
         public static int memory_event_counter = 0;
         public static int fs_snapshot_file_count = 0;
         public static bool fs_snapshot_complete = false;
@@ -163,28 +189,36 @@ namespace IOTracesCORE
 
         public void Write(FilesystemInfo fs)
         {
-            fs_snapshot_file_count++;
-            fs_snap_sb.Append(fs.FormatAsCsv());
-            if (IsTimeToFlush(fs_snap_sb, true))
+            ObjectStorageHandler.ResumeGate.Wait();
+            lock (fs_snap_lock)
             {
-                FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+                fs_snapshot_file_count++;
+                fs_snap_sb.Append(fs.FormatAsCsv());
+                if (IsTimeToFlush(fs_snap_sb, true))
+                {
+                    FlushWriteLocked(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
+                }
             }
         }
 
         public void Write(IEnumerable<ProcessInfo> pcs)
         {
-            foreach (var pc in pcs)
+            ObjectStorageHandler.ResumeGate.Wait();
+            lock (process_snap_lock)
             {
-                if (pc.Name.Equals("IOTracesCORE"))
+                foreach (var pc in pcs)
                 {
-                    continue;
+                    if (pc.Name.Equals("IOTracesCORE"))
+                    {
+                        continue;
+                    }
+                    process_snap_sb.Append(pc.FormatAsCsv());
                 }
-                process_snap_sb.Append(pc.FormatAsCsv());
-            }
 
-            if (process_snap_sb.Length > 0)
-            {
-                FlushWrite(process_snap_sb, process_snap_filepath, "process");
+                if (process_snap_sb.Length > 0)
+                {
+                    FlushWriteLocked(process_snap_sb, process_snap_filepath, "process");
+                }
             }
         }
 
@@ -208,12 +242,16 @@ namespace IOTracesCORE
                 return;
             }
 
-            file_event_counter += 1;
-            //event_counter += 1;
-            fs_sb.Append(data.FormatAsCsv(is_anonymous));
-            if (IsTimeToFlush(fs_sb))
+            ObjectStorageHandler.ResumeGate.Wait();
+            lock (fs_lock)
             {
-                FlushWrite(fs_sb, fs_filepath, "filesystem");
+                file_event_counter += 1;
+                //event_counter += 1;
+                fs_sb.Append(data.FormatAsCsv(is_anonymous));
+                if (IsTimeToFlush(fs_sb))
+                {
+                    FlushWriteLocked(fs_sb, fs_filepath, "filesystem");
+                }
             }
         }
 
@@ -224,11 +262,15 @@ namespace IOTracesCORE
                 return;
             }
 
-            Interlocked.Increment(ref disk_event_counter);
-            ds_sb.Append(data.FormatAsCsv());
-            if (IsTimeToFlush(ds_sb))
+            ObjectStorageHandler.ResumeGate.Wait();
+            lock (ds_lock)
             {
-                FlushWrite(ds_sb, ds_filepath, "disk");
+                Interlocked.Increment(ref disk_event_counter);
+                ds_sb.Append(data.FormatAsCsv());
+                if (IsTimeToFlush(ds_sb))
+                {
+                    FlushWriteLocked(ds_sb, ds_filepath, "disk");
+                }
             }
         }
 
@@ -239,11 +281,15 @@ namespace IOTracesCORE
                 return;
             }
 
-            nw_sb.Append(data.FormatAsCsv());
-            if (IsTimeToFlush(nw_sb, lowThreshold: true))
+            ObjectStorageHandler.ResumeGate.Wait();
+            lock (nw_lock)
             {
-                Debug.WriteLine("Flushing network trace");
-                FlushWrite(nw_sb, nw_filepath, "network");
+                nw_sb.Append(data.FormatAsCsv());
+                if (IsTimeToFlush(nw_sb, lowThreshold: true))
+                {
+                    Debug.WriteLine("Flushing network trace");
+                    FlushWriteLocked(nw_sb, nw_filepath, "network");
+                }
             }
         }
 
@@ -254,11 +300,15 @@ namespace IOTracesCORE
                 return;
             }
 
-            driver_sb.Append(data.FormatAsCsv());
-
-            if (IsTimeToFlush(driver_sb))
+            ObjectStorageHandler.ResumeGate.Wait();
+            lock (driver_lock)
             {
-                FlushWrite(driver_sb, driver_filepath, "driver");
+                driver_sb.Append(data.FormatAsCsv());
+
+                if (IsTimeToFlush(driver_sb))
+                {
+                    FlushWriteLocked(driver_sb, driver_filepath, "driver");
+                }
             }
         }
 
@@ -269,13 +319,17 @@ namespace IOTracesCORE
                 return;
             }
 
-            memory_event_counter += 1;
-
-            mr_sb.Append(data.FormatAsCsv());
-            // Debug.WriteLine(data.FormatAsCsv());
-            if (IsTimeToFlush(mr_sb))
+            ObjectStorageHandler.ResumeGate.Wait();
+            lock (mr_lock)
             {
-                FlushWrite(mr_sb, mr_filepath, "memory");
+                memory_event_counter += 1;
+
+                mr_sb.Append(data.FormatAsCsv());
+                // Debug.WriteLine(data.FormatAsCsv());
+                if (IsTimeToFlush(mr_sb))
+                {
+                    FlushWriteLocked(mr_sb, mr_filepath, "memory");
+                }
             }
         }
 
@@ -303,13 +357,32 @@ namespace IOTracesCORE
             }
         }
 
+        /// <summary>
+        /// Public flush entry point for callers that are not already holding the
+        /// per-trace-type lock (shutdown flushing, snapshot finalization). Waits on
+        /// the reconnect gate first — never while holding the lock — then performs
+        /// the flush under the matching lock.
+        /// </summary>
         public void FlushWrite(StringBuilder sb, string filepath, string tracetype, bool isFinalFsSnap = false)
         {
             // Block all writer threads (ETW, fsSnapper, psSnapper) while the
             // upload worker is reconnecting. The gate is reset on disconnect and
-            // set again once internet connectivity is restored.
+            // set again once internet connectivity is restored. The wait happens
+            // outside the lock so a multi-minute reconnect can never pin the lock.
             ObjectStorageHandler.ResumeGate.Wait();
+            lock (GetLock(tracetype))
+            {
+                FlushWriteLocked(sb, filepath, tracetype, isFinalFsSnap);
+            }
+        }
 
+        /// <summary>
+        /// Performs the actual rotate + write + compress + queue. The caller MUST
+        /// already hold <see cref="GetLock"/> for <paramref name="tracetype"/> and
+        /// must have waited on <see cref="ObjectStorageHandler.ResumeGate"/>.
+        /// </summary>
+        private void FlushWriteLocked(StringBuilder sb, string filepath, string tracetype, bool isFinalFsSnap = false)
+        {
             string old_fp;
 
             if (tracetype.Equals("filesystem"))
@@ -604,7 +677,10 @@ namespace IOTracesCORE
 
             if (!isComplete)
             {
-                fs_snap_sb.Clear();
+                lock (fs_snap_lock)
+                {
+                    fs_snap_sb.Clear();
+                }
                 // Snapshot was interrupted - delete all part files
                 Debug.WriteLine("Snapshot was incomplete. Deleting all filesystem snapshot files...");
 
