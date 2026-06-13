@@ -98,6 +98,10 @@ namespace IOTracesCORE.cloudstorage
         /// </summary>
         public void BufferFile(string compressedChunkPath)
         {
+            // Track whether the chunk made it into the buffer so the catch block
+            // only re-queues it directly when the copy itself failed — re-queuing
+            // after a successful copy would upload the same data twice.
+            bool copySucceeded = false;
             try
             {
                 string? dir = Path.GetDirectoryName(compressedChunkPath);
@@ -121,14 +125,28 @@ namespace IOTracesCORE.cloudstorage
                         buffers[dir] = state;
                     }
 
+                    // Read the chunk size up front so we can track the buffer size by
+                    // summing appended chunks instead of stat-ing the buffer each time.
+                    long chunkSize = new FileInfo(compressedChunkPath).Length;
                     using (var src = File.OpenRead(compressedChunkPath))
                     using (var dst = new FileStream(state.BufferPath, FileMode.Append, FileAccess.Write))
                     {
                         src.CopyTo(dst);
                     }
+                    copySucceeded = true;
 
-                    File.Delete(compressedChunkPath);
-                    state.Bytes = new FileInfo(state.BufferPath).Length;
+                    // A failed delete leaves a harmless leftover chunk but must not
+                    // disrupt the buffer state or trigger a duplicate direct upload.
+                    try
+                    {
+                        File.Delete(compressedChunkPath);
+                    }
+                    catch (Exception deleteEx)
+                    {
+                        Debug.WriteLine($"Failed to delete chunk {compressedChunkPath} after buffering: {deleteEx.Message}");
+                    }
+
+                    state.Bytes += chunkSize;
 
                     if (state.Bytes >= MaxBufferBytes)
                     {
@@ -139,8 +157,9 @@ namespace IOTracesCORE.cloudstorage
             catch (Exception ex)
             {
                 Debug.WriteLine($"Error buffering {compressedChunkPath}: {ex.Message}");
-                // Don't lose data — upload the chunk directly if buffering failed.
-                if (File.Exists(compressedChunkPath))
+                // Don't lose data — upload the chunk directly if it never made it
+                // into the buffer.
+                if (!copySucceeded && File.Exists(compressedChunkPath))
                 {
                     QueueFile(compressedChunkPath);
                 }
@@ -179,10 +198,22 @@ namespace IOTracesCORE.cloudstorage
         private void FlushBufferLocked(string dir, BufferState state)
         {
             buffers.Remove(dir);
-            if (state.Bytes > 0 && File.Exists(state.BufferPath))
+            if (!File.Exists(state.BufferPath))
             {
-                Debug.WriteLine($"Flushing buffer {state.BufferPath} ({state.Bytes} bytes) for upload.");
+                return;
+            }
+
+            // Trust the on-disk size rather than the tracked counter so we never
+            // queue an empty file; clean up any zero-byte buffer instead.
+            long length = new FileInfo(state.BufferPath).Length;
+            if (length > 0)
+            {
+                Debug.WriteLine($"Flushing buffer {state.BufferPath} ({length} bytes) for upload.");
                 QueueFile(state.BufferPath);
+            }
+            else
+            {
+                try { File.Delete(state.BufferPath); } catch { }
             }
         }
 
