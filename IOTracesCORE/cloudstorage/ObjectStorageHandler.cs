@@ -1,9 +1,12 @@
 ﻿using IOTracesCORE.utils;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace IOTracesCORE.cloudstorage
@@ -15,6 +18,28 @@ namespace IOTracesCORE.cloudstorage
         private ConcurrentQueue<string> uploadQueue = new();
         public static int UploadedFiles = 0;
         public static int LastFileEvent;
+
+        // ── Local upload buffering ────────────────────────────────────────────
+        // Rather than uploading every flushed trace chunk individually (which
+        // produces many small R2 objects), compressed chunks are appended into a
+        // per-trace-type buffer file on local disk. The buffer is only queued for
+        // upload once it reaches MaxBufferBytes or MaxBufferAge, at which point it
+        // is uploaded as a single file. zstd frames concatenate into a valid
+        // single stream, so appended chunks remain decompressible as one file.
+        private const long MaxBufferBytes = 100L * 1024 * 1024; // 100 MB
+        private static readonly TimeSpan MaxBufferAge = TimeSpan.FromMinutes(20);
+
+        private readonly object bufferLock = new();
+        // Keyed by trace-type folder (which is also the R2 trace_type prefix).
+        private readonly Dictionary<string, BufferState> buffers = new();
+        private static int bufferSeq = 0;
+
+        private sealed class BufferState
+        {
+            public string BufferPath = "";
+            public long Bytes;
+            public DateTime StartedUtc;
+        }
 
         // ── Connection state ──────────────────────────────────────────────────
         /// <summary>Set (signalled) while connected; Reset (blocking) while reconnecting.</summary>
@@ -65,6 +90,181 @@ namespace IOTracesCORE.cloudstorage
             uploadQueue.Enqueue(filepath);
         }
 
+        /// <summary>
+        /// Appends a compressed trace chunk to the per-trace-type local buffer.
+        /// The buffer is queued for upload as a single file once it reaches
+        /// <see cref="MaxBufferBytes"/>; the time-based (<see cref="MaxBufferAge"/>)
+        /// flush is driven by <see cref="FlushAgedBuffers"/> from the upload worker.
+        /// </summary>
+        public void BufferFile(string compressedChunkPath)
+        {
+            // Track whether the chunk made it into the buffer so the catch block
+            // only re-queues it directly when the copy itself failed — re-queuing
+            // after a successful copy would upload the same data twice.
+            bool copySucceeded = false;
+            try
+            {
+                string? dir = Path.GetDirectoryName(compressedChunkPath);
+                if (string.IsNullOrEmpty(dir))
+                {
+                    // No folder to key on — fall back to direct upload.
+                    QueueFile(compressedChunkPath);
+                    return;
+                }
+
+                lock (bufferLock)
+                {
+                    if (!buffers.TryGetValue(dir, out var state) || !File.Exists(state.BufferPath))
+                    {
+                        state = new BufferState
+                        {
+                            BufferPath = NewBufferPath(dir),
+                            Bytes = 0,
+                            StartedUtc = DateTime.UtcNow
+                        };
+                        buffers[dir] = state;
+                    }
+
+                    // Read the chunk size up front so we can track the buffer size by
+                    // summing appended chunks instead of stat-ing the buffer each time.
+                    long chunkSize = new FileInfo(compressedChunkPath).Length;
+
+                    // Remember the buffer length before appending so a failed copy
+                    // (e.g. disk full) can be rolled back — otherwise a partial zstd
+                    // frame would corrupt the whole concatenated buffer.
+                    long resumeLength = File.Exists(state.BufferPath)
+                        ? new FileInfo(state.BufferPath).Length
+                        : 0;
+                    try
+                    {
+                        using (var src = File.OpenRead(compressedChunkPath))
+                        using (var dst = new FileStream(state.BufferPath, FileMode.Append, FileAccess.Write))
+                        {
+                            src.CopyTo(dst);
+                        }
+                    }
+                    catch
+                    {
+                        TruncateBuffer(state.BufferPath, resumeLength);
+                        throw;
+                    }
+                    copySucceeded = true;
+
+                    // A failed delete leaves a harmless leftover chunk but must not
+                    // disrupt the buffer state or trigger a duplicate direct upload.
+                    try
+                    {
+                        File.Delete(compressedChunkPath);
+                    }
+                    catch (Exception deleteEx)
+                    {
+                        Debug.WriteLine($"Failed to delete chunk {compressedChunkPath} after buffering: {deleteEx.Message}");
+                    }
+
+                    state.Bytes += chunkSize;
+
+                    if (state.Bytes >= MaxBufferBytes)
+                    {
+                        FlushBufferLocked(dir, state);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error buffering {compressedChunkPath}: {ex.Message}");
+                // Don't lose data — upload the chunk directly if it never made it
+                // into the buffer.
+                if (!copySucceeded && File.Exists(compressedChunkPath))
+                {
+                    QueueFile(compressedChunkPath);
+                }
+            }
+        }
+
+        /// <summary>Queues any buffers older than <see cref="MaxBufferAge"/> for upload.</summary>
+        public void FlushAgedBuffers()
+        {
+            lock (bufferLock)
+            {
+                var now = DateTime.UtcNow;
+                foreach (var kv in buffers.ToList())
+                {
+                    if (now - kv.Value.StartedUtc >= MaxBufferAge)
+                    {
+                        FlushBufferLocked(kv.Key, kv.Value);
+                    }
+                }
+            }
+        }
+
+        /// <summary>Queues all pending buffers for upload regardless of size/age (shutdown).</summary>
+        public void FlushAllBuffers()
+        {
+            lock (bufferLock)
+            {
+                foreach (var kv in buffers.ToList())
+                {
+                    FlushBufferLocked(kv.Key, kv.Value);
+                }
+            }
+        }
+
+        // Caller must hold bufferLock.
+        private void FlushBufferLocked(string dir, BufferState state)
+        {
+            buffers.Remove(dir);
+            if (!File.Exists(state.BufferPath))
+            {
+                return;
+            }
+
+            // Trust the on-disk size rather than the tracked counter so we never
+            // queue an empty file; clean up any zero-byte buffer instead.
+            long length = new FileInfo(state.BufferPath).Length;
+            if (length > 0)
+            {
+                Debug.WriteLine($"Flushing buffer {state.BufferPath} ({length} bytes) for upload.");
+                QueueFile(state.BufferPath);
+            }
+            else
+            {
+                try { File.Delete(state.BufferPath); } catch { }
+            }
+        }
+
+        // Roll a buffer file back to a known-good length, discarding a partially
+        // appended frame. Best-effort: a failure here is logged, not propagated.
+        private static void TruncateBuffer(string bufferPath, long length)
+        {
+            try
+            {
+                if (!File.Exists(bufferPath))
+                {
+                    return;
+                }
+                using var fs = new FileStream(bufferPath, FileMode.Open, FileAccess.Write);
+                fs.SetLength(length);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to roll back buffer {bufferPath} to {length} bytes: {ex.Message}");
+            }
+        }
+
+        private static string NewBufferPath(string dir)
+        {
+            // Folder name doubles as the R2 trace_type, so name the buffer after it
+            // to stay consistent with the per-chunk file naming convention.
+            string traceType = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrEmpty(traceType))
+            {
+                traceType = "trace";
+            }
+            int seq = Interlocked.Increment(ref bufferSeq);
+            string name = $"{traceType}_{DateTime.UtcNow:yyyyMMdd_HHmmssfff}_{seq}_{PathHasher.deviceId}.csv.zst";
+            return Path.Combine(dir, name);
+        }
+
         public async Task ClearQueue()
         {
             Debug.WriteLine("Clearing upload queue");
@@ -95,6 +295,10 @@ namespace IOTracesCORE.cloudstorage
         {
             while (!ct.IsCancellationRequested)
             {
+                // Drive the time-based buffer flush so buffers that stop receiving
+                // data are still uploaded once they exceed MaxBufferAge.
+                FlushAgedBuffers();
+
                 if (uploadQueue.Count > 0)
                 {
                     if (uploadQueue.TryDequeue(out var filepath))

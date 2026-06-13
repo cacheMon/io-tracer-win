@@ -381,7 +381,17 @@ namespace IOTracesCORE
 
                 if (is_upload_automatically)
                 {
-                    obj_storage.QueueFile(compressed_fp);
+                    // High-volume continuous trace types are buffered locally and
+                    // uploaded in 100 MB / 20 min batches. Snapshot types keep their
+                    // part/complete file semantics, so they upload directly.
+                    if (IsBufferedTraceType(tracetype))
+                    {
+                        obj_storage.BufferFile(compressed_fp);
+                    }
+                    else
+                    {
+                        obj_storage.QueueFile(compressed_fp);
+                    }
                 }
             }
             catch (Exception ex)
@@ -413,6 +423,24 @@ namespace IOTracesCORE
                 obj_storage.QueueFile(out_path);
             }
 
+        }
+
+        /// <summary>
+        /// Continuous, high-volume trace types whose chunks are batched into a
+        /// local buffer before upload. Snapshot types (process, filesystem_snapshot)
+        /// are excluded because they rely on per-part / completeness file naming.
+        /// </summary>
+        private static bool IsBufferedTraceType(string tracetype)
+        {
+            return tracetype switch
+            {
+                "filesystem" => true,
+                "disk" => true,
+                "memory" => true,
+                "network" => true,
+                "driver" => true,
+                _ => false,
+            };
         }
 
         private static bool IsTimeToFlush(StringBuilder sb, bool isSnap = false, bool lowThreshold = false)
@@ -554,6 +582,10 @@ namespace IOTracesCORE
             // Filesystem snapshot compression is now handled by FinalizeFilesystemSnapshot
 
             WriteStatus();
+
+            // Push any partially-filled local buffers into the upload queue so the
+            // final ClearQueue uploads them before shutdown.
+            obj_storage.FlushAllBuffers();
 
             await obj_storage.ClearQueue();
             ConfigClasses.SaveTracemetaConfiguration(active_session + trace_duration, file_event_counter);
