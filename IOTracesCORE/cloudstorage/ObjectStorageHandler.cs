@@ -17,7 +17,7 @@ namespace IOTracesCORE.cloudstorage
         private R2Client r2Client;
         private ConcurrentQueue<string> uploadQueue = new();
         public static int UploadedFiles = 0;
-        public static int LastFileEvent;
+        public static long LastFileEvent;
 
         // ── Local upload buffering ────────────────────────────────────────────
         // Rather than uploading every flushed trace chunk individually (which
