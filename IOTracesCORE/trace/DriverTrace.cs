@@ -10,8 +10,9 @@ namespace IOTracesCORE.trace
     class DriverTrace
     {
         public DriverTrace(DateTime ts, int pid, int threadId, string comm, string operation,
-                         ulong irp = 0, int majorFunction = -1, int minorFunction = -1,
-                         ulong routineAddr = 0, ulong fileObject = 0, ulong deviceObject = 0)
+                         ulong irp = 0, int? majorFunction = null, int? minorFunction = null,
+                         ulong routineAddr = 0, ulong fileObject = 0, ulong deviceObject = 0,
+                         long requestId = 0)
         {
             Ts = ts;
             Pid = pid;
@@ -24,6 +25,7 @@ namespace IOTracesCORE.trace
             RoutineAddr = routineAddr;
             FileObject = fileObject;
             DeviceObject = deviceObject;
+            RequestId = requestId;
 
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {
@@ -43,8 +45,11 @@ namespace IOTracesCORE.trace
             csv.WriteField(Comm);
             csv.WriteField(Operation);
             csv.WriteField(string.Format("0x{0:X}", Irp));
-            csv.WriteField(MajorFunction);
-            csv.WriteField(MinorFunction);
+            // Session-unique correlation id: pairs call/return/completion of one IRP
+            // lifetime even after the kernel reuses the IRP pointer for a new request.
+            csv.WriteField(RequestId);
+            csv.WriteField(MajorFunction.HasValue ? MajorFunction.Value.ToString() : "");
+            csv.WriteField(MinorFunction.HasValue ? MinorFunction.Value.ToString() : "");
             csv.WriteField(string.Format("0x{0:X}", RoutineAddr));
             csv.WriteField(string.Format("0x{0:X}", FileObject));
             csv.WriteField(string.Format("0x{0:X}", DeviceObject));
@@ -62,8 +67,9 @@ namespace IOTracesCORE.trace
         public string Comm { get; set; }
         public string Operation { get; set; }
         public ulong Irp { get; set; }
-        public int MajorFunction { get; set; }
-        public int MinorFunction { get; set; }
+        public long RequestId { get; set; }
+        public int? MajorFunction { get; set; }
+        public int? MinorFunction { get; set; }
         public ulong RoutineAddr { get; set; }
         public ulong FileObject { get; set; }
         public ulong DeviceObject { get; set; }

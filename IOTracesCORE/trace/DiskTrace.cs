@@ -47,7 +47,9 @@ namespace IOTracesCORE.trace
             csv.WriteField(Sector);
             csv.WriteField(Operation);
             csv.WriteField(TraceSize);
-            csv.WriteField(Latency);
+            // A negative latency is the "unknown" sentinel (no matching DiskIOInit was
+            // seen for this IRP); emit an empty field rather than a misleading 0.
+            csv.WriteField(Latency < 0 ? "" : Latency.ToString(CultureInfo.InvariantCulture));
             csv.WriteField(DiskNumber);
             csv.WriteField(Irp.HasValue ? string.Format("0x{0:X}", Irp.Value) : "");
 

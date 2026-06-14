@@ -35,7 +35,15 @@ namespace IOTracesCORE.handlers
         }
 
 
-        public void OnDiskRead(DiskIOTraceData data)
+        public void OnDiskRead(DiskIOTraceData data) => EmitDiskIO(data, "read");
+
+        public void OnDiskWrite(DiskIOTraceData data) => EmitDiskIO(data, "write");
+
+        // Emits a disk read/write row. The matching DiskIOInit gives the request
+        // latency; if it was missed/dropped we still emit the row (with an unknown
+        // latency) rather than silently discarding the operation — otherwise every
+        // read/write whose Init we didn't catch would vanish from the ds stream.
+        private void EmitDiskIO(DiskIOTraceData data, string operation)
         {
             ulong irp = (ulong)data.Irp;
             double startTime;
@@ -47,69 +55,27 @@ namespace IOTracesCORE.handlers
                 if (found) _activeRequests.Remove(irp); // Clean up
             }
 
-            if (found)
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
             {
-                double latency = data.TimeStampRelativeMSec - startTime;
-                if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-                {
-                    return;
-                }
-
-                DiskTrace dt = new DiskTrace(
-                        ts: data.TimeStamp,
-                        pid: data.ProcessID,
-                        threadId: data.ThreadID,
-                        comm: data.ProcessName,
-                        sector: data.ByteOffset / 512,
-                        operation: "read",
-                        traceSize: data.TransferSize,
-                        latency: latency,
-                        diskNumber: data.DiskNumber,
-                        irp: irp
-
-                    );
-
-                wm.Write(dt);
+                return;
             }
 
-        }
+            double latency = found ? data.TimeStampRelativeMSec - startTime : -1; // -1 = unknown
 
-        public void OnDiskWrite(DiskIOTraceData data)
-        {
-            ulong irp = (ulong)data.Irp;
-            double startTime;
-            bool found;
+            DiskTrace dt = new DiskTrace(
+                    ts: data.TimeStamp,
+                    pid: data.ProcessID,
+                    threadId: data.ThreadID,
+                    comm: data.ProcessName,
+                    sector: data.ByteOffset / 512,
+                    operation: operation,
+                    traceSize: data.TransferSize,
+                    latency: latency,
+                    diskNumber: data.DiskNumber,
+                    irp: irp
+                );
 
-            lock (_activeRequests)
-            {
-                found = _activeRequests.TryGetValue(irp, out startTime);
-                if (found) _activeRequests.Remove(irp); // Clean up
-            }
-
-            if (found)
-            {
-                double latency = data.TimeStampRelativeMSec - startTime;
-                if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-                {
-                    return;
-                }
-
-                DiskTrace dt = new DiskTrace(
-                        ts: data.TimeStamp,
-                        pid: data.ProcessID,
-                        threadId: data.ThreadID,
-                        comm: data.ProcessName,
-                        sector: data.ByteOffset / 512,
-                        operation: "write",
-                        traceSize: data.TransferSize,
-                        latency: latency,
-                        diskNumber: data.DiskNumber,
-                        irp: irp
-
-                    );
-
-                wm.Write(dt);
-            }
+            wm.Write(dt);
         }
 
         public void OnDiskFlush(DiskIOFlushBuffersTraceData data)
@@ -127,7 +93,7 @@ namespace IOTracesCORE.handlers
                 if (found) _activeRequests.Remove(irp);
             }
 
-            double latency = found ? data.TimeStampRelativeMSec - startTime : 0;
+            double latency = found ? data.TimeStampRelativeMSec - startTime : -1; // -1 = unknown
 
             if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
             {

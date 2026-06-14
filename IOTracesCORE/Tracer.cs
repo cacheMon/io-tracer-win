@@ -110,6 +110,9 @@ namespace IOTracesCORE
 
                 fsHandler?.Dispose();
 
+                // Flush the last partial per-minute network window before final compression.
+                nwHandler?.Dispose();
+
                 fsSnapper.Stop();
                 psHandler.Stop();
 
@@ -343,8 +346,10 @@ namespace IOTracesCORE
                     kernel.TcpIpRecv += nwHandler.OnReceive;
                     kernel.TcpIpRecvIPV6 += nwHandler.OnReceive;
                     kernel.TcpIpSendIPV6 += nwHandler.OnSend;
-                    kernel.UdpIpRecvIPV6 += nwHandler.OnSend;
-                    kernel.UdpIpSendIPV6 += nwHandler.OnReceive;
+                    kernel.UdpIpSend += nwHandler.OnSend;
+                    kernel.UdpIpRecv += nwHandler.OnReceive;
+                    kernel.UdpIpSendIPV6 += nwHandler.OnSend;
+                    kernel.UdpIpRecvIPV6 += nwHandler.OnReceive;
 
                     kernel.TcpIpConnect += nwHandler.OnConnect;
                     kernel.TcpIpDisconnect += nwHandler.OnDisconnect;

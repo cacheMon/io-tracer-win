@@ -1,491 +1,216 @@
-﻿using IOTracesCORE.trace;
+using IOTracesCORE.trace;
 using IOTracesCORE.utils;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using Microsoft.Diagnostics.Tracing;
+using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Collections.Concurrent;
+using System.Threading;
 
 namespace IOTracesCORE.handlers
 {
-    internal class NetworkHandlers
+    /// <summary>
+    /// Aggregates network traffic per connection and emits a single per-minute
+    /// summary row (bytes sent / received) for each active connection instead of
+    /// one row per packet. Connection lifecycle events (connect/accept/etc.) are
+    /// retained for ETW wiring but no longer produce output rows.
+    /// </summary>
+    internal class NetworkHandlers : IDisposable
     {
-        private WriterManager wm;
+        private const int TCP_PROTO = 6;
+        private const int UDP_PROTO = 17;
+
+        private readonly WriterManager wm;
+        private readonly Timer _flushTimer;
+        private readonly object _flushLock = new();
+        private static readonly TimeSpan FlushInterval = TimeSpan.FromMinutes(1);
+
+        private readonly ConcurrentDictionary<string, ConnAgg> _conns = new();
+
+        private sealed class ConnAgg
+        {
+            public int Pid;
+            public string Comm = "";
+            public int Proto;
+            public string LocalAddr = "";
+            public string RemoteAddr = "";
+            public int LocalPort;
+            public int RemotePort;
+            public ulong ConnId;
+            public long BytesSent;
+            public long BytesReceived;
+            // Consecutive flush windows with no traffic, used to evict idle connections.
+            public int IdleWindows;
+        }
 
         public NetworkHandlers(WriterManager old_wm)
         {
             wm = old_wm;
+            _flushTimer = new Timer(_ => FlushWindow(), null, FlushInterval, FlushInterval);
         }
 
-        private ulong GetConnId(TraceEvent data)
+        // ── Traffic accumulation ──────────────────────────────────────────────
+        // Keyed on local/remote (not raw src/dst) so that send and receive — which
+        // report mirrored saddr/daddr — fold into the same connection row.
+
+        private void Add(int proto, int pid, string comm, ulong connId,
+            string localAddr, int localPort, string remoteAddr, int remotePort, bool isSend, int size)
         {
-            return GetUlongPayload(data, "ConnID");
+            if (size <= 0) return;
+
+            string key = $"{proto}|{localAddr}|{localPort}|{remoteAddr}|{remotePort}";
+            var agg = _conns.GetOrAdd(key, _ => new ConnAgg
+            {
+                Pid = pid,
+                Comm = comm ?? "",
+                Proto = proto,
+                LocalAddr = localAddr,
+                RemoteAddr = remoteAddr,
+                LocalPort = localPort,
+                RemotePort = remotePort,
+                ConnId = connId
+            });
+
+            // Backfill identity if a later event carries better data.
+            if (agg.Pid <= 0 && pid > 0) agg.Pid = pid;
+            if (string.IsNullOrEmpty(agg.Comm) && !string.IsNullOrEmpty(comm)) agg.Comm = comm;
+            if (agg.ConnId == 0 && connId != 0) agg.ConnId = connId;
+
+            if (isSend) Interlocked.Add(ref agg.BytesSent, size);
+            else Interlocked.Add(ref agg.BytesReceived, size);
         }
+
+        // ── Periodic flush ────────────────────────────────────────────────────
+
+        private void FlushWindow()
+        {
+            lock (_flushLock)
+            {
+                var now = DateTime.UtcNow;
+                foreach (var kvp in _conns)
+                {
+                    var agg = kvp.Value;
+                    long sent = Interlocked.Exchange(ref agg.BytesSent, 0);
+                    long recv = Interlocked.Exchange(ref agg.BytesReceived, 0);
+
+                    if (sent == 0 && recv == 0)
+                    {
+                        // Evict connections idle for several windows to bound memory.
+                        if (++agg.IdleWindows >= 5)
+                        {
+                            _conns.TryRemove(kvp.Key, out _);
+                        }
+                        continue;
+                    }
+
+                    agg.IdleWindows = 0;
+                    wm.Write(new NetworkTrace(now, agg.Pid, agg.Comm, agg.Proto,
+                        agg.LocalAddr, agg.RemoteAddr, agg.LocalPort, agg.RemotePort, agg.ConnId, sent, recv));
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            _flushTimer.Dispose();
+            // Final flush so the last partial window is not lost on shutdown.
+            FlushWindow();
+        }
+
+        // ── TCP send / receive ────────────────────────────────────────────────
+        // Send: local = saddr/sport, remote = daddr/dport.
+        // Receive: orientation is mirrored, so local = daddr/dport, remote = saddr/sport.
 
         public void OnSend(TcpIpSendTraceData data)
         {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
-            {
-                return;
-            }
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp,
-                data.ProcessID,
-                data.ProcessName,
-                data.saddr.ToString(),
-                data.daddr.ToString(),
-                data.sport,
-                data.dport,
-                data.size,
-                "send",
-                0,
-                GetConnId(data)
-            );
-
-            //Debug.WriteLine(nt.ToString());
-            wm.Write(nt);
+            if (!ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName)) return;
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
+            Add(TCP_PROTO, data.ProcessID, data.ProcessName, GetConnId(data),
+                data.saddr.ToString(), data.sport, data.daddr.ToString(), data.dport, isSend: true, data.size);
         }
 
         public void OnSend(TcpIpV6SendTraceData data)
         {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
-            {
-                return;
-            }
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp,
-                data.ProcessID,
-                data.ProcessName,
-                data.saddr.ToString(),
-                data.daddr.ToString(),
-                data.sport,
-                data.dport,
-                data.size,
-                "send",
-                0,
-                GetConnId(data)
-            );
-
-            //Debug.WriteLine(nt.ToString());
-            wm.Write(nt);
-        }
-
-        public void OnSend(UdpIpTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
-            {
-                return;
-            }
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp,
-                data.ProcessID,
-                data.ProcessName,
-                data.saddr.ToString(),
-                data.daddr.ToString(),
-                data.sport,
-                data.dport,
-                data.size,
-                "send",
-                0,
-                GetConnId(data),
-                context: data.context,
-                dSize: data.dsize
-            );
-            wm.Write(nt);
-        }
-
-        public void OnSend(UpdIpV6TraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
-            {
-                return;
-            }
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp,
-                data.ProcessID,
-                data.ProcessName,
-                data.saddr.ToString(),
-                data.daddr.ToString(),
-                data.sport,
-                data.dport,
-                data.size,
-                "send",
-                0,
-                GetConnId(data),
-                seqNum: data.seqnum
-            );
-
-            //Debug.WriteLine(nt.ToString());
-            wm.Write(nt);
+            if (!ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName)) return;
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
+            Add(TCP_PROTO, data.ProcessID, data.ProcessName, GetConnId(data),
+                data.saddr.ToString(), data.sport, data.daddr.ToString(), data.dport, isSend: true, data.size);
         }
 
         public void OnReceive(TcpIpTraceData data)
         {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
-            {
-                return;
-            }
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp,
-                data.ProcessID,
-                data.ProcessName,
-                data.saddr.ToString(),
-                data.daddr.ToString(),
-                data.sport,
-                data.dport,
-                data.size,
-                "receive",
-                0,
-                GetConnId(data),
-                seqNum: data.seqnum
-            );
-
-            //Debug.WriteLine(nt.ToString());
-            wm.Write(nt);
+            if (!ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName)) return;
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
+            Add(TCP_PROTO, data.ProcessID, data.ProcessName, GetConnId(data),
+                data.daddr.ToString(), data.dport, data.saddr.ToString(), data.sport, isSend: false, data.size);
         }
 
         public void OnReceive(TcpIpV6TraceData data)
         {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
+            if (!ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName)) return;
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
+            Add(TCP_PROTO, data.ProcessID, data.ProcessName, GetConnId(data),
+                data.daddr.ToString(), data.dport, data.saddr.ToString(), data.sport, isSend: false, data.size);
+        }
 
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
-            {
-                return;
-            }
+        // ── UDP send / receive (IPv4 + IPv6) ──────────────────────────────────
 
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp,
-                data.ProcessID,
-                data.ProcessName,
-                data.saddr.ToString(),
-                data.daddr.ToString(),
-                data.sport,
-                data.dport,
-                data.size,
-                "receive",
-                0,
-                GetConnId(data),
-                seqNum: data.seqnum
-            );
+        public void OnSend(UdpIpTraceData data)
+        {
+            if (!ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName)) return;
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
+            Add(UDP_PROTO, data.ProcessID, data.ProcessName, GetConnId(data),
+                data.saddr.ToString(), data.sport, data.daddr.ToString(), data.dport, isSend: true, data.size);
+        }
 
-            //Debug.WriteLine(nt.ToString());
-            wm.Write(nt);
+        public void OnSend(UpdIpV6TraceData data)
+        {
+            if (!ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName)) return;
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
+            Add(UDP_PROTO, data.ProcessID, data.ProcessName, GetConnId(data),
+                data.saddr.ToString(), data.sport, data.daddr.ToString(), data.dport, isSend: true, data.size);
         }
 
         public void OnReceive(UdpIpTraceData data)
         {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
-            {
-                return;
-            }
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp,
-                data.ProcessID,
-                data.ProcessName,
-                data.saddr.ToString(),
-                data.daddr.ToString(),
-                data.sport,
-                data.dport,
-                data.size,
-                "receive",
-                0,
-                GetConnId(data),
-                context: data.context,
-                dSize: data.dsize
-            );
-
-            //Debug.WriteLine(nt.ToString());
-            wm.Write(nt);
+            if (!ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName)) return;
+            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
+            Add(UDP_PROTO, data.ProcessID, data.ProcessName, GetConnId(data),
+                data.daddr.ToString(), data.dport, data.saddr.ToString(), data.sport, isSend: false, data.size);
         }
 
         public void OnReceive(UpdIpV6TraceData data)
         {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-            {
-                return;
-            }
-
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr))
-            {
-                return;
-            }
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp,
-                data.ProcessID,
-                data.ProcessName,
-                data.saddr.ToString(),
-                data.daddr.ToString(),
-                data.sport,
-                data.dport,
-                data.size,
-                "receive",
-                0,
-                GetConnId(data),
-                seqNum: data.seqnum
-            );
-
-            //Debug.WriteLine(nt.ToString());
-            wm.Write(nt);
-        }
-
-        // Connection Lifecycle Events
-        public void OnConnect(TcpIpConnectTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
+            if (!ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName)) return;
             if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp, data.ProcessID, data.ProcessName,
-                data.saddr.ToString(), data.daddr.ToString(),
-                data.sport, data.dport, 0, "connect",
-                0, GetConnId(data),
-                seqNum: data.seqnum,
-                mss: data.mss,
-                sndWinScale: data.sndwinscale,
-                rcvWinScale: data.rcvwinscale,
-                rcvWin: data.rcvwin,
-                wsOpt: data.wsopt,
-                tsOpt: data.tsopt,
-                sackOpt: data.sackopt
-            );
-            wm.Write(nt);
+            Add(UDP_PROTO, data.ProcessID, data.ProcessName, GetConnId(data),
+                data.daddr.ToString(), data.dport, data.saddr.ToString(), data.sport, isSend: false, data.size);
         }
 
-        public void OnDisconnect(TcpIpTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
+        // ── Connection lifecycle ──────────────────────────────────────────────
+        // Retained so the ETW wiring in Tracer stays valid. Only per-minute byte
+        // summaries are logged now, so these no longer emit rows; per-event
+        // identity (pid/comm) is captured directly on the send/receive events.
 
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp, data.ProcessID, data.ProcessName,
-                data.saddr.ToString(), data.daddr.ToString(),
-                data.sport, data.dport, 0, "disconnect",
-                0, GetConnId(data),
-                seqNum: data.seqnum
-            );
-            wm.Write(nt);
-        }
+        public void OnConnect(TcpIpConnectTraceData data) { }
+        public void OnAccept(TcpIpConnectTraceData data) { }
+        public void OnReconnect(TcpIpTraceData data) { }
+        public void OnDisconnect(TcpIpTraceData data) { }
+        public void OnFail(TcpIpFailTraceData data) { }
+        public void OnRetransmit(TcpIpTraceData data) { }
+        public void OnTcpHandshake(TraceEvent data) { }
 
-        public void OnAccept(TcpIpConnectTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp, data.ProcessID, data.ProcessName,
-                data.saddr.ToString(), data.daddr.ToString(),
-                data.sport, data.dport, 0, "accept",
-                0, GetConnId(data),
-                seqNum: data.seqnum,
-                mss: data.mss,
-                sndWinScale: data.sndwinscale,
-                rcvWinScale: data.rcvwinscale,
-                rcvWin: data.rcvwin,
-                wsOpt: data.wsopt,
-                tsOpt: data.tsopt,
-                sackOpt: data.sackopt
-            );
-            wm.Write(nt);
-        }
-
-        public void OnReconnect(TcpIpTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp, data.ProcessID, data.ProcessName,
-                data.saddr.ToString(), data.daddr.ToString(),
-                data.sport, data.dport, 0, "reconnect",
-                0, GetConnId(data),
-                seqNum: data.seqnum
-            );
-            wm.Write(nt);
-        }
-
-        public void OnFail(TcpIpFailTraceData data)
-        {
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-
-            // TcpIpFailTraceData might not expose saddr/daddr directly as properties in some versions.
-            // We'll try to get them from payload or default to empty.
-            string saddr = GetStringPayload(data, "saddr");
-            string daddr = GetStringPayload(data, "daddr");
-            int sport = GetIntPayload(data, "sport");
-            int dport = GetIntPayload(data, "dport");
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp, data.ProcessID, data.ProcessName,
-                saddr, daddr,
-                sport, dport, 0, "fail",
-                data.FailureCode,
-                GetConnId(data),
-                proto: data.Proto
-            );
-            wm.Write(nt);
-        }
-
-        public void OnTcpHandshake(TraceEvent data)
-        {
-            // Event names: TcpAttemptConnect, TcpConnectionAccepted, TcpConnectionConnected
-            // These dynamic events typically have fields like PID, size, daddr, saddr etc.
-
-            // TraceEvent has ProcessID and ProcessName directly
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-
-            // Extract IPs and Ports. Note: Payload names might differ slightly, verification needed if fails.
-            // Standard MS-TCPIP provider usually uses 'daddr', 'saddr', 'dport', 'sport'.
-            // Some events use 'Tcb' pointer, but usually we have address info.
-
-            // Checking if keys exist to be safe
-            if (!data.PayloadNames.Contains("saddr") || !data.PayloadNames.Contains("daddr")) return;
-
-            string saddr = GetStringPayload(data, "saddr");
-            string daddr = GetStringPayload(data, "daddr");
-            int sport = GetIntPayload(data, "sport");
-            int dport = GetIntPayload(data, "dport");
-
-            string eventType = "";
-            switch (data.EventName)
-            {
-                case "TcpAttemptConnect": eventType = "syn_sent"; break;
-                case "TcpConnectionAccepted": eventType = "syn_rcvd"; break;
-                case "TcpConnectionConnected": eventType = "established"; break;
-                default: return;
-            }
-
-            ulong connId = GetConnId(data);
-
-            NetworkTrace nt = new NetworkTrace(
-                data.TimeStamp, data.ProcessID, data.ProcessName,
-                saddr,
-                daddr,
-                sport, dport, 0, eventType,
-                0, connId
-            );
-            wm.Write(nt);
-        }
-
-        public void OnRetransmit(TcpIpTraceData data)
-        {
-
-            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false) return;
-            if (NetHelper.IsLocalConversation(data.saddr, data.daddr)) return;
-
-            NetworkTrace nt = new NetworkTrace(
-                 data.TimeStamp,
-                 data.ProcessID,
-                 data.ProcessName,
-                 data.saddr.ToString(),
-                data.daddr.ToString(),
-                data.sport,
-                data.dport,
-                data.size,
-                "retransmit",
-                0,
-                GetConnId(data),
-                seqNum: data.seqnum
-            );
-
-            wm.Write(nt);
-        }
-
-        #region Safe Payload Access Helpers
-
-        private ulong GetUlongPayload(TraceEvent data, string name, ulong defaultValue = 0)
+        private ulong GetConnId(TraceEvent data)
         {
             try
             {
-                if (data.PayloadNames.Contains(name))
+                if (data.PayloadNames != null && Array.IndexOf(data.PayloadNames, "ConnID") >= 0)
                 {
-                    var val = data.PayloadByName(name);
-                    return val == null ? defaultValue : Convert.ToUInt64(val);
+                    var val = data.PayloadByName("ConnID");
+                    return val == null ? 0 : Convert.ToUInt64(val);
                 }
-                return defaultValue;
             }
-            catch
-            {
-                return defaultValue;
-            }
+            catch { }
+            return 0;
         }
-
-        private int GetIntPayload(TraceEvent data, string name, int defaultValue = 0)
-        {
-            try
-            {
-                if (data.PayloadNames.Contains(name))
-                {
-                    var val = data.PayloadByName(name);
-                    return val == null ? defaultValue : Convert.ToInt32(val);
-                }
-                return defaultValue;
-            }
-            catch
-            {
-                return defaultValue;
-            }
-        }
-
-        private string GetStringPayload(TraceEvent data, string name, string defaultValue = "")
-        {
-            try
-            {
-                if (data.PayloadNames.Contains(name))
-                {
-                    var val = data.PayloadByName(name);
-                    return val?.ToString() ?? defaultValue;
-                }
-                return defaultValue;
-            }
-            catch
-            {
-                return defaultValue;
-            }
-        }
-
-        #endregion
     }
 }
