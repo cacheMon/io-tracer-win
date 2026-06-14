@@ -6,7 +6,8 @@ This directory contains documentation for the different trace types captured by 
 
 - [Filesystem Trace (`FILESYSTEM`)](filesystem.md) - Captures detailed file system operations.
 - [Disk Trace (`DISK`)](disk.md) - Captures low-level disk I/O operations.
-- [Network Trace (`NETWORK`)](network.md) - Captures network traffic summary.
+- [Driver Trace (`DRIVER`)](driver.md) - Captures lower-level driver interactions (major-function calls, completions).
+- [Network Trace (`NETWORK`)](network.md) - Captures network traffic summarized per connection, per minute.
 - [Memory Trace (`MEMORY`)](memory.md) - Captures memory-related events.
 - [Process Snapshot (`PROCESS`)](process.md) - Periodic snapshot of running processes.
 - [Filesystem Snapshot (`FILESYSTEM_SNAPSHOT`)](filesystem-snapshot.md) - Snapshot of file system state (metadata).

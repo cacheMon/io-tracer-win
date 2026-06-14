@@ -15,7 +15,7 @@ Where:
 - `{timestamp}` - Trace session start time in format `yyyyMMdd_HHmmss`
 
 Each trace type is stored in its own subdirectory under this prefix:
-- `filesystem/` - Filesystem operation traces
+- `fs/` - Filesystem operation traces
 - `ds/` - Disk I/O traces  
 - `mr/` - Memory traces
 - `nw/` - Network traces
@@ -67,7 +67,7 @@ Key fields:
 
 ## CSV Trace Formats
 
-### Filesystem Trace (`filesystem/`)
+### Filesystem Trace (`fs/`)
 
 Captures detailed file system operations.
 
@@ -84,7 +84,7 @@ Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Of
 
 | # | Field | Type | Description | Notes |
 |---|-------|------|-------------|-------|
-| 1 | `Ts` | timestamp | Timestamp (UTC) of the event | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
+| 1 | `Ts` | timestamp | Timestamp (local wall-clock) of the event | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
 | 2 | `Op` | string | Operation name | `create`, `read`, `write`, `flush`, `close`, `cleanup`, `delete`, `rename`, `set_info`, `query_info`, `dir_enum`, `dir_notify`, `fs_control`, `map_file`, etc. |
 | 3 | `Pid` | integer | Process ID initiating the operation | `-1` when the kernel did not attribute the event to a process (e.g. cache-manager / system-context I/O) |
 | 4 | `Comm` | string | Command/Process name | Empty when the kernel did not supply a name; quoted if it contains special characters |
@@ -125,7 +125,7 @@ Ts,Pid,ThreadId,Comm,Sector,Operation,TraceSize,Latency,DiskNumber,Irp,IrpFlags
 
 | Field | Type | Description | Notes |
 |-------|------|-------------|-------|
-| `Ts` | timestamp | Timestamp (UTC) | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `Ts` | timestamp | Timestamp (local wall-clock) | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
 | `Pid` | integer | Process ID | |
 | `ThreadId` | integer | Thread ID | |
 | `Comm` | string | Command/Process name | |
@@ -139,7 +139,7 @@ Ts,Pid,ThreadId,Comm,Sector,Operation,TraceSize,Latency,DiskNumber,Irp,IrpFlags
 
 **Example:**
 ```csv
-2026-02-08 23:23:45.123,1234,5678,notepad.exe,1024345,read,4096,0.5,0,0xFFFF800012345678,Nocache|PagingIo|Priority:Normal
+2026-02-08 23:23:45.123456,1234,5678,notepad.exe,1024345,read,4096,0.5,0,0xFFFF800012345678,Nocache|PagingIo|Priority:Normal
 ```
 
 ---
@@ -157,7 +157,7 @@ Ts,Pid,ThreadId,Comm,Type,VirtualAddress,ByteCount
 
 | Field | Type | Description | Notes |
 |-------|------|-------------|-------|
-| `Ts` | timestamp | Timestamp (UTC) | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `Ts` | timestamp | Timestamp (local wall-clock) | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
 | `Pid` | integer | Process ID | |
 | `ThreadId` | integer | Thread ID | |
 | `Comm` | string | Command/Process name | Quoted if contains spaces |
@@ -167,7 +167,7 @@ Ts,Pid,ThreadId,Comm,Type,VirtualAddress,ByteCount
 
 **Event Types:**
 - **Cache**: `HIT`, `MISS`, `DIRTY`, `WRITEBACK_START`, `WRITEBACK_END`, `EVICT`, `INVALIDATE`, `DROP`, `READAHEAD`, `RECLAIM`
-- **File Cache**: `CACHE_READ`, `CACHE_WRITE`, `CACHE_FLUSH_START`, `CACHE_FLUSH_END`, `CACHE_LAZY_WRITE`, `CACHE_READ_AHEAD`, `CACHE_MAP`, `CACHE_UNMAP`, `CACHE_PURGE`
+- **File Cache**: `CACHE_READ`, `CACHE_WRITE`, `CACHE_FLUSH_START`, `CACHE_FLUSH_END`, `CACHE_LAZY_WRITE`, `CACHE_READ_AHEAD`, `CACHE_MISS_PARTIAL`, `CACHE_MAP`, `CACHE_UNMAP`, `CACHE_PURGE`
 - **Working Set**: `WS_TRIM`, `WS_EXPANSION`, `WS_FAULT_IN`, `WS_FAULT_OUT`, `WS_AGING`, `WS_LOCK`, `WS_UNLOCK`
 - **Modified Page Writer**: `MPW_WRITE_START`, `MPW_WRITE_END`, `MPW_THROTTLE`, `MPW_QUEUE`, `MPW_DEQUEUE`
 - **Standby List**: `STANDBY_INSERT`, `STANDBY_REMOVE`, `STANDBY_REPURPOSE`
@@ -178,9 +178,9 @@ Ts,Pid,ThreadId,Comm,Type,VirtualAddress,ByteCount
 
 **Example:**
 ```csv
-2026-02-09 10:15:30.123,4560,9812,"notepad.exe",HIT,0x7FF7A2B0000,4096
-2026-02-09 10:15:30.125,4560,9812,"notepad.exe",MISS,0x0,4096
-2026-02-09 10:15:30.140,4560,9812,"notepad.exe",CACHE_READ,0xFFFF8B012345678,1024
+2026-02-09 10:15:30.123456,4560,9812,"notepad.exe",HIT,0x7FF7A2B0000,4096
+2026-02-09 10:15:30.125789,4560,9812,"notepad.exe",MISS,0x0,4096
+2026-02-09 10:15:30.140012,4560,9812,"notepad.exe",CACHE_READ,0xFFFF8B012345678,1024
 ```
 
 ---
@@ -205,7 +205,7 @@ Ts,Pid,Comm,Proto,Saddr,Daddr,Sport,Dport,ConnId,BytesSent,BytesReceived
 
 | # | Field | Type | Description | Notes |
 |---|-------|------|-------------|-------|
-| 1 | `Ts` | timestamp | Flush time (UTC) marking the end of the 1-minute window | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
+| 1 | `Ts` | timestamp | Flush time (local wall-clock) marking the end of the 1-minute window | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
 | 2 | `Pid` | integer | Process ID owning the connection | |
 | 3 | `Comm` | string | Command/Process name | |
 | 4 | `Proto` | integer | IP protocol number | `6` = TCP, `17` = UDP |
@@ -239,7 +239,7 @@ Ts,Pid,ThreadId,Comm,Operation,Irp,RequestId,MajorFunction,MinorFunction,Routine
 
 | # | Field | Type | Description | Notes |
 |---|-------|------|-------------|-------|
-| 1 | `Ts` | timestamp | Timestamp (UTC) | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
+| 1 | `Ts` | timestamp | Timestamp (local wall-clock) | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
 | 2 | `Pid` | integer | Process ID | |
 | 3 | `ThreadId` | integer | Thread ID | |
 | 4 | `Comm` | string | Command/Process name | |
@@ -277,20 +277,20 @@ Ts,ProcessId,Name,CommandLine,VirtualSize,WorkingSetSize,CreationDate,CpuUsage_5
 
 | Field | Type | Description | Notes |
 |-------|------|-------------|-------|
-| `Ts` | timestamp | Timestamp (UTC) of the snapshot | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `Ts` | timestamp | Timestamp (local wall-clock) of the snapshot | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
 | `ProcessId` | integer | Process ID | |
 | `Name` | string | Process name | |
 | `CommandLine` | string | Process command line arguments | |
 | `VirtualSize` | integer | Virtual memory size (bytes) | |
 | `WorkingSetSize` | integer | Working set (physical memory) size (bytes) | |
-| `CreationDate` | timestamp | Process creation time | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `CreationDate` | timestamp | Process creation time | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
 | `CpuUsage_5s` | float | CPU usage over last 5 seconds | Percentage |
 | `CpuUsage_2m` | float | CPU usage over last 2 minutes | Percentage |
 | `CpuUsage_1h` | float | CPU usage over last 1 hour | Percentage |
 
 **Example:**
 ```csv
-2026-02-08 23:23:45.123,1234,notepad.exe,"C:\Windows\System32\notepad.exe",104857600,20971520,2026-02-08 23:00:00.000,0.5,0.2,0.1
+2026-02-08 23:23:45.123456,1234,notepad.exe,"C:\Windows\System32\notepad.exe",104857600,20971520,2026-02-08 23:00:00.000000,0.5,0.2,0.1
 ```
 
 ---
@@ -308,19 +308,19 @@ timestamp,path,size,CreationDate,modificationDate,LastAccessTime,Attributes,Exte
 
 | Field | Type | Description | Notes |
 |-------|------|-------------|-------|
-| `timestamp` | timestamp | Snapshot timestamp | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `timestamp` | timestamp | Snapshot timestamp | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
 | `path` | string | Full path to the file | |
 | `size` | integer | File size in bytes | |
-| `CreationDate` | timestamp | File creation timestamp | Format: `yyyy-MM-dd HH:mm:ss.fff` |
-| `modificationDate` | timestamp | File last modification timestamp | Format: `yyyy-MM-dd HH:mm:ss.fff` |
-| `LastAccessTime` | timestamp | File last access timestamp | Format: `yyyy-MM-dd HH:mm:ss.fff` |
+| `CreationDate` | timestamp | File creation timestamp | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
+| `modificationDate` | timestamp | File last modification timestamp | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
+| `LastAccessTime` | timestamp | File last access timestamp | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
 | `Attributes` | string | File attributes | e.g., `Archive`, `Directory`, `Hidden` |
 | `Extension` | string | File extension | Including the dot (e.g., `.txt`) |
 | `IsReadOnly` | boolean | Whether the file is read-only | `True` or `False` |
 
 **Example:**
 ```csv
-2026-02-09 23:00:00.000,C:/Users/User/Documents/test.txt,1024,2026-02-08 23:00:00.000,2026-02-08 23:23:45.123,2026-02-09 10:00:00.000,Archive,.txt,False
+2026-02-09 23:00:00.000000,C:/Users/User/Documents/test.txt,1024,2026-02-08 23:00:00.000000,2026-02-08 23:23:45.123456,2026-02-09 10:00:00.000000,Archive,.txt,False
 ```
 
 ---
@@ -554,7 +554,7 @@ Where:
 
 **Example:**
 ```
-filesystem/fs_20260212_143022_a1b2c3d4e5f6.csv.zst
+fs/fs_20260212_143022_a1b2c3d4e5f6.csv.zst
 ds/ds_20260212_143022_a1b2c3d4e5f6.csv.zst
 ```
 
@@ -563,7 +563,11 @@ ds/ds_20260212_143022_a1b2c3d4e5f6.csv.zst
 ## Data Collection Notes
 
 ### Timestamps
-All timestamps are in UTC and use the format `yyyy-MM-dd HH:mm:ss.fff` (millisecond precision).
+All CSV event and snapshot timestamps are **local wall-clock** (ETW `DateTime`, QPC-derived;
+file-metadata times for the filesystem snapshot) and use the format
+`yyyy-MM-dd HH:mm:ss.ffffff` (microsecond precision). The exceptions are UTC: the
+`{timestamp}` in file/object names and the manifest's `start_utc` / `stop_utc` fields.
+The per-session `manifest.json` (`clock_source`) is the authoritative description.
 
 ### Anonymous Mode
 When anonymous mode is enabled:

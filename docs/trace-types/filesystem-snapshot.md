@@ -22,12 +22,12 @@ To optimize memory usage during large filesystem scans, snapshots are automatica
 
 | Field              | Description                      | Notes                                  |
 | :----------------- | :------------------------------- | :------------------------------------- |
-| `timestamp`        | Snapshot timestamp               | format: `yyyy-MM-dd HH:mm:ss.fff`      |
+| `timestamp`        | Snapshot timestamp               | Format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
 | `path`             | Full path to the file            |                                        |
 | `size`             | File size in bytes               |                                        |
-| `CreationDate`     | File creation timestamp          | format: `yyyy-MM-dd HH:mm:ss.fff`      |
-| `modificationDate` | File last modification timestamp | format: `yyyy-MM-dd HH:mm:ss.fff`      |
-| `LastAccessTime`   | File last access timestamp       | format: `yyyy-MM-dd HH:mm:ss.fff`      |
+| `CreationDate`     | File creation timestamp          | Format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
+| `modificationDate` | File last modification timestamp | Format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
+| `LastAccessTime`   | File last access timestamp       | Format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
 | `Attributes`       | File attributes                  | e.g., `Archive`, `Directory`, `Hidden` |
 | `Extension`        | File extension                   | including the dot (e.g., `.txt`)       |
 | `IsReadOnly`       | Whether the file is read-only    | `True` or `False`                      |
@@ -35,7 +35,7 @@ To optimize memory usage during large filesystem scans, snapshots are automatica
 **Example:**
 
 ```csv
-2026-02-09 23:00:00.000,C:/Users/User/Documents/test.txt,1024,2026-02-08 23:00:00.000,2026-02-08 23:23:45.123,2026-02-09 10:00:00.000,Archive,.txt,False
+2026-02-09 23:00:00.000000,C:/Users/User/Documents/test.txt,1024,2026-02-08 23:00:00.000000,2026-02-08 23:23:45.123456,2026-02-09 10:00:00.000000,Archive,.txt,False
 ```
 
 ## Known Limitations
