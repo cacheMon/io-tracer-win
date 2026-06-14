@@ -9,7 +9,7 @@ Captures detailed file system I/O operations via Windows ETW kernel tracing.
 
 | Field               | Description                              | Notes                                                                             |
 | :------------------ | :--------------------------------------- | :-------------------------------------------------------------------------------- |
-| `Ts`                | Timestamp (UTC) of the event             | Format: `yyyy-MM-dd HH:mm:ss.ffffff`                                              |
+| `Ts`                | Timestamp (local wall-clock) of the event | Format: `yyyy-MM-dd HH:mm:ss.ffffff`                                             |
 | `Op`                | Operation name                           | See [Operation Values](#operation-values-op) below                                |
 | `Pid`               | Process ID initiating the operation      |                                                                                   |
 | `Comm`              | Command / process name                   |                                                                                   |
@@ -24,7 +24,7 @@ Captures detailed file system I/O operations via Windows ETW kernel tracing.
 | `FsctlCode`         | FSCTL control code for file-system control requests      | See [FsctlCode](#fsctlcode-values). _`fs_control` only_                            |
 | `ThreadId`          | Thread ID of the operation               |                                                                                   |
 | `Irp`               | I/O Request Packet pointer               | Hex format: `0x...`. Useful for correlating request/completion pairs              |
-| `FileKey`           | Kernel file-object identifier            |                                                                                   |
+| `FileKey`           | Kernel file-object identifier            | Hex format: `0x...`; empty when absent                                            |
 | `FileAttributes`    | File attribute flags                     | See [FileAttributes](#fileattributes-values). _`create` only_                     |
 | `IoFlags`           | I/O flags                                | See [IoFlags](#ioflags-values). _`read`, `write` only_                            |
 | `CommandLine`       | Full command line of the process         |                                                                                   |
@@ -198,10 +198,10 @@ Any code not in the above list is emitted as `0xXXXXXXXX`. The full set of recog
 
 ```csv
 Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Offset,ViewSize,FileInfoClass,FsctlCode,ThreadId,Irp,FileKey,FileAttributes,IoFlags,CommandLine
-2026-02-08 23:23:45.123456,create,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,FILE_NON_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT,FILE_SHARE_READ,FILE_OPEN_IF,,,,,5678,0x24CBEEB5A40,18446744071562067968,FILE_ATTRIBUTE_NORMAL,,notepad.exe C:\Users\User\Documents\test.txt
-2026-02-08 23:23:45.125789,read,1234,notepad.exe,C:\Users\User\Documents\test.txt,4096,,,,0,,,,5678,0x24CBEEB5A40,18446744071562067968,,IRP_PAGING_IO|IRP_NOCACHE,notepad.exe C:\Users\User\Documents\test.txt
-2026-02-08 23:23:45.130012,write,1234,notepad.exe,C:\Users\User\Documents\test.txt,512,,,,4096,,,,5678,0x24CBEEB5A40,18446744071562067968,,IRP_SYNCHRONOUS_API,notepad.exe C:\Users\User\Documents\test.txt
-2026-02-08 23:23:45.140000,close,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,,,,0x24CBEEB5A40,18446744071562067968,,,notepad.exe C:\Users\User\Documents\test.txt
+2026-02-08 23:23:45.123456,create,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,FILE_NON_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT,FILE_SHARE_READ,FILE_OPEN_IF,,,,,5678,0x24CBEEB5A40,0xFFFFFFFF80000000,FILE_ATTRIBUTE_NORMAL,,notepad.exe C:\Users\User\Documents\test.txt
+2026-02-08 23:23:45.125789,read,1234,notepad.exe,C:\Users\User\Documents\test.txt,4096,,,,0,,,,5678,0x24CBEEB5A40,0xFFFFFFFF80000000,,IRP_PAGING_IO|IRP_NOCACHE,notepad.exe C:\Users\User\Documents\test.txt
+2026-02-08 23:23:45.130012,write,1234,notepad.exe,C:\Users\User\Documents\test.txt,512,,,,4096,,,,5678,0x24CBEEB5A40,0xFFFFFFFF80000000,,IRP_SYNCHRONOUS_API,notepad.exe C:\Users\User\Documents\test.txt
+2026-02-08 23:23:45.140000,close,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,,,,0x24CBEEB5A40,0xFFFFFFFF80000000,,,notepad.exe C:\Users\User\Documents\test.txt
 ```
 
 ---
