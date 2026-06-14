@@ -625,7 +625,7 @@ namespace IOTracesCORE
                 // for recovery instead.
                 if (obj_storage.HasQueuedFiles)
                 {
-                    Debug.WriteLine($"Upload incomplete; leaving trace data in {dir_path} for recovery.");
+                    Console.WriteLine($"[WriterManager] Upload incomplete; leaving trace data in {dir_path} for recovery.");
                     return;
                 }
                 Directory.Delete(dir_path, true);

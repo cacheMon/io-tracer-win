@@ -294,10 +294,16 @@ namespace IOTracesCORE.cloudstorage
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"Error uploading {filepath}: {ex}");
+                    Console.WriteLine($"[Upload] Error uploading {filepath} during shutdown drain: {ex.Message}");
                     // Keep the file for recovery instead of dropping it.
                     if (File.Exists(filepath))
                         QueueFile(filepath);
+
+                    // Stop draining on the first failure: if one upload fails (e.g. the
+                    // network is down) the rest will time out too, hanging shutdown for
+                    // pending-count × the per-upload timeout. The remaining files stay
+                    // queued and on disk, so HasQueuedFiles keeps the directory for recovery.
+                    break;
                 }
             }
         }
