@@ -13,8 +13,8 @@ namespace IOTracesCORE.snapper
     {
         private readonly WriterManager wm;
         private readonly ProcessCommandLineCache processCache;
-        private bool interrupted;
-        private bool snapshotCompleted;
+        private readonly ManualResetEventSlim stopRequested = new ManualResetEventSlim(false);
+        private volatile bool snapshotCompleted;
         private readonly bool is_anonymouse;
         private Random random = new Random();
 
@@ -31,12 +31,11 @@ namespace IOTracesCORE.snapper
         {
             this.wm = wm;
             this.processCache = processCache;
-            interrupted = false;
             snapshotCompleted = false;
             this.is_anonymouse = is_anonymouse;
         }
 
-        public void Stop() => interrupted = true;
+        public void Stop() => stopRequested.Set();
 
         public bool IsSnapshotComplete()
         {
@@ -45,11 +44,17 @@ namespace IOTracesCORE.snapper
 
         public void Run()
         {
-            while (!interrupted)
+            while (!stopRequested.IsSet)
             {
                 try
                 {
                     SampleAndWriteSnapshot();
+                    // Mark complete once we have captured at least one full snapshot, so a
+                    // clean shutdown finalizes it as complete. (Previously this was set only
+                    // after the loop exited — i.e. after the trailing 5-minute sleep — so the
+                    // shutdown path, which checks ~1s after Stop(), almost always saw false
+                    // and mislabeled every session's process snapshot as incomplete.)
+                    snapshotCompleted = true;
                 }
                 catch (Exception ex)
                 {
@@ -57,13 +62,10 @@ namespace IOTracesCORE.snapper
                     Console.Error.WriteLine($"ProcessSnapper iteration error: {ex}");
                 }
 
-                // wait the base interval
-                Thread.Sleep((int)TimeSpan.FromMinutes(5).TotalMilliseconds);
+                // Interruptible wait so Stop() is observed promptly instead of only after
+                // the full 5-minute interval elapses.
+                stopRequested.Wait(TimeSpan.FromMinutes(5));
             }
-
-            // Only mark as complete if we were stopped gracefully (not interrupted during startup)
-            // This ensures we captured at least some meaningful data
-            snapshotCompleted = true;
         }
 
         private void SampleAndWriteSnapshot()

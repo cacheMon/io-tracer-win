@@ -619,6 +619,15 @@ namespace IOTracesCORE
         {
             if (is_upload_automatically)
             {
+                // Don't delete the local trace directory while uploads are still
+                // pending (e.g. the network dropped during the shutdown drain) — that
+                // would permanently lose the un-uploaded final batch. Leave it on disk
+                // for recovery instead.
+                if (obj_storage.HasQueuedFiles)
+                {
+                    Debug.WriteLine($"Upload incomplete; leaving trace data in {dir_path} for recovery.");
+                    return;
+                }
                 Directory.Delete(dir_path, true);
                 return;
             }

@@ -90,6 +90,9 @@ namespace IOTracesCORE.cloudstorage
             uploadQueue.Enqueue(filepath);
         }
 
+        /// <summary>True while any file is still waiting to be uploaded.</summary>
+        public bool HasQueuedFiles => !uploadQueue.IsEmpty;
+
         /// <summary>
         /// Appends a compressed trace chunk to the per-trace-type local buffer.
         /// The buffer is queued for upload as a single file once it reaches
@@ -267,26 +270,34 @@ namespace IOTracesCORE.cloudstorage
 
         public async Task ClearQueue()
         {
+            // Drain each currently-queued file exactly once. On failure the file is
+            // re-queued (not dropped) so it stays tracked and on disk; the shutdown
+            // path checks HasQueuedFiles and skips deleting the local trace directory
+            // when uploads remain, preventing silent loss of the final batch on a
+            // transient network failure during shutdown.
             Debug.WriteLine("Clearing upload queue");
-            while (uploadQueue.Count > 0)
+            int pending = uploadQueue.Count;
+            for (int i = 0; i < pending; i++)
             {
-                if (uploadQueue.TryDequeue(out var filepath))
-                {
-                    Debug.WriteLine($"File queued: {uploadQueue.Count}");
-                    try
-                    {
-                        Debug.WriteLine($"Uploading {filepath}");
-                        await UploadFile(filepath);
-                        Debug.WriteLine($"Uploaded {filepath}");
-                        UploadedFiles++;
+                if (!uploadQueue.TryDequeue(out var filepath))
+                    break;
 
-                        // Unlock reward after first successful upload
-                        RewardManager.Instance.UnlockReward();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"Error uploading {filepath}: {ex}");
-                    }
+                try
+                {
+                    Debug.WriteLine($"Uploading {filepath}");
+                    await UploadFile(filepath);
+                    Debug.WriteLine($"Uploaded {filepath}");
+                    UploadedFiles++;
+
+                    // Unlock reward after first successful upload
+                    RewardManager.Instance.UnlockReward();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error uploading {filepath}: {ex}");
+                    // Keep the file for recovery instead of dropping it.
+                    if (File.Exists(filepath))
+                        QueueFile(filepath);
                 }
             }
         }

@@ -279,10 +279,12 @@ namespace IOTracesCORE
         {
             CleanupOrphanedSession(sessionName);
 
-            // Drop IRP correlation state from any previous session so reused IRP
-            // pointers can't be mis-correlated across a session restart.
+            // Drop cross-event correlation state from any previous session so kernel
+            // pointers (IRPs, FileObject/FileKey) reused by the new session can't be
+            // mis-correlated across a session restart.
             driverHandler.Reset();
             dsHandler.Reset();
+            fsHandler.Reset();
 
             try
             {

@@ -51,8 +51,8 @@ namespace IOTracesCORE.handlers
             if (!ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName))
                 return;
 
-            // Only track reads that completed from cache (IoFlags indicates cached)
-            if ((data.IoFlags & 0x00000001) != 0) // IRP_NOCACHE flag NOT set
+            // Only track reads that completed from cache (IRP_NOCACHE flag NOT set)
+            if ((data.IoFlags & 0x00000001) == 0) // IRP_NOCACHE flag NOT set
             {
                 MemoryTrace mt = new MemoryTrace(
                     ts: data.TimeStamp,
@@ -77,7 +77,7 @@ namespace IOTracesCORE.handlers
             if (!ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName))
                 return;
 
-            if ((data.IoFlags & 0x00000001) != 0) // IRP_NOCACHE flag NOT set
+            if ((data.IoFlags & 0x00000001) == 0) // IRP_NOCACHE flag NOT set
             {
                 MemoryTrace mt = new MemoryTrace(
                     ts: data.TimeStamp,
