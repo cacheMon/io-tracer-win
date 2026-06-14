@@ -4,7 +4,6 @@ using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
 using System.Collections.Concurrent;
-using System.Threading;
 
 namespace IOTracesCORE.handlers
 {
@@ -57,26 +56,32 @@ namespace IOTracesCORE.handlers
         {
             if (size <= 0) return;
 
-            string key = $"{proto}|{localAddr}|{localPort}|{remoteAddr}|{remotePort}";
-            var agg = _conns.GetOrAdd(key, _ => new ConnAgg
+            // Held against FlushWindow so a connection cannot be evicted between the
+            // GetOrAdd below and the byte increment — otherwise bytes added to an
+            // about-to-be-removed ConnAgg would be lost.
+            lock (_flushLock)
             {
-                Pid = pid,
-                Comm = comm ?? "",
-                Proto = proto,
-                LocalAddr = localAddr,
-                RemoteAddr = remoteAddr,
-                LocalPort = localPort,
-                RemotePort = remotePort,
-                ConnId = connId
-            });
+                string key = $"{proto}|{localAddr}|{localPort}|{remoteAddr}|{remotePort}";
+                var agg = _conns.GetOrAdd(key, _ => new ConnAgg
+                {
+                    Pid = pid,
+                    Comm = comm ?? "",
+                    Proto = proto,
+                    LocalAddr = localAddr,
+                    RemoteAddr = remoteAddr,
+                    LocalPort = localPort,
+                    RemotePort = remotePort,
+                    ConnId = connId
+                });
 
-            // Backfill identity if a later event carries better data.
-            if (agg.Pid <= 0 && pid > 0) agg.Pid = pid;
-            if (string.IsNullOrEmpty(agg.Comm) && !string.IsNullOrEmpty(comm)) agg.Comm = comm;
-            if (agg.ConnId == 0 && connId != 0) agg.ConnId = connId;
+                // Backfill identity if a later event carries better data.
+                if (agg.Pid <= 0 && pid > 0) agg.Pid = pid;
+                if (string.IsNullOrEmpty(agg.Comm) && !string.IsNullOrEmpty(comm)) agg.Comm = comm;
+                if (agg.ConnId == 0 && connId != 0) agg.ConnId = connId;
 
-            if (isSend) Interlocked.Add(ref agg.BytesSent, size);
-            else Interlocked.Add(ref agg.BytesReceived, size);
+                if (isSend) agg.BytesSent += size;
+                else agg.BytesReceived += size;
+            }
         }
 
         // ── Periodic flush ────────────────────────────────────────────────────
@@ -89,8 +94,8 @@ namespace IOTracesCORE.handlers
                 foreach (var kvp in _conns)
                 {
                     var agg = kvp.Value;
-                    long sent = Interlocked.Exchange(ref agg.BytesSent, 0);
-                    long recv = Interlocked.Exchange(ref agg.BytesReceived, 0);
+                    long sent = agg.BytesSent;
+                    long recv = agg.BytesReceived;
 
                     if (sent == 0 && recv == 0)
                     {
@@ -102,6 +107,8 @@ namespace IOTracesCORE.handlers
                         continue;
                     }
 
+                    agg.BytesSent = 0;
+                    agg.BytesReceived = 0;
                     agg.IdleWindows = 0;
                     wm.Write(new NetworkTrace(now, agg.Pid, agg.Comm, agg.Proto,
                         agg.LocalAddr, agg.RemoteAddr, agg.LocalPort, agg.RemotePort, agg.ConnId, sent, recv));

@@ -279,6 +279,10 @@ namespace IOTracesCORE
         {
             CleanupOrphanedSession(sessionName);
 
+            // Drop IRP correlation state from any previous session so reused IRP
+            // pointers can't be mis-correlated across a session restart.
+            driverHandler.Reset();
+
             try
             {
                 using (session = new TraceEventSession(sessionName))
