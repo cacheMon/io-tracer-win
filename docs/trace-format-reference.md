@@ -23,6 +23,45 @@ Each trace type is stored in its own subdirectory under this prefix:
 - `process/` - Process snapshot data
 - `filesystem_snapshot/` - Filesystem metadata snapshots
 - `system_spec/` - System hardware/software specifications (JSON)
+- `manifest/manifest.json` - Per-session manifest (schema + counters)
+
+---
+
+## Session Manifest (`manifest/manifest.json`)
+
+A machine-readable manifest is written once per session and is the **authoritative**
+description of that session — prefer it over this human-maintained doc, which can drift.
+An initial manifest is written at session start; it is finalized at shutdown with the
+stop time and end-of-session counters.
+
+Key fields:
+
+| Field | Description |
+|-------|-------------|
+| `schema_version` | Version of the column schemas below; bumped on any schema change |
+| `tracer_version` | Release channel + assembly version |
+| `finalized` | `false` for the start-of-session manifest, `true` once counters are filled in |
+| `clock_source` | Timestamp clock: local wall-clock (Windows QPC-derived), format `yyyy-MM-dd HH:mm:ss.ffffff` |
+| `start_utc` / `stop_utc` | Session start/stop (`stop_utc` is null until finalized) |
+| `streams` | Per-stream `path_glob` + ordered `columns` (`name`/`type`/`unit`) — the source of truth for parsing |
+| `counters` | Per-stream event counts, `network_packets` (raw), and `etw_events_lost` (kernel drops) |
+| `dead_probes` | Streams that produced **zero** events this session — a likely dead/unattached probe (note: `nw` may legitimately be 0 with no external traffic) |
+
+**Example (truncated):**
+```json
+{
+  "schema_version": "4",
+  "tracer_version": "Release/1.0.0.0",
+  "platform": "windows",
+  "finalized": true,
+  "clock_source": { "timestamps": "local_wall_clock", "format": "yyyy-MM-dd HH:mm:ss.ffffff", "derived_from": "windows_qpc" },
+  "start_utc": "2026-06-14 14:00:00.000000",
+  "stop_utc": "2026-06-14 16:30:00.000000",
+  "streams": { "ds": { "path_glob": "ds/*.csv.zst", "columns": [ { "name": "Ts", "type": "timestamp" } ] } },
+  "counters": { "disk_events": 1052331, "network_packets": 84210, "etw_events_lost": 0 },
+  "dead_probes": []
+}
+```
 
 ---
 

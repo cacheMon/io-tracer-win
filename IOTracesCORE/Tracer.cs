@@ -372,6 +372,10 @@ namespace IOTracesCORE
                     };
 
                     source.Process(); // blocks until session.Stop() is called
+
+                    // Record events the kernel dropped this session (consumer buffers
+                    // overran) so the manifest can report capture loss.
+                    utils.TraceStats.AddEtwEventsLost(source.EventsLost);
                 }
             }
             catch (Exception ex) when (!isShuttingDown && !cancellationToken.IsCancellationRequested)

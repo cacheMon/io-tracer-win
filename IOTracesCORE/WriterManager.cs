@@ -93,9 +93,12 @@ namespace IOTracesCORE
         public static TimeSpan active_session = TimeSpan.FromSeconds(0);
         public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
 
+        private readonly DateTime _sessionStartUtc = DateTime.UtcNow;
+
         public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj, bool dev_mode = false)
         {
             amount_compressed_file = 0;
+            utils.TraceStats.Reset();
 
             fs_sb = new StringBuilder();
             ds_sb = new StringBuilder();
@@ -147,6 +150,42 @@ namespace IOTracesCORE
             EnsureDirectoryExists(driver_folder);
 
             Console.WriteLine("File output: {0}", this.dir_path);
+
+            // Write an initial manifest so the session's schema/start are on disk even
+            // if the process is killed before a clean shutdown. Finalized in CompressAllAsync.
+            WriteManifest(final: false);
+        }
+
+        /// <summary>
+        /// Writes the per-session manifest.json (authoritative schema + counters).
+        /// Called once at start (schema/start time) and once at shutdown (final:
+        /// stop time, per-stream counts, ETW lost events, dead probes). The final
+        /// manifest is queued for upload.
+        /// </summary>
+        public void WriteManifest(bool final)
+        {
+            try
+            {
+                string json = utils.TraceManifest.Build(
+                    final, PathHasher.deviceId, is_anonymous, is_upload_automatically,
+                    _sessionStartUtc, final ? DateTime.UtcNow : (DateTime?)null);
+
+                // Own subfolder so the upload path's trace_type (derived from the
+                // parent folder name) is a clean "manifest", alongside fs/, ds/, etc.
+                string manifestDir = Path.Combine(dir_path, "manifest");
+                EnsureDirectoryExists(manifestDir);
+                string path = Path.Combine(manifestDir, "manifest.json");
+                File.WriteAllText(path, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+                if (final && is_upload_automatically)
+                {
+                    obj_storage.QueueFile(path);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to write manifest: {ex.Message}");
+            }
         }
 
         private void StartEventRateDetector()
@@ -193,6 +232,7 @@ namespace IOTracesCORE
             lock (fs_snap_lock)
             {
                 fs_snapshot_file_count++;
+                utils.TraceStats.IncFilesystemSnapshot();
                 fs_snap_sb.Append(fs.FormatAsCsv());
                 if (IsTimeToFlush(fs_snap_sb, true))
                 {
@@ -212,6 +252,7 @@ namespace IOTracesCORE
                     {
                         continue;
                     }
+                    utils.TraceStats.AddProcessSnapshotRows(1);
                     process_snap_sb.Append(pc.FormatAsCsv());
                 }
 
@@ -246,7 +287,7 @@ namespace IOTracesCORE
             lock (fs_lock)
             {
                 file_event_counter += 1;
-                //event_counter += 1;
+                utils.TraceStats.IncFilesystem();
                 fs_sb.Append(data.FormatAsCsv(is_anonymous));
                 if (IsTimeToFlush(fs_sb))
                 {
@@ -266,6 +307,7 @@ namespace IOTracesCORE
             lock (ds_lock)
             {
                 Interlocked.Increment(ref disk_event_counter);
+                utils.TraceStats.IncDisk();
                 ds_sb.Append(data.FormatAsCsv());
                 if (IsTimeToFlush(ds_sb))
                 {
@@ -284,6 +326,7 @@ namespace IOTracesCORE
             ObjectStorageHandler.ResumeGate.Wait();
             lock (nw_lock)
             {
+                utils.TraceStats.IncNetworkRow();
                 nw_sb.Append(data.FormatAsCsv());
                 if (IsTimeToFlush(nw_sb, lowThreshold: true))
                 {
@@ -303,6 +346,7 @@ namespace IOTracesCORE
             ObjectStorageHandler.ResumeGate.Wait();
             lock (driver_lock)
             {
+                utils.TraceStats.IncDriver();
                 driver_sb.Append(data.FormatAsCsv());
 
                 if (IsTimeToFlush(driver_sb))
@@ -323,7 +367,7 @@ namespace IOTracesCORE
             lock (mr_lock)
             {
                 memory_event_counter += 1;
-
+                utils.TraceStats.IncMemory();
                 mr_sb.Append(data.FormatAsCsv());
                 // Debug.WriteLine(data.FormatAsCsv());
                 if (IsTimeToFlush(mr_sb))
@@ -655,6 +699,10 @@ namespace IOTracesCORE
             // Filesystem snapshot compression is now handled by FinalizeFilesystemSnapshot
 
             WriteStatus();
+
+            // Finalize the manifest (stop time, per-stream counts, ETW lost events,
+            // dead probes) and queue it before the buffers/queue are drained.
+            WriteManifest(final: true);
 
             // Push any partially-filled local buffers into the upload queue so the
             // final ClearQueue uploads them before shutdown.

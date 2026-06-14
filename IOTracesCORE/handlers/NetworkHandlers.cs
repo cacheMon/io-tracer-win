@@ -62,6 +62,10 @@ namespace IOTracesCORE.handlers
         {
             if (size <= 0) return;
 
+            // Raw packet count = network probe liveness (emitted rows are only
+            // per-minute summaries, so they can't tell a dead probe from idle).
+            TraceStats.IncNetworkPacket();
+
             // Held against FlushWindow so a connection cannot be evicted between the
             // GetOrAdd below and the byte increment — otherwise bytes added to an
             // about-to-be-removed ConnAgg would be lost.
