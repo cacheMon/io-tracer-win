@@ -37,6 +37,37 @@ namespace IOTracesCORE.utils
             Interlocked.Exchange(ref EtwEventsLost, 0);
         }
 
+        /// <summary>Immutable snapshot of all counters, each read atomically.</summary>
+        public readonly struct Counts
+        {
+            public long FilesystemEvents { get; init; }
+            public long DiskEvents { get; init; }
+            public long MemoryEvents { get; init; }
+            public long DriverEvents { get; init; }
+            public long NetworkPackets { get; init; }
+            public long NetworkRows { get; init; }
+            public long ProcessSnapshotRows { get; init; }
+            public long FilesystemSnapshotRows { get; init; }
+            public long EtwEventsLost { get; init; }
+        }
+
+        /// <summary>
+        /// Reads every counter with <see cref="Interlocked.Read"/> so 64-bit reads
+        /// stay atomic on 32-bit runtimes (pairing with the atomic increments).
+        /// </summary>
+        public static Counts Snapshot() => new Counts
+        {
+            FilesystemEvents = Interlocked.Read(ref FilesystemEvents),
+            DiskEvents = Interlocked.Read(ref DiskEvents),
+            MemoryEvents = Interlocked.Read(ref MemoryEvents),
+            DriverEvents = Interlocked.Read(ref DriverEvents),
+            NetworkPackets = Interlocked.Read(ref NetworkPackets),
+            NetworkRows = Interlocked.Read(ref NetworkRows),
+            ProcessSnapshotRows = Interlocked.Read(ref ProcessSnapshotRows),
+            FilesystemSnapshotRows = Interlocked.Read(ref FilesystemSnapshotRows),
+            EtwEventsLost = Interlocked.Read(ref EtwEventsLost),
+        };
+
         public static void IncFilesystem() => Interlocked.Increment(ref FilesystemEvents);
         public static void IncDisk() => Interlocked.Increment(ref DiskEvents);
         public static void IncMemory() => Interlocked.Increment(ref MemoryEvents);

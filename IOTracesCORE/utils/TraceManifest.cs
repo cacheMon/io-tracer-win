@@ -117,15 +117,21 @@ namespace IOTracesCORE.utils
         /// </summary>
         private static (Dictionary<string, object?> counters, List<string> dead) CountersAndDeadProbes()
         {
+            // Snapshot each counter once via an atomic read. Interlocked.Read keeps the
+            // read atomic on 32-bit runtimes (64-bit reads aren't atomic there), pairing
+            // with the Interlocked writes in TraceStats; reading once also keeps the
+            // counters and dead-probe list mutually consistent.
+            var snapshot = TraceStats.Snapshot();
+
             var streamCounts = new Dictionary<string, long>
             {
-                ["filesystem"] = TraceStats.FilesystemEvents,
-                ["ds"] = TraceStats.DiskEvents,
-                ["mr"] = TraceStats.MemoryEvents,
-                ["driver"] = TraceStats.DriverEvents,
-                ["nw"] = TraceStats.NetworkPackets,
-                ["process"] = TraceStats.ProcessSnapshotRows,
-                ["filesystem_snapshot"] = TraceStats.FilesystemSnapshotRows,
+                ["filesystem"] = snapshot.FilesystemEvents,
+                ["ds"] = snapshot.DiskEvents,
+                ["mr"] = snapshot.MemoryEvents,
+                ["driver"] = snapshot.DriverEvents,
+                ["nw"] = snapshot.NetworkPackets,
+                ["process"] = snapshot.ProcessSnapshotRows,
+                ["filesystem_snapshot"] = snapshot.FilesystemSnapshotRows,
             };
 
             var dead = new List<string>();
@@ -134,15 +140,15 @@ namespace IOTracesCORE.utils
 
             var counters = new Dictionary<string, object?>
             {
-                ["filesystem_events"] = TraceStats.FilesystemEvents,
-                ["disk_events"] = TraceStats.DiskEvents,
-                ["memory_events"] = TraceStats.MemoryEvents,
-                ["driver_events"] = TraceStats.DriverEvents,
-                ["network_packets"] = TraceStats.NetworkPackets,
-                ["network_rows"] = TraceStats.NetworkRows,
-                ["process_snapshot_rows"] = TraceStats.ProcessSnapshotRows,
-                ["filesystem_snapshot_rows"] = TraceStats.FilesystemSnapshotRows,
-                ["etw_events_lost"] = TraceStats.EtwEventsLost,
+                ["filesystem_events"] = snapshot.FilesystemEvents,
+                ["disk_events"] = snapshot.DiskEvents,
+                ["memory_events"] = snapshot.MemoryEvents,
+                ["driver_events"] = snapshot.DriverEvents,
+                ["network_packets"] = snapshot.NetworkPackets,
+                ["network_rows"] = snapshot.NetworkRows,
+                ["process_snapshot_rows"] = snapshot.ProcessSnapshotRows,
+                ["filesystem_snapshot_rows"] = snapshot.FilesystemSnapshotRows,
+                ["etw_events_lost"] = snapshot.EtwEventsLost,
             };
 
             return (counters, dead);
