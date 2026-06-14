@@ -7,7 +7,7 @@ Complete reference for all trace formats captured by IOTracer, including CSV hea
 All traces are uploaded to cloud storage with the following prefix structure:
 
 ```
-windows_trace_v3_test/{deviceId}/{timestamp}/
+windows_trace_v4_test/{deviceId}/{timestamp}/
 ```
 
 Where:
@@ -32,37 +32,43 @@ Each trace type is stored in its own subdirectory under this prefix:
 
 Captures detailed file system operations.
 
-**CSV Header:**
+> CSV files do **not** contain a header row. The column order below is fixed for
+> every row regardless of `Op`; fields that do not apply to an operation are left
+> empty (no `-1`/`0` placeholders). The path is **always** column 5 (`Filename`).
+
+**CSV Header (column order):**
 ```
-Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Offset,ViewSize,InfoClass,ThreadId,Irp,FileKey,FileAttributes,IoFlags
+Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Offset,ViewSize,FileInfoClass,FsctlCode,ThreadId,Irp,FileKey,FileAttributes,IoFlags,CommandLine
 ```
 
 **Fields:**
 
-| Field | Type | Description | Notes |
-|-------|------|-------------|-------|
-| `Ts` | timestamp | Timestamp (UTC) of the event | Format: `yyyy-MM-dd HH:mm:ss.fff` |
-| `Op` | string | Operation name | `create`, `read`, `write`, `flush`, `close`, `cleanup`, `delete`, `rename`, `set_info`, `query_info`, `dir_enum`, `map_file`, etc. |
-| `Pid` | integer | Process ID initiating the operation | |
-| `Comm` | string | Command/Process name | Quoted if contains special characters |
-| `Filename` | string | Full path of the file involved | Hashed if anonymous mode enabled |
-| `TraceSize` | integer | Size of the data transfer (bytes) | |
-| `CreateOptions` | flags | Flags specified during file creation | Pipe-separated. Only for `create` ops |
-| `ShareAccess` | flags | File sharing mode flags | Pipe-separated. Only for `create` ops |
-| `CreateDisposition` | enum | Action to take on file creation | Only for `create` ops |
-| `Offset` | integer | Byte offset where operation occurred | Only for `read`, `write` ops |
-| `ViewSize` | integer | Size of the view | Only for `map_file` family ops |
-| `InfoClass` | string | Type of information being queried/set | Only for Info ops |
-| `ThreadId` | integer | Thread ID of the operation | |
-| `Irp` | pointer | Pointer to I/O Request Packet | Hex format: `0x...` |
-| `FileKey` | integer | Unique file object identifier from kernel | |
-| `FileAttributes` | flags | File attributes | Pipe-separated. Only for `create` ops |
-| `IoFlags` | flags | I/O specific flags | Pipe-separated. Only for `read`, `write` ops |
+| # | Field | Type | Description | Notes |
+|---|-------|------|-------------|-------|
+| 1 | `Ts` | timestamp | Timestamp (UTC) of the event | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
+| 2 | `Op` | string | Operation name | `create`, `read`, `write`, `flush`, `close`, `cleanup`, `delete`, `rename`, `set_info`, `query_info`, `dir_enum`, `dir_notify`, `fs_control`, `map_file`, etc. |
+| 3 | `Pid` | integer | Process ID initiating the operation | `-1` when the kernel did not attribute the event to a process (e.g. cache-manager / system-context I/O) |
+| 4 | `Comm` | string | Command/Process name | Empty when the kernel did not supply a name; quoted if it contains special characters |
+| 5 | `Filename` | string | Full path of the file involved | Hashed if anonymous mode enabled |
+| 6 | `TraceSize` | integer | Size of the data transfer (bytes) | |
+| 7 | `CreateOptions` | flags | Flags specified during file creation | Pipe-separated. Only for `create` ops |
+| 8 | `ShareAccess` | flags | File sharing mode flags | Pipe-separated. Only for `create` ops |
+| 9 | `CreateDisposition` | enum | Action to take on file creation | Only for `create` ops |
+| 10 | `Offset` | integer | Byte offset where operation occurred | Only for `read`, `write` ops; empty otherwise |
+| 11 | `ViewSize` | integer | Size of the view | Only for `map_file` family ops |
+| 12 | `FileInfoClass` | string | `FILE_INFORMATION_CLASS` value | Only for `query_info` / `set_info` |
+| 13 | `FsctlCode` | string | FSCTL control code | Only for `fs_control` |
+| 14 | `ThreadId` | integer | Thread ID of the operation | |
+| 15 | `Irp` | pointer | Pointer to I/O Request Packet | Hex format `0x...`; empty when absent |
+| 16 | `FileKey` | pointer | Kernel file-object identifier | Hex format `0x...`; empty when absent |
+| 17 | `FileAttributes` | flags | File attributes | Pipe-separated. Only for `create` ops |
+| 18 | `IoFlags` | flags | I/O specific flags | Pipe-separated. Only for `read`, `write` ops |
+| 19 | `CommandLine` | string | Full command line of the process | Empty if unavailable |
 
 **Example:**
 ```csv
-2026-02-08 23:23:45.123,create,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,FILE_FLAG_OVERLAPPED,FILE_SHARE_READ,OPEN_EXISTING,,,,"",5678,18446744071562067968,305419896,FILE_ATTRIBUTE_NORMAL,
-2026-02-08 23:23:45.125,read,1234,notepad.exe,C:\Users\User\Documents\test.txt,4096,,,,0,,,,5678,18446744071562067968,305419896,,IRP_PAGING_IO|IRP_NOCACHE
+2026-02-08 23:23:45.123456,create,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,FILE_FLAG_OVERLAPPED,FILE_SHARE_READ,OPEN_EXISTING,,,,,5678,0xFFFFAB12,0xFFFFCD34,FILE_ATTRIBUTE_NORMAL,,"C:\Windows\System32\notepad.exe"
+2026-02-08 23:23:45.125789,read,1234,notepad.exe,C:\Users\User\Documents\test.txt,4096,,,,0,,,,5678,0xFFFFAB12,0xFFFFCD34,,IRP_PAGING_IO|IRP_NOCACHE,"C:\Windows\System32\notepad.exe"
 ```
 
 ---
@@ -87,7 +93,7 @@ Ts,Pid,ThreadId,Comm,Sector,Operation,TraceSize,Latency,DiskNumber,Irp,IrpFlags
 | `Sector` | integer | Logical sector number on the disk | |
 | `Operation` | string | Operation type | `read`, `write`, `flush` |
 | `TraceSize` | integer | Size of the I/O request (bytes) | |
-| `Latency` | float | Duration in milliseconds | |
+| `Latency` | float | Duration in milliseconds | **Empty** when unknown — i.e. no matching `DiskIOInit` was seen for the IRP. The read/write/flush row is still emitted so no operation is lost. |
 | `DiskNumber` | integer | Disk number | |
 | `Irp` | pointer | I/O Request Packet pointer | Hex format: `0x...` |
 | `IrpFlags` | flags | IRP Flags | Pipe-separated: `Nocache`, `PagingIo`, `SynchronousApi`, `Priority:*`, etc. |
@@ -142,45 +148,41 @@ Ts,Pid,ThreadId,Comm,Type,VirtualAddress,ByteCount
 
 ### Network Trace (`nw/`)
 
-Captures network traffic events and summaries.
+Captures network traffic **aggregated per connection, per minute**. Rather than
+one row per packet, the tracer accumulates bytes for each connection (keyed by
+`proto` + 5-tuple) and emits a single summary row per active connection every
+minute, carrying the bytes sent and received during that window. Connections with
+no traffic for several windows are evicted. Local-only conversations (both
+endpoints private/loopback) are excluded. Connection lifecycle events
+(connect/accept/disconnect/retransmit/handshake) are no longer emitted as rows;
+they only seed connection identity.
 
-**CSV Header:**
+**CSV Header (column order):**
 ```
-Ts,Pid,Comm,Saddr,Daddr,Sport,Dport,Bytes,Type,Status,ConnId,SeqNum,Proto,Mss,SndWinScale,RcvWinScale,RcvWin,WsOpt,TsOpt,SackOpt,Context,DSize
+Ts,Pid,Comm,Proto,Saddr,Daddr,Sport,Dport,ConnId,BytesSent,BytesReceived
 ```
 
 **Fields:**
 
-| Field | Type | Description | Notes |
-|-------|------|-------------|-------|
-| `Ts` | timestamp | Timestamp (UTC) | Format: `yyyy-MM-dd HH:mm:ss.fff` |
-| `Pid` | integer | Process ID | |
-| `Comm` | string | Command/Process name | |
-| `Saddr` | string | Source IP address | |
-| `Daddr` | string | Destination IP address | |
-| `Sport` | integer | Source Port | |
-| `Dport` | integer | Destination Port | |
-| `Bytes` | integer | Number of bytes transferred | Only for `send`, `receive` |
-| `Type` | string | Event type | `send`, `receive`, `connect`, `disconnect`, `accept`, `reconnect`, `fail`, `syn_sent`, `syn_rcvd`, `established`, `retransmit` |
-| `Status` | integer | Status Code | 0 for success, error code for failures |
-| `ConnId` | integer | Connection ID | Unique identifier for TCP connection |
-| `SeqNum` | integer | TCP Sequence Number | |
-| `Proto` | integer | Protocol ID | |
-| `Mss` | integer | Maximum Segment Size | TCP MSS option |
-| `SndWinScale` | integer | Send Window Scale | TCP option |
-| `RcvWinScale` | integer | Receive Window Scale | TCP option |
-| `RcvWin` | integer | Receive Window size | |
-| `WsOpt` | boolean | Window Scale Option enabled | |
-| `TsOpt` | boolean | Timestamp Option enabled | |
-| `SackOpt` | boolean | SACK Option enabled | |
-| `Context` | integer | Event context | |
-| `DSize` | integer | Data payload size | |
+| # | Field | Type | Description | Notes |
+|---|-------|------|-------------|-------|
+| 1 | `Ts` | timestamp | Flush time (UTC) marking the end of the 1-minute window | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
+| 2 | `Pid` | integer | Process ID owning the connection | |
+| 3 | `Comm` | string | Command/Process name | |
+| 4 | `Proto` | integer | IP protocol number | `6` = TCP, `17` = UDP |
+| 5 | `Saddr` | string | Local (this host) IP address | |
+| 6 | `Daddr` | string | Remote peer IP address | |
+| 7 | `Sport` | integer | Local port | |
+| 8 | `Dport` | integer | Remote port | |
+| 9 | `ConnId` | integer | Connection ID | Kernel connection identifier when available, else `0` |
+| 10 | `BytesSent` | integer | Bytes sent on this connection during the window | |
+| 11 | `BytesReceived` | integer | Bytes received on this connection during the window | |
 
 **Example:**
 ```csv
-2026-02-08 23:23:45.123,1234,chrome.exe,192.168.1.100,8.8.8.8,54321,443,0,syn_sent,0,0,0,0,0,0,0,0,0,0,0,0,0
-2026-02-08 23:23:45.146,1234,chrome.exe,192.168.1.100,8.8.8.8,54321,443,0,established,0,12345678,101,0,0,0,0,0,0,0,0,0,0
-2026-02-08 23:23:45.150,1234,chrome.exe,192.168.1.100,8.8.8.8,54321,443,1500,send,0,12345678,101,0,0,0,0,0,0,0,0,0,0
+2026-02-08 23:24:00.000000,1234,chrome.exe,6,192.168.1.100,8.8.8.8,54321,443,12345678,8421,153002
+2026-02-08 23:25:00.000000,1234,chrome.exe,6,192.168.1.100,8.8.8.8,54321,443,12345678,512,2048
+2026-02-08 23:25:00.000000,4321,svchost.exe,17,192.168.1.100,1.1.1.1,53124,53,0,88,264
 ```
 
 ---
@@ -189,30 +191,36 @@ Ts,Pid,Comm,Saddr,Daddr,Sport,Dport,Bytes,Type,Status,ConnId,SeqNum,Proto,Mss,Sn
 
 Captures lower-level driver interactions.
 
-**CSV Header:**
+**CSV Header (column order):**
 ```
-Ts,Pid,ThreadId,Comm,Operation,Irp,MajorFunction,MinorFunction,RoutineAddr,FileObject,DeviceObject
+Ts,Pid,ThreadId,Comm,Operation,Irp,RequestId,MajorFunction,MinorFunction,RoutineAddr,FileObject,DeviceObject
 ```
 
 **Fields:**
 
-| Field | Type | Description | Notes |
-|-------|------|-------------|-------|
-| `Ts` | timestamp | Timestamp (UTC) | Format: `yyyy-MM-dd HH:mm:ss.fff` |
-| `Pid` | integer | Process ID | |
-| `ThreadId` | integer | Thread ID | |
-| `Comm` | string | Command/Process name | |
-| `Operation` | string | Driver operation type | `driver_call`, `driver_return`, `driver_completion`, `driver_complete_req`, `driver_complete_req_ret` |
-| `Irp` | pointer | I/O Request Packet pointer | Hex format: `0x...` |
-| `MajorFunction` | integer | Major function code | Integer (e.g., `0` for IRP_MJ_CREATE) |
-| `MinorFunction` | integer | Minor function code | Integer |
-| `RoutineAddr` | pointer | Address of routine | Hex format: `0x...` |
-| `FileObject` | pointer | File object address | Hex format: `0x...` |
-| `DeviceObject` | pointer | Device object address | Hex format: `0x...` |
+| # | Field | Type | Description | Notes |
+|---|-------|------|-------------|-------|
+| 1 | `Ts` | timestamp | Timestamp (UTC) | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
+| 2 | `Pid` | integer | Process ID | |
+| 3 | `ThreadId` | integer | Thread ID | |
+| 4 | `Comm` | string | Command/Process name | |
+| 5 | `Operation` | string | Driver operation type | `driver_call`, `driver_return`, `driver_completion`, `driver_complete_req`, `driver_complete_req_ret` |
+| 6 | `Irp` | pointer | I/O Request Packet pointer | Hex format `0x...`. **Reused** by the kernel across requests — do not use alone to pair events. |
+| 7 | `RequestId` | integer | Session-unique request id | Assigned at `driver_call` and retired at completion. Use this (not `Irp`) to correlate call/return/completion of one request. |
+| 8 | `MajorFunction` | integer | Major function code | Empty when not reported by the event |
+| 9 | `MinorFunction` | integer | Minor function code | Empty when not reported by the event |
+| 10 | `RoutineAddr` | pointer | Address of routine | Hex format: `0x...` |
+| 11 | `FileObject` | pointer | File object address | Hex format: `0x...` |
+| 12 | `DeviceObject` | pointer | Device object address | Hex format: `0x...` |
+
+> **Throughput note:** driver events do not carry a byte count or offset, so
+> block-device throughput cannot be derived from this stream — use the `ds/`
+> (disk) trace, which has `TraceSize`, `Sector`, and `Latency`.
 
 **Example:**
 ```csv
-2026-02-09 10:15:30.123,4568,9102,explorer.exe,driver_call,0xFFFFFA80036F5010,0,0,0xFFFFF80002E71000,0xFFFFFA80036F5050,0xFFFFFA80036F6000
+2026-02-09 10:15:30.123456,4568,9102,explorer.exe,driver_call,0xFFFFFA80036F5010,42,0,0,0xFFFFF80002E71000,0xFFFFFA80036F5050,0xFFFFFA80036F6000
+2026-02-09 10:15:30.123789,4568,9102,explorer.exe,driver_complete_req_ret,0xFFFFFA80036F5010,42,,,0x0,0xFFFFFA80036F5050,0xFFFFFA80036F6000
 ```
 
 ---
@@ -286,7 +294,7 @@ Hardware and software specifications captured at trace start. Stored as separate
 
 **Cloud Storage Location:**
 ```
-windows_trace_v3_test/{deviceId}/{timestamp}/system_spec/
+windows_trace_v4_test/{deviceId}/{timestamp}/system_spec/
 ```
 
 #### cpu_info.json
@@ -526,11 +534,18 @@ When anonymous mode is enabled:
 ### Compression
 All CSV files are compressed using Zstandard (.zst) compression before upload to reduce storage and bandwidth requirements.
 
-### Upload Frequency
-Files are automatically rotated and uploaded based on:
+### Flush & Upload Frequency
+In-memory trace buffers are flushed to local compressed chunks based on:
 - Memory pressure (adaptive sizing)
 - Minimum 10-second flush interval
-- 256 MB maximum buffer size
+- 256 MB maximum in-memory buffer size
+
+Network traffic is the exception: it is summarized **per connection, once per
+minute** (see the Network Trace section).
+
+Compressed chunks are then batched into a local per-trace-type buffer and
+uploaded to cloud storage as a single object once the buffer reaches **100 MB**
+or is **20 minutes** old (whichever comes first).
 
 ### Device Identification
 The `{deviceId}` is a persistent unique identifier generated for each device, used to correlate traces from the same machine across multiple trace sessions.

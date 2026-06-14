@@ -14,11 +14,20 @@ namespace IOTracesCORE.handlers
     class DiskHandlers
     {
         private WriterManager wm;
-        private static Dictionary<ulong, double> _activeRequests = new Dictionary<ulong, double>();
+        // Instance (not static) so a session restart starts with a clean map; a
+        // stale Init timestamp from a previous session must not be matched against
+        // a reused IRP pointer (TimeStampRelativeMSec resets per session).
+        private readonly Dictionary<ulong, double> _activeRequests = new Dictionary<ulong, double>();
 
         public DiskHandlers(WriterManager old_wm)
         {
             wm = old_wm;
+        }
+
+        /// <summary>Drops in-flight IRP start-times. Call when a new ETW session starts.</summary>
+        public void Reset()
+        {
+            lock (_activeRequests) _activeRequests.Clear();
         }
 
         public void OnDiskInit(DiskIOInitTraceData data)
@@ -35,7 +44,15 @@ namespace IOTracesCORE.handlers
         }
 
 
-        public void OnDiskRead(DiskIOTraceData data)
+        public void OnDiskRead(DiskIOTraceData data) => EmitDiskIO(data, "read");
+
+        public void OnDiskWrite(DiskIOTraceData data) => EmitDiskIO(data, "write");
+
+        // Emits a disk read/write row. The matching DiskIOInit gives the request
+        // latency; if it was missed/dropped we still emit the row (with an unknown
+        // latency) rather than silently discarding the operation — otherwise every
+        // read/write whose Init we didn't catch would vanish from the ds stream.
+        private void EmitDiskIO(DiskIOTraceData data, string operation)
         {
             ulong irp = (ulong)data.Irp;
             double startTime;
@@ -47,69 +64,30 @@ namespace IOTracesCORE.handlers
                 if (found) _activeRequests.Remove(irp); // Clean up
             }
 
-            if (found)
+            if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
             {
-                double latency = data.TimeStampRelativeMSec - startTime;
-                if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-                {
-                    return;
-                }
-
-                DiskTrace dt = new DiskTrace(
-                        ts: data.TimeStamp,
-                        pid: data.ProcessID,
-                        threadId: data.ThreadID,
-                        comm: data.ProcessName,
-                        sector: data.ByteOffset / 512,
-                        operation: "read",
-                        traceSize: data.TransferSize,
-                        latency: latency,
-                        diskNumber: data.DiskNumber,
-                        irp: irp
-
-                    );
-
-                wm.Write(dt);
+                return;
             }
 
-        }
+            // -1 = unknown (no matching Init). When found, clamp tiny negative values
+            // from event reordering / same-tick resolution to 0 so a real measurement
+            // is never mistaken for the "unknown" sentinel.
+            double latency = found ? Math.Max(0, data.TimeStampRelativeMSec - startTime) : -1;
 
-        public void OnDiskWrite(DiskIOTraceData data)
-        {
-            ulong irp = (ulong)data.Irp;
-            double startTime;
-            bool found;
+            DiskTrace dt = new DiskTrace(
+                    ts: data.TimeStamp,
+                    pid: data.ProcessID,
+                    threadId: data.ThreadID,
+                    comm: data.ProcessName,
+                    sector: data.ByteOffset / 512,
+                    operation: operation,
+                    traceSize: data.TransferSize,
+                    latency: latency,
+                    diskNumber: data.DiskNumber,
+                    irp: irp
+                );
 
-            lock (_activeRequests)
-            {
-                found = _activeRequests.TryGetValue(irp, out startTime);
-                if (found) _activeRequests.Remove(irp); // Clean up
-            }
-
-            if (found)
-            {
-                double latency = data.TimeStampRelativeMSec - startTime;
-                if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
-                {
-                    return;
-                }
-
-                DiskTrace dt = new DiskTrace(
-                        ts: data.TimeStamp,
-                        pid: data.ProcessID,
-                        threadId: data.ThreadID,
-                        comm: data.ProcessName,
-                        sector: data.ByteOffset / 512,
-                        operation: "write",
-                        traceSize: data.TransferSize,
-                        latency: latency,
-                        diskNumber: data.DiskNumber,
-                        irp: irp
-
-                    );
-
-                wm.Write(dt);
-            }
+            wm.Write(dt);
         }
 
         public void OnDiskFlush(DiskIOFlushBuffersTraceData data)
@@ -127,7 +105,7 @@ namespace IOTracesCORE.handlers
                 if (found) _activeRequests.Remove(irp);
             }
 
-            double latency = found ? data.TimeStampRelativeMSec - startTime : 0;
+            double latency = found ? Math.Max(0, data.TimeStampRelativeMSec - startTime) : -1; // -1 = unknown
 
             if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
             {

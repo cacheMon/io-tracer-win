@@ -78,7 +78,9 @@ namespace IOTracesCORE.trace
             // Write additional IO differentiation fields
             csv.WriteField(ThreadId);
             csv.WriteField(Irp.HasValue ? string.Format("0x{0:X}", Irp.Value) : "");
-            csv.WriteField(FileKey?.ToString() ?? "");
+            // Kernel pointer — emit as hex (matching Irp) instead of a raw 2^64 decimal,
+            // and empty when absent rather than "0".
+            csv.WriteField(FileKey.HasValue && FileKey.Value != 0 ? string.Format("0x{0:X}", FileKey.Value) : "");
             csv.WriteField(FileAttributes ?? "");
             csv.WriteField(IoFlags ?? "");
             csv.WriteField(CommandLine);

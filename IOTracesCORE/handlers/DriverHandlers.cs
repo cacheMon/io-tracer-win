@@ -3,10 +3,9 @@ using IOTracesCORE.trace;
 using IOTracesCORE.utils;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
-using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Threading;
 
 namespace IOTracesCORE.handlers
 {
@@ -14,12 +13,40 @@ namespace IOTracesCORE.handlers
     {
         private WriterManager wm;
 
+        // Maps a live IRP pointer to a session-unique request id. The kernel reuses
+        // IRP pointers once a request completes, so pairing call/return/completion by
+        // raw pointer over a long capture is ambiguous; the id below is assigned at
+        // driver_call and retired at completion, giving a stable per-request key.
+        // Instance (not static) so a session restart starts with a clean map; the id
+        // sequence stays monotonic so ids remain unique across the whole trace.
+        private readonly ConcurrentDictionary<ulong, ReqEntry> _irpToReq = new();
+        private long _reqSeq = 0;
+
+        // Bounded-memory pruning: terminal events can be missed/filtered, which would
+        // otherwise leak IRP mappings forever on a long session. IRP lifetimes are
+        // sub-second, so anything older than MaxEntryAgeMs is safe to drop.
+        private int _callsSincePrune = 0;
+        private const int PruneEveryCalls = 50_000;
+        private const long MaxEntryAgeMs = 60_000;
+
+        private readonly struct ReqEntry
+        {
+            public readonly long Id;
+            public readonly long Tick;
+            public ReqEntry(long id, long tick) { Id = id; Tick = tick; }
+        }
+
         public DriverHandlers(WriterManager old_wm)
         {
             wm = old_wm;
         }
 
-
+        /// <summary>
+        /// Clears in-flight IRP correlation state. Call when a new ETW session
+        /// starts so IRP pointers from a previous session cannot be mistakenly
+        /// correlated with new requests. The request-id sequence is preserved.
+        /// </summary>
+        public void Reset() => _irpToReq.Clear();
 
         private ulong GetUlongPayload(Microsoft.Diagnostics.Tracing.TraceEvent data, string name)
         {
@@ -35,129 +62,108 @@ namespace IOTracesCORE.handlers
             catch { return 0; }
         }
 
-        private int GetIntPayload(Microsoft.Diagnostics.Tracing.TraceEvent data, string name)
+        // Returns null (not -1) when the field is absent, so the CSV can emit an
+        // explicit empty value rather than an undocumented -1 sentinel.
+        private int? GetIntPayloadNullable(Microsoft.Diagnostics.Tracing.TraceEvent data, string name)
         {
             try
             {
                 if (data.PayloadNames.Contains(name))
                 {
                     var val = data.PayloadByName(name);
-                    return val == null ? -1 : Convert.ToInt32(val);
+                    return val == null ? (int?)null : Convert.ToInt32(val);
                 }
-                return -1;
+                return null;
             }
-            catch { return -1; }
+            catch { return null; }
         }
 
-        public void OnDriverMajorFunctionCall(DriverMajorFunctionCallTraceData data)
+        private long GetRequestId(string operation, ulong irp)
         {
-            // Debug.WriteLine($"[DriverHandler] MajorFunctionCall received. PID: {data.ProcessID}, Name: '{data.ProcessName}'");
+            if (irp == 0)
+            {
+                // No IRP pointer to correlate on — still hand out a unique id.
+                return Interlocked.Increment(ref _reqSeq);
+            }
+
+            long now = Environment.TickCount64;
+            // Prune on every IRP event (not just driver_call) — the default branch can
+            // also insert entries, so a call-light workload would otherwise never prune.
+            MaybePrune(now);
+
+            switch (operation)
+            {
+                case "driver_call":
+                    // Start of a new request lifetime: always mint a fresh id.
+                    long id = Interlocked.Increment(ref _reqSeq);
+                    _irpToReq[irp] = new ReqEntry(id, now);
+                    return id;
+
+                case "driver_complete_req_ret":
+                    // The only true terminal event: reuse the live id then retire the
+                    // mapping. (driver_completion is NOT terminal — multiple completion
+                    // routines may run before the request is fully completed.)
+                    if (_irpToReq.TryRemove(irp, out var done)) return done.Id;
+                    return Interlocked.Increment(ref _reqSeq);
+
+                default:
+                    // Intermediate events (return, completion, complete_req): reuse id.
+                    if (_irpToReq.TryGetValue(irp, out var cur)) return cur.Id;
+                    long fresh = Interlocked.Increment(ref _reqSeq);
+                    _irpToReq[irp] = new ReqEntry(fresh, now);
+                    return fresh;
+            }
+        }
+
+        private void MaybePrune(long now)
+        {
+            if (Interlocked.Increment(ref _callsSincePrune) < PruneEveryCalls) return;
+            Interlocked.Exchange(ref _callsSincePrune, 0);
+
+            foreach (var kvp in _irpToReq)
+            {
+                if (now - kvp.Value.Tick > MaxEntryAgeMs)
+                    _irpToReq.TryRemove(kvp.Key, out _);
+            }
+        }
+
+        private void Emit(Microsoft.Diagnostics.Tracing.TraceEvent data, string operation)
+        {
             string processName = string.IsNullOrEmpty(data.ProcessName) ? "" : data.ProcessName;
             if (ProcessFilter.ShouldTrace(data.ProcessID, processName) == false) return;
+
+            ulong irp = GetUlongPayload(data, "Irp");
 
             DriverTrace dt = new DriverTrace(
                 ts: data.TimeStamp,
                 pid: data.ProcessID,
                 threadId: data.ThreadID,
                 comm: processName,
-                operation: "driver_call",
-                irp: GetUlongPayload(data, "Irp"),
-                majorFunction: GetIntPayload(data, "MajorFunction"),
-                minorFunction: GetIntPayload(data, "MinorFunction"),
+                operation: operation,
+                irp: irp,
+                majorFunction: GetIntPayloadNullable(data, "MajorFunction"),
+                minorFunction: GetIntPayloadNullable(data, "MinorFunction"),
                 routineAddr: GetUlongPayload(data, "RoutineAddr"),
                 fileObject: GetUlongPayload(data, "FileObject"),
-                deviceObject: GetUlongPayload(data, "DeviceObject")
+                deviceObject: GetUlongPayload(data, "DeviceObject"),
+                requestId: GetRequestId(operation, irp)
             );
             wm.Write(dt);
         }
 
-        public void OnDriverMajorFunctionReturn(DriverMajorFunctionReturnTraceData data)
-        {
-            // Debug.WriteLine($"[DriverHandler] MajorFunctionReturn received. PID: {data.ProcessID}, Name: '{data.ProcessName}'");
-            string processName = string.IsNullOrEmpty(data.ProcessName) ? "" : data.ProcessName;
-            if (ProcessFilter.ShouldTrace(data.ProcessID, processName) == false) return;
+        public void OnDriverMajorFunctionCall(DriverMajorFunctionCallTraceData data)
+            => Emit(data, "driver_call");
 
-            DriverTrace dt = new DriverTrace(
-               ts: data.TimeStamp,
-               pid: data.ProcessID,
-               threadId: data.ThreadID,
-               comm: processName,
-               operation: "driver_return",
-               irp: GetUlongPayload(data, "Irp"),
-               majorFunction: GetIntPayload(data, "MajorFunction"),
-               minorFunction: GetIntPayload(data, "MinorFunction"),
-               routineAddr: GetUlongPayload(data, "RoutineAddr"),
-               fileObject: GetUlongPayload(data, "FileObject"),
-               deviceObject: GetUlongPayload(data, "DeviceObject")
-           );
-            wm.Write(dt);
-        }
+        public void OnDriverMajorFunctionReturn(DriverMajorFunctionReturnTraceData data)
+            => Emit(data, "driver_return");
 
         public void OnDriverCompletionRoutine(DriverCompletionRoutineTraceData data)
-        {
-            // Debug.WriteLine($"[DriverHandler] CompletionRoutine received. PID: {data.ProcessID}, Name: '{data.ProcessName}'");
-            string processName = string.IsNullOrEmpty(data.ProcessName) ? "" : data.ProcessName;
-            if (ProcessFilter.ShouldTrace(data.ProcessID, processName) == false) return;
-
-            DriverTrace dt = new DriverTrace(
-               ts: data.TimeStamp,
-               pid: data.ProcessID,
-               threadId: data.ThreadID,
-               comm: processName,
-               operation: "driver_completion",
-               irp: GetUlongPayload(data, "Irp"),
-               majorFunction: GetIntPayload(data, "MajorFunction"),
-               minorFunction: GetIntPayload(data, "MinorFunction"),
-               routineAddr: GetUlongPayload(data, "RoutineAddr"),
-               fileObject: GetUlongPayload(data, "FileObject"),
-               deviceObject: GetUlongPayload(data, "DeviceObject")
-           );
-            wm.Write(dt);
-        }
+            => Emit(data, "driver_completion");
 
         public void OnDriverCompleteRequest(DriverCompleteRequestTraceData data)
-        {
-            // Debug.WriteLine($"[DriverHandler] CompleteRequest received. PID: {data.ProcessID}, Name: '{data.ProcessName}'");
-            string processName = string.IsNullOrEmpty(data.ProcessName) ? "" : data.ProcessName;
-            if (ProcessFilter.ShouldTrace(data.ProcessID, processName) == false) return;
-
-            DriverTrace dt = new DriverTrace(
-               ts: data.TimeStamp,
-               pid: data.ProcessID,
-               threadId: data.ThreadID,
-               comm: processName,
-               operation: "driver_complete_req",
-               irp: GetUlongPayload(data, "Irp"),
-               majorFunction: GetIntPayload(data, "MajorFunction"),
-               minorFunction: GetIntPayload(data, "MinorFunction"),
-               routineAddr: GetUlongPayload(data, "RoutineAddr"),
-               fileObject: GetUlongPayload(data, "FileObject"),
-               deviceObject: GetUlongPayload(data, "DeviceObject")
-           );
-            wm.Write(dt);
-        }
+            => Emit(data, "driver_complete_req");
 
         public void OnDriverCompleteRequestReturn(DriverCompleteRequestReturnTraceData data)
-        {
-            // Debug.WriteLine($"[DriverHandler] CompleteRequestReturn received. PID: {data.ProcessID}, Name: '{data.ProcessName}'");
-            string processName = string.IsNullOrEmpty(data.ProcessName) ? "" : data.ProcessName;
-            if (ProcessFilter.ShouldTrace(data.ProcessID, processName) == false) return;
-
-            DriverTrace dt = new DriverTrace(
-               ts: data.TimeStamp,
-               pid: data.ProcessID,
-               threadId: data.ThreadID,
-               comm: processName,
-               operation: "driver_complete_req_ret",
-               irp: GetUlongPayload(data, "Irp"),
-               majorFunction: GetIntPayload(data, "MajorFunction"),
-               minorFunction: GetIntPayload(data, "MinorFunction"),
-               routineAddr: GetUlongPayload(data, "RoutineAddr"),
-               fileObject: GetUlongPayload(data, "FileObject"),
-               deviceObject: GetUlongPayload(data, "DeviceObject")
-           );
-            wm.Write(dt);
-        }
-
+            => Emit(data, "driver_complete_req_ret");
     }
 }
