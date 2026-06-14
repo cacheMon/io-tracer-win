@@ -9,7 +9,7 @@ Captures memory management, cache coherency, and working set events. This trace 
 
 | Field            | Description            | Notes                                                        |
 | :--------------- | :--------------------- | :----------------------------------------------------------- |
-| `Ts`             | Timestamp (UTC)        | Format: `yyyy-MM-dd HH:mm:ss.fff`                            |
+| `Ts`             | Timestamp (local wall-clock) | Format: `yyyy-MM-dd HH:mm:ss.ffffff`                  |
 | `Pid`            | Process ID             |                                                              |
 | `ThreadId`       | Thread ID              | ID of the thread that triggered the event                    |
 | `Comm`           | Command/Process name   | Quoted if contains spaces                                    |
@@ -100,8 +100,8 @@ Captures memory management, cache coherency, and working set events. This trace 
 **Example:**
 
 ```csv
-2026-02-09 10:15:30.123,4560,9812,"notepad.exe",HIT,0x7FF7A2B0000,4096
-2026-02-09 10:15:30.125,4560,9812,"notepad.exe",MISS,0x0,4096
-2026-02-09 10:15:30.140,4560,9812,"notepad.exe",CACHE_READ,0xFFFF8B012345678,1024
-2026-02-09 10:15:30.155,0,0,"System",LOW_MEMORY,0x0,2147483648
+2026-02-09 10:15:30.123456,4560,9812,"notepad.exe",HIT,0x7FF7A2B0000,4096
+2026-02-09 10:15:30.125789,4560,9812,"notepad.exe",MISS,0x0,4096
+2026-02-09 10:15:30.140012,4560,9812,"notepad.exe",CACHE_READ,0xFFFF8B012345678,1024
+2026-02-09 10:15:30.155345,0,0,"System",LOW_MEMORY,0x0,2147483648
 ```
