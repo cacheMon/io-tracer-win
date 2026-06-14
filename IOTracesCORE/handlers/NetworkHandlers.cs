@@ -4,6 +4,8 @@ using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Threading;
 
 namespace IOTracesCORE.handlers
 {
@@ -20,7 +22,11 @@ namespace IOTracesCORE.handlers
 
         private readonly WriterManager wm;
         private readonly System.Threading.Timer _flushTimer;
+        // Guards the aggregate map (short critical section, shared with the ETW hot path).
         private readonly object _flushLock = new();
+        // Serializes the row-write phase across overlapping or shutdown flushes
+        // without blocking the ETW hot path (Add only takes _flushLock).
+        private readonly object _writeLock = new();
         private static readonly TimeSpan FlushInterval = TimeSpan.FromMinutes(1);
 
         private readonly ConcurrentDictionary<string, ConnAgg> _conns = new();
@@ -88,9 +94,14 @@ namespace IOTracesCORE.handlers
 
         private void FlushWindow()
         {
+            List<NetworkTrace> rows = null;
+
             lock (_flushLock)
             {
-                var now = DateTime.UtcNow;
+                // Use the same wall-clock base as every other stream: ETW data.TimeStamp
+                // is local time, so stamp these rows with local time too — otherwise the
+                // network stream would be offset from disk/fs/driver and break correlation.
+                var now = DateTime.Now;
                 foreach (var kvp in _conns)
                 {
                     var agg = kvp.Value;
@@ -110,15 +121,36 @@ namespace IOTracesCORE.handlers
                     agg.BytesSent = 0;
                     agg.BytesReceived = 0;
                     agg.IdleWindows = 0;
-                    wm.Write(new NetworkTrace(now, agg.Pid, agg.Comm, agg.Proto,
+                    (rows ??= new List<NetworkTrace>()).Add(new NetworkTrace(now, agg.Pid, agg.Comm, agg.Proto,
                         agg.LocalAddr, agg.RemoteAddr, agg.LocalPort, agg.RemotePort, agg.ConnId, sent, recv));
+                }
+            }
+
+            // Write under a separate lock, not _flushLock: wm.Write -> FlushWrite can
+            // block on the upload ResumeGate, and Add() (the ETW hot path) takes
+            // _flushLock — holding it across the write would stall every packet handler.
+            // _writeLock still serializes overlapping timer callbacks so concurrent
+            // appends to the shared network buffer can't corrupt it.
+            if (rows != null)
+            {
+                lock (_writeLock)
+                {
+                    foreach (var row in rows) wm.Write(row);
                 }
             }
         }
 
         public void Dispose()
         {
-            _flushTimer.Dispose();
+            // Block until any in-flight timer callback completes so it cannot append a
+            // row after the final flush / while shutdown compaction reads the buffer.
+            using (var done = new ManualResetEvent(false))
+            {
+                if (_flushTimer.Dispose(done))
+                {
+                    done.WaitOne();
+                }
+            }
             // Final flush so the last partial window is not lost on shutdown.
             FlushWindow();
         }

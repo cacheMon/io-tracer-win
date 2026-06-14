@@ -87,6 +87,9 @@ namespace IOTracesCORE.handlers
             }
 
             long now = Environment.TickCount64;
+            // Prune on every IRP event (not just driver_call) — the default branch can
+            // also insert entries, so a call-light workload would otherwise never prune.
+            MaybePrune(now);
 
             switch (operation)
             {
@@ -94,7 +97,6 @@ namespace IOTracesCORE.handlers
                     // Start of a new request lifetime: always mint a fresh id.
                     long id = Interlocked.Increment(ref _reqSeq);
                     _irpToReq[irp] = new ReqEntry(id, now);
-                    MaybePrune(now);
                     return id;
 
                 case "driver_complete_req_ret":

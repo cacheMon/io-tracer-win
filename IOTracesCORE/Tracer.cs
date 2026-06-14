@@ -282,6 +282,7 @@ namespace IOTracesCORE
             // Drop IRP correlation state from any previous session so reused IRP
             // pointers can't be mis-correlated across a session restart.
             driverHandler.Reset();
+            dsHandler.Reset();
 
             try
             {

@@ -14,11 +14,20 @@ namespace IOTracesCORE.handlers
     class DiskHandlers
     {
         private WriterManager wm;
-        private static Dictionary<ulong, double> _activeRequests = new Dictionary<ulong, double>();
+        // Instance (not static) so a session restart starts with a clean map; a
+        // stale Init timestamp from a previous session must not be matched against
+        // a reused IRP pointer (TimeStampRelativeMSec resets per session).
+        private readonly Dictionary<ulong, double> _activeRequests = new Dictionary<ulong, double>();
 
         public DiskHandlers(WriterManager old_wm)
         {
             wm = old_wm;
+        }
+
+        /// <summary>Drops in-flight IRP start-times. Call when a new ETW session starts.</summary>
+        public void Reset()
+        {
+            lock (_activeRequests) _activeRequests.Clear();
         }
 
         public void OnDiskInit(DiskIOInitTraceData data)
@@ -60,7 +69,10 @@ namespace IOTracesCORE.handlers
                 return;
             }
 
-            double latency = found ? data.TimeStampRelativeMSec - startTime : -1; // -1 = unknown
+            // -1 = unknown (no matching Init). When found, clamp tiny negative values
+            // from event reordering / same-tick resolution to 0 so a real measurement
+            // is never mistaken for the "unknown" sentinel.
+            double latency = found ? Math.Max(0, data.TimeStampRelativeMSec - startTime) : -1;
 
             DiskTrace dt = new DiskTrace(
                     ts: data.TimeStamp,
@@ -93,7 +105,7 @@ namespace IOTracesCORE.handlers
                 if (found) _activeRequests.Remove(irp);
             }
 
-            double latency = found ? data.TimeStampRelativeMSec - startTime : -1; // -1 = unknown
+            double latency = found ? Math.Max(0, data.TimeStampRelativeMSec - startTime) : -1; // -1 = unknown
 
             if (ProcessFilter.ShouldTrace(data.ProcessID, data.ProcessName) == false)
             {
