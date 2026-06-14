@@ -20,7 +20,7 @@ namespace IOTracesCORE.handlers
         private const int UDP_PROTO = 17;
 
         private readonly WriterManager wm;
-        private readonly Timer _flushTimer;
+        private readonly System.Threading.Timer _flushTimer;
         private readonly object _flushLock = new();
         private static readonly TimeSpan FlushInterval = TimeSpan.FromMinutes(1);
 
@@ -45,7 +45,7 @@ namespace IOTracesCORE.handlers
         public NetworkHandlers(WriterManager old_wm)
         {
             wm = old_wm;
-            _flushTimer = new Timer(_ => FlushWindow(), null, FlushInterval, FlushInterval);
+            _flushTimer = new System.Threading.Timer(_ => FlushWindow(), null, FlushInterval, FlushInterval);
         }
 
         // ── Traffic accumulation ──────────────────────────────────────────────
