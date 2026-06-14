@@ -13,7 +13,12 @@ Disk latency is calculated by tracking the lifecycle of an I/O Request Packet (I
 _Note: If no matching start time is found for a given `Irp` (e.g. the `DiskIOInit` event was missed or dropped), the row is **still emitted** for `read`, `write`, and `flush` operations — with an **empty** `Latency` field rather than a misleading `0` — so no operation is lost._
 
 **CSV Header:**
-`Ts,Pid,ThreadId,Comm,Sector,Operation,TraceSize,Latency,DiskNumber,Irp,IrpFlags`
+`timestamp,operation,pid,tid,command,sector,size,latency_ms,device,flags,irp`
+
+> Schema v5 (cross-OS aligned): files now begin with this header row; columns
+> 1–10 are the shared prefix identical to the Linux `ds/` stream. `device` is the
+> disk index (Linux uses `major:minor`); `flags` carries the pipe-separated IRP
+> flags.
 
 **Fields:**
 
@@ -50,5 +55,6 @@ Pipe-separated flags:
 **Example:**
 
 ```csv
-2026-02-08 23:23:45.123456,1234,5678,notepad.exe,1024345,read,4096,0.5,0,0xFFFF800012345678,Nocache|PagingIo|Priority:Normal
+timestamp,operation,pid,tid,command,sector,size,latency_ms,device,flags,irp
+2026-02-08 23:23:45.123,read,1234,5678,notepad.exe,1024345,4096,0.5,0,Nocache|PagingIo|Priority:Normal,0xFFFF800012345678
 ```

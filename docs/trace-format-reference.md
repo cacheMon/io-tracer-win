@@ -50,7 +50,7 @@ Key fields:
 **Example (truncated):**
 ```json
 {
-  "schema_version": "4",
+  "schema_version": "5",
   "tracer_version": "Release/1.0.0.0",
   "platform": "windows",
   "finalized": true,
@@ -71,13 +71,20 @@ Key fields:
 
 Captures detailed file system operations.
 
-> CSV files do **not** contain a header row. The column order below is fixed for
-> every row regardless of `Op`; fields that do not apply to an operation are left
-> empty (no `-1`/`0` placeholders). The path is **always** column 5 (`Filename`).
+> **Schema v5 — cross-OS aligned.** As of schema_version 5 every CSV file now
+> **begins with a header row**. Columns 1–12 (`timestamp` … `flags`) are the
+> **shared prefix** emitted identically by the Linux tracer's `fs/` stream, so a
+> single parser reads the comparable fields from either OS; the remaining columns
+> are Windows-only extras. `operation` is a **lowercase** canonical name shared
+> with Linux (`create` → `open`, `flush` → `fsync`, `query_info` → `getattr`,
+> `set_info` → `setattr`, `dir_enum` → `readdir`, `map_file` → `mmap`,
+> `fs_control` → `fsctl`; `read`/`write`/`close`/`delete`/`rename` unchanged).
+> Fields that do not apply to an operation are left empty. `inode` and `device`
+> are always empty on Windows (kept for column-alignment with Linux).
 
 **CSV Header (column order):**
 ```
-Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Offset,ViewSize,FileInfoClass,FsctlCode,ThreadId,Irp,FileKey,FileAttributes,IoFlags,CommandLine
+timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line
 ```
 
 **Fields:**
@@ -106,8 +113,9 @@ Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Of
 
 **Example:**
 ```csv
-2026-02-08 23:23:45.123456,create,1234,notepad.exe,C:\Users\User\Documents\test.txt,0,FILE_FLAG_OVERLAPPED,FILE_SHARE_READ,OPEN_EXISTING,,,,,5678,0xFFFFAB12,0xFFFFCD34,FILE_ATTRIBUTE_NORMAL,,"C:\Windows\System32\notepad.exe"
-2026-02-08 23:23:45.125789,read,1234,notepad.exe,C:\Users\User\Documents\test.txt,4096,,,,0,,,,5678,0xFFFFAB12,0xFFFFCD34,,IRP_PAGING_IO|IRP_NOCACHE,"C:\Windows\System32\notepad.exe"
+timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line
+2026-02-08 23:23:45.123456,open,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,FILE_FLAG_OVERLAPPED,FILE_SHARE_READ,OPEN_EXISTING,,,,0xFFFFAB12,0xFFFFCD34,FILE_ATTRIBUTE_NORMAL,"C:\Windows\System32\notepad.exe"
+2026-02-08 23:23:45.125789,read,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,4096,0,4096,,,IRP_PAGING_IO|IRP_NOCACHE,,,,,,,0xFFFFAB12,0xFFFFCD34,,"C:\Windows\System32\notepad.exe"
 ```
 
 ---
@@ -116,10 +124,15 @@ Ts,Op,Pid,Comm,Filename,TraceSize,CreateOptions,ShareAccess,CreateDisposition,Of
 
 Captures low-level disk I/O operations.
 
-**CSV Header:**
+**CSV Header (column order):**
 ```
-Ts,Pid,ThreadId,Comm,Sector,Operation,TraceSize,Latency,DiskNumber,Irp,IrpFlags
+timestamp,operation,pid,tid,command,sector,size,latency_ms,device,flags,irp
 ```
+
+> **Schema v5 — cross-OS aligned.** Columns 1–10 (`timestamp` … `flags`) are the
+> **shared prefix** emitted identically by the Linux tracer's `ds/` stream
+> (`flags` carries the pipe-separated IRP flags; `device` is the disk index,
+> where Linux uses `major:minor`). Files begin with this header row.
 
 **Fields:**
 
@@ -139,7 +152,8 @@ Ts,Pid,ThreadId,Comm,Sector,Operation,TraceSize,Latency,DiskNumber,Irp,IrpFlags
 
 **Example:**
 ```csv
-2026-02-08 23:23:45.123456,1234,5678,notepad.exe,1024345,read,4096,0.5,0,0xFFFF800012345678,Nocache|PagingIo|Priority:Normal
+timestamp,operation,pid,tid,command,sector,size,latency_ms,device,flags,irp
+2026-02-08 23:23:45.123,read,1234,5678,notepad.exe,1024345,4096,0.5,0,Nocache|PagingIo|Priority:Normal,0xFFFF800012345678
 ```
 
 ---

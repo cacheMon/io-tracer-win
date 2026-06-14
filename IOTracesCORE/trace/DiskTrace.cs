@@ -40,20 +40,22 @@ namespace IOTracesCORE.trace
         {
             buffer.GetStringBuilder().Clear();
 
+            // --- shared cross-OS prefix (columns 1-10; identical on Linux) --- #
             csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
+            csv.WriteField(Operation);          // already a base op (read/write/flush)
             csv.WriteField(Pid);
             csv.WriteField(ThreadId);
             csv.WriteField(Comm);
             csv.WriteField(Sector);
-            csv.WriteField(Operation);
             csv.WriteField(TraceSize);
             // A negative latency is the "unknown" sentinel (no matching DiskIOInit was
             // seen for this IRP); emit an empty field rather than a misleading 0.
             csv.WriteField(Latency < 0 ? "" : Latency.ToString(CultureInfo.InvariantCulture));
-            csv.WriteField(DiskNumber);
-            csv.WriteField(Irp.HasValue ? string.Format("0x{0:X}", Irp.Value) : "");
-
+            csv.WriteField(DiskNumber);         // device — disk index (Linux uses major:minor)
             csv.WriteField(IrpFlagsHelper.ToString(IrpFlags));
+
+            // --- Windows-only extras (columns 11+) --- #
+            csv.WriteField(Irp.HasValue ? string.Format("0x{0:X}", Irp.Value) : "");
 
             csv.NextRecord();
             return buffer.ToString();
