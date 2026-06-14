@@ -471,8 +471,18 @@ namespace IOTracesCORE
             }
             _lastFlushUtc = DateTime.UtcNow;
 
+            // Each rotated file is fresh (compressed + deleted after this flush),
+            // so write the schema header row first to make every CSV
+            // self-describing — matching the Linux tracer's headered streams.
+            bool needsHeader = !File.Exists(old_fp) || new FileInfo(old_fp).Length == 0;
             using (var writer = new StreamWriter(old_fp, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             {
+                if (needsHeader)
+                {
+                    string header = utils.TraceManifest.HeaderLine(tracetype);
+                    if (!string.IsNullOrEmpty(header))
+                        writer.Write(header + "\n");
+                }
                 writer.Write(sb);
             }
 

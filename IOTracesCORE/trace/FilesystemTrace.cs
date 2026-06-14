@@ -2,6 +2,7 @@
 using CsvHelper.Configuration;
 using IOTracesCORE.utils;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -41,12 +42,35 @@ namespace IOTracesCORE.trace
         private readonly StringWriter buffer = new StringWriter();
         private readonly CsvWriter csv;
 
+        // Maps the native ETW filesystem op names onto the cross-OS canonical
+        // vocabulary shared with the Linux tracer. Ops not listed (read, write,
+        // close, cleanup, delete, rename, dir_notify, ...) are already canonical.
+        private static readonly Dictionary<string, string> CanonicalOps = new()
+        {
+            ["create"] = "open",
+            ["flush"] = "fsync",
+            ["query_info"] = "getattr",
+            ["set_info"] = "setattr",
+            ["dir_enum"] = "readdir",
+            ["map_file"] = "mmap",
+            ["fs_control"] = "fsctl",
+        };
+
         public string FormatAsCsv(bool is_anonymous)
         {
             buffer.GetStringBuilder().Clear();
+
+            string op = Op != null && CanonicalOps.TryGetValue(Op, out var canon) ? canon : (Op ?? "");
+            // bytes_completed: Windows reports only the requested transfer size,
+            // so for read/write we mirror it here to line up with the Linux
+            // bytes_completed column; empty for non-I/O ops.
+            string bytesCompleted = (op == "read" || op == "write") ? TraceSize.ToString() : "";
+
+            // --- shared cross-OS prefix (columns 1-12; identical on Linux) --- #
             csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
-            csv.WriteField(Op);
+            csv.WriteField(op);
             csv.WriteField(Pid);
+            csv.WriteField(ThreadId);
             csv.WriteField(Comm);
             if (is_anonymous)
             {
@@ -65,24 +89,24 @@ namespace IOTracesCORE.trace
                 csv.WriteField(Filename);
             }
             csv.WriteField(TraceSize);
+            csv.WriteField(Offset?.ToString() ?? "");
+            csv.WriteField(bytesCompleted);
+            csv.WriteField("");                 // inode — not available on Windows
+            csv.WriteField("");                 // device — not carried by the fs stream on Windows
+            csv.WriteField(IoFlags ?? "");
 
-            // Write extended fields (empty string if null)
+            // --- Windows-only extras (columns 13+) --- #
             csv.WriteField(CreateOptions ?? "");
             csv.WriteField(ShareAccess ?? "");
             csv.WriteField(CreateDisposition ?? "");
-            csv.WriteField(Offset?.ToString() ?? "");
             csv.WriteField(ViewSize?.ToString() ?? "");
             csv.WriteField(FileInfoClass ?? "");
             csv.WriteField(FsctlCode ?? "");
-
-            // Write additional IO differentiation fields
-            csv.WriteField(ThreadId);
             csv.WriteField(Irp.HasValue ? string.Format("0x{0:X}", Irp.Value) : "");
             // Kernel pointer — emit as hex (matching Irp) instead of a raw 2^64 decimal,
             // and empty when absent rather than "0".
             csv.WriteField(FileKey.HasValue && FileKey.Value != 0 ? string.Format("0x{0:X}", FileKey.Value) : "");
             csv.WriteField(FileAttributes ?? "");
-            csv.WriteField(IoFlags ?? "");
             csv.WriteField(CommandLine);
 
             csv.NextRecord();

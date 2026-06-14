@@ -14,7 +14,10 @@ namespace IOTracesCORE.utils
     internal static class TraceManifest
     {
         // Bump when any stream's column set or semantics change.
-        public const string SchemaVersion = "4";
+        // v5: cross-OS aligned fs/ds layout — a fixed shared column prefix
+        //     (identical names/order to the Linux tracer), lowercase canonical
+        //     operation names, and a CSV header row on every file.
+        public const string SchemaVersion = "5";
 
         private static Dictionary<string, object?> Col(string name, string type, string? unit = null)
         {
@@ -31,13 +34,18 @@ namespace IOTracesCORE.utils
                 ["path_glob"] = "fs/*.csv.zst",
                 ["columns"] = new object[]
                 {
-                    Col("Ts", "timestamp"), Col("Op", "string"), Col("Pid", "int"),
-                    Col("Comm", "string"), Col("Filename", "string"), Col("TraceSize", "int", "bytes"),
-                    Col("CreateOptions", "flags"), Col("ShareAccess", "flags"), Col("CreateDisposition", "enum"),
-                    Col("Offset", "int", "bytes"), Col("ViewSize", "int", "bytes"), Col("FileInfoClass", "string"),
-                    Col("FsctlCode", "string"), Col("ThreadId", "int"), Col("Irp", "hex_pointer"),
-                    Col("FileKey", "hex_pointer"), Col("FileAttributes", "flags"), Col("IoFlags", "flags"),
-                    Col("CommandLine", "string"),
+                    // --- shared cross-OS prefix (columns 1-12; identical on Linux) --- #
+                    Col("timestamp", "timestamp"), Col("operation", "string"), Col("pid", "int"),
+                    Col("tid", "int"), Col("command", "string"), Col("filename", "string"),
+                    Col("size", "int", "bytes"), Col("offset", "int", "bytes"),
+                    Col("bytes_completed", "int", "bytes"), Col("inode", "int"),
+                    Col("device", "string"), Col("flags", "flags"),
+                    // --- Windows-only extras (columns 13+) --- #
+                    Col("create_options", "flags"), Col("share_access", "flags"),
+                    Col("create_disposition", "enum"), Col("view_size", "int", "bytes"),
+                    Col("file_info_class", "string"), Col("fsctl_code", "string"),
+                    Col("irp", "hex_pointer"), Col("file_key", "hex_pointer"),
+                    Col("file_attributes", "flags"), Col("command_line", "string"),
                 }
             },
             ["ds"] = new Dictionary<string, object?>
@@ -45,10 +53,13 @@ namespace IOTracesCORE.utils
                 ["path_glob"] = "ds/*.csv.zst",
                 ["columns"] = new object[]
                 {
-                    Col("Ts", "timestamp"), Col("Pid", "int"), Col("ThreadId", "int"), Col("Comm", "string"),
-                    Col("Sector", "int", "512B_sectors"), Col("Operation", "string"), Col("TraceSize", "int", "bytes"),
-                    Col("Latency", "float", "ms"), Col("DiskNumber", "int"), Col("Irp", "hex_pointer"),
-                    Col("IrpFlags", "flags"),
+                    // --- shared cross-OS prefix (columns 1-10; identical on Linux) --- #
+                    Col("timestamp", "timestamp"), Col("operation", "string"), Col("pid", "int"),
+                    Col("tid", "int"), Col("command", "string"), Col("sector", "int", "512B_sectors"),
+                    Col("size", "int", "bytes"), Col("latency_ms", "float", "ms"),
+                    Col("device", "string"), Col("flags", "flags"),
+                    // --- Windows-only extras (columns 11+) --- #
+                    Col("irp", "hex_pointer"),
                 }
             },
             ["mr"] = new Dictionary<string, object?>
@@ -109,6 +120,38 @@ namespace IOTracesCORE.utils
                 ["format"] = "json",
             },
         };
+
+        /// <summary>
+        /// CSV header row (comma-joined column names) for a WriterManager trace
+        /// type, so every emitted CSV file is self-describing. Returns "" for
+        /// types without a defined column schema. The names come from the same
+        /// <see cref="Streams"/> table that backs the manifest, so the header can
+        /// never drift from the manifest schema.
+        /// </summary>
+        public static string HeaderLine(string tracetype)
+        {
+            string key = tracetype switch
+            {
+                "disk" => "ds",
+                "memory" => "mr",
+                "network" => "nw",
+                _ => tracetype, // filesystem, driver, process, filesystem_snapshot
+            };
+
+            if (Streams().TryGetValue(key, out var sObj)
+                && sObj is Dictionary<string, object?> s
+                && s.TryGetValue("columns", out var colsObj)
+                && colsObj is object[] cols)
+            {
+                var names = new List<string>(cols.Length);
+                foreach (var c in cols)
+                    if (c is Dictionary<string, object?> cd
+                        && cd.TryGetValue("name", out var n) && n is string ns)
+                        names.Add(ns);
+                return string.Join(",", names);
+            }
+            return "";
+        }
 
         /// <summary>
         /// Per-stream cumulative event counts and the streams that produced zero
