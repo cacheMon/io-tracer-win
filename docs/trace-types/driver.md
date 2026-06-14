@@ -15,7 +15,7 @@ Captures lower-level driver interactions, such as major function calls, completi
 | `Comm`          | Command/Process name                                 |                                                 |
 | `Operation`     | Driver operation type                                | See [Operation Values](#operation-values) below |
 | `Irp`           | I/O Request Packet pointer                           | Hex format: `0x...`. **Reused** by the kernel across requests — do not use alone to pair events. |
-| `RequestId`     | Session-unique request id                            | Assigned at `driver_call` and retired at completion. Use this (not `Irp`) to correlate call/return/completion of one request. |
+| `RequestId`     | Session-unique request ID                            | Assigned at `driver_call` and retired at completion. Use this (not `Irp`) to correlate call/return/completion of one request. |
 | `MajorFunction` | Major function code of the IRP                       | Integer (e.g., `0` for IRP_MJ_CREATE). Empty when not reported by the event |
 | `MinorFunction` | Minor function code of the IRP                       | Integer. Empty when not reported by the event   |
 | `RoutineAddr`   | Address of the routine being called or returned from | Hex format: `0x...`                             |

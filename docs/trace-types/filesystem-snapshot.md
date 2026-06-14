@@ -22,12 +22,12 @@ To optimize memory usage during large filesystem scans, snapshots are automatica
 
 | Field              | Description                      | Notes                                  |
 | :----------------- | :------------------------------- | :------------------------------------- |
-| `timestamp`        | Snapshot timestamp               | format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
+| `timestamp`        | Snapshot timestamp               | Format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
 | `path`             | Full path to the file            |                                        |
 | `size`             | File size in bytes               |                                        |
-| `CreationDate`     | File creation timestamp          | format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
-| `modificationDate` | File last modification timestamp | format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
-| `LastAccessTime`   | File last access timestamp       | format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
+| `CreationDate`     | File creation timestamp          | Format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
+| `modificationDate` | File last modification timestamp | Format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
+| `LastAccessTime`   | File last access timestamp       | Format: `yyyy-MM-dd HH:mm:ss.ffffff`      |
 | `Attributes`       | File attributes                  | e.g., `Archive`, `Directory`, `Hidden` |
 | `Extension`        | File extension                   | including the dot (e.g., `.txt`)       |
 | `IsReadOnly`       | Whether the file is read-only    | `True` or `False`                      |
