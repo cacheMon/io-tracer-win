@@ -37,6 +37,22 @@ namespace IOTracesCORE.handlers
 
         public void Dispose() => _flushTimer?.Dispose();
 
+        /// <summary>
+        /// Drops all cross-event correlation state (filename cache, pending emit
+        /// queue, and key aliases). Call on ETW session restart so kernel
+        /// FileObject / FileKey pointers reused by the new session are never
+        /// matched against stale entries from the previous session, which would
+        /// otherwise emit wrong filenames. Pending events from the old session can
+        /// never be drained (their FileIOName events won't arrive again), so they
+        /// are discarded rather than later flushed with empty names.
+        /// </summary>
+        public void Reset()
+        {
+            nameByObj.Clear();
+            _pending.Clear();
+            _keyAliases.Clear();
+        }
+
         private static string Clean(string s) => string.IsNullOrEmpty(s) ? "" : s.Trim();
 
         private static bool IsIgnored(string s)
