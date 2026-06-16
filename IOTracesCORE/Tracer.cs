@@ -17,7 +17,6 @@ namespace IOTracesCORE
         private readonly SystemSnapper systemSnapper;
         private readonly DiskHandlers dsHandler;
         private readonly NetworkHandlers nwHandler;
-        private readonly DriverHandlers driverHandler;
         private readonly MemoryHandlers memHandler;
         private readonly CacheHandlers cacheHandler;
         private readonly ProcessCommandLineCache processCache;
@@ -57,7 +56,6 @@ namespace IOTracesCORE
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
             systemSnapper = new SystemSnapper(wm);
             nwHandler = new NetworkHandlers(wm);
-            driverHandler = new DriverHandlers(wm);
         }
 
         private bool ConsoleCtrlHandler(CtrlTypes ctrlType)
@@ -282,7 +280,6 @@ namespace IOTracesCORE
             // Drop cross-event correlation state from any previous session so kernel
             // pointers (IRPs, FileObject/FileKey) reused by the new session can't be
             // mis-correlated across a session restart.
-            driverHandler.Reset();
             dsHandler.Reset();
             fsHandler.Reset();
 
@@ -298,7 +295,6 @@ namespace IOTracesCORE
                         KernelTraceEventParser.Keywords.Process |
                         KernelTraceEventParser.Keywords.DiskIO |
                         KernelTraceEventParser.Keywords.DiskIOInit |
-                        KernelTraceEventParser.Keywords.Driver |
                         KernelTraceEventParser.Keywords.NetworkTCPIP |
                         KernelTraceEventParser.Keywords.Memory |
                         KernelTraceEventParser.Keywords.MemoryHardFaults |
@@ -343,11 +339,6 @@ namespace IOTracesCORE
                     kernel.DiskIOWriteInit += dsHandler.OnDiskInit;
                     kernel.DiskIOWrite += dsHandler.OnDiskWrite;
                     kernel.DiskIOFlushBuffers += dsHandler.OnDiskFlush;
-                    kernel.DiskIODriverMajorFunctionCall += driverHandler.OnDriverMajorFunctionCall;
-                    kernel.DiskIODriverMajorFunctionReturn += driverHandler.OnDriverMajorFunctionReturn;
-                    kernel.DiskIODriverCompletionRoutine += driverHandler.OnDriverCompletionRoutine;
-                    kernel.DiskIODriverCompleteRequest += driverHandler.OnDriverCompleteRequest;
-                    kernel.DiskIODriverCompleteRequestReturn += driverHandler.OnDriverCompleteRequestReturn;
 
                     kernel.TcpIpSend += nwHandler.OnSend;
                     kernel.TcpIpRecv += nwHandler.OnReceive;

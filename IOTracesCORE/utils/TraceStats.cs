@@ -14,7 +14,6 @@ namespace IOTracesCORE.utils
         public static long FilesystemEvents;
         public static long DiskEvents;
         public static long MemoryEvents;
-        public static long DriverEvents;
         // Raw send/receive packets observed (pre-aggregation) — the network probe
         // liveness signal, since emitted rows are only per-minute summaries.
         public static long NetworkPackets;
@@ -29,7 +28,6 @@ namespace IOTracesCORE.utils
             Interlocked.Exchange(ref FilesystemEvents, 0);
             Interlocked.Exchange(ref DiskEvents, 0);
             Interlocked.Exchange(ref MemoryEvents, 0);
-            Interlocked.Exchange(ref DriverEvents, 0);
             Interlocked.Exchange(ref NetworkPackets, 0);
             Interlocked.Exchange(ref NetworkRows, 0);
             Interlocked.Exchange(ref ProcessSnapshotRows, 0);
@@ -43,7 +41,6 @@ namespace IOTracesCORE.utils
             public long FilesystemEvents { get; init; }
             public long DiskEvents { get; init; }
             public long MemoryEvents { get; init; }
-            public long DriverEvents { get; init; }
             public long NetworkPackets { get; init; }
             public long NetworkRows { get; init; }
             public long ProcessSnapshotRows { get; init; }
@@ -60,7 +57,6 @@ namespace IOTracesCORE.utils
             FilesystemEvents = Interlocked.Read(ref FilesystemEvents),
             DiskEvents = Interlocked.Read(ref DiskEvents),
             MemoryEvents = Interlocked.Read(ref MemoryEvents),
-            DriverEvents = Interlocked.Read(ref DriverEvents),
             NetworkPackets = Interlocked.Read(ref NetworkPackets),
             NetworkRows = Interlocked.Read(ref NetworkRows),
             ProcessSnapshotRows = Interlocked.Read(ref ProcessSnapshotRows),
@@ -71,7 +67,6 @@ namespace IOTracesCORE.utils
         public static void IncFilesystem() => Interlocked.Increment(ref FilesystemEvents);
         public static void IncDisk() => Interlocked.Increment(ref DiskEvents);
         public static void IncMemory() => Interlocked.Increment(ref MemoryEvents);
-        public static void IncDriver() => Interlocked.Increment(ref DriverEvents);
         public static void IncNetworkPacket() => Interlocked.Increment(ref NetworkPackets);
         public static void IncNetworkRow() => Interlocked.Increment(ref NetworkRows);
         public static void IncFilesystemSnapshot() => Interlocked.Increment(ref FilesystemSnapshotRows);

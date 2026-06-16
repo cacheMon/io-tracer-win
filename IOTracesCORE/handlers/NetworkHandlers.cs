@@ -104,7 +104,7 @@ namespace IOTracesCORE.handlers
             {
                 // Use the same wall-clock base as every other stream: ETW data.TimeStamp
                 // is local time, so stamp these rows with local time too — otherwise the
-                // network stream would be offset from disk/fs/driver and break correlation.
+                // network stream would be offset from disk/fs and break correlation.
                 var now = DateTime.Now;
                 foreach (var kvp in _conns)
                 {
