@@ -82,17 +82,6 @@ namespace IOTracesCORE.utils
                     Col("ConnId", "int"), Col("BytesSent", "int", "bytes"), Col("BytesReceived", "int", "bytes"),
                 }
             },
-            ["driver"] = new Dictionary<string, object?>
-            {
-                ["path_glob"] = "driver/*.csv.zst",
-                ["columns"] = new object[]
-                {
-                    Col("Ts", "timestamp"), Col("Pid", "int"), Col("ThreadId", "int"), Col("Comm", "string"),
-                    Col("Operation", "string"), Col("Irp", "hex_pointer"), Col("RequestId", "int"),
-                    Col("MajorFunction", "int"), Col("MinorFunction", "int"), Col("RoutineAddr", "hex_pointer"),
-                    Col("FileObject", "hex_pointer"), Col("DeviceObject", "hex_pointer"),
-                }
-            },
             ["process"] = new Dictionary<string, object?>
             {
                 ["path_glob"] = "process/*.csv.zst",
@@ -135,7 +124,7 @@ namespace IOTracesCORE.utils
                 "disk" => "ds",
                 "memory" => "mr",
                 "network" => "nw",
-                _ => tracetype, // filesystem, driver, process, filesystem_snapshot
+                _ => tracetype, // filesystem, process, filesystem_snapshot
             };
 
             if (Streams().TryGetValue(key, out var sObj)
@@ -171,7 +160,6 @@ namespace IOTracesCORE.utils
                 ["filesystem"] = snapshot.FilesystemEvents,
                 ["ds"] = snapshot.DiskEvents,
                 ["mr"] = snapshot.MemoryEvents,
-                ["driver"] = snapshot.DriverEvents,
                 ["nw"] = snapshot.NetworkPackets,
                 ["process"] = snapshot.ProcessSnapshotRows,
                 ["filesystem_snapshot"] = snapshot.FilesystemSnapshotRows,
@@ -186,7 +174,6 @@ namespace IOTracesCORE.utils
                 ["filesystem_events"] = snapshot.FilesystemEvents,
                 ["disk_events"] = snapshot.DiskEvents,
                 ["memory_events"] = snapshot.MemoryEvents,
-                ["driver_events"] = snapshot.DriverEvents,
                 ["network_packets"] = snapshot.NetworkPackets,
                 ["network_rows"] = snapshot.NetworkRows,
                 ["process_snapshot_rows"] = snapshot.ProcessSnapshotRows,

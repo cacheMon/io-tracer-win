@@ -17,7 +17,6 @@ writes one CSV stream per category (see [`docs/trace-types/`](docs/trace-types/)
 | --- | --- |
 | Filesystem | create / read / write / close / rename / delete / dir-enum / FSCTL … |
 | Disk | physical disk reads, writes, flushes and their init events |
-| Driver | driver major-function calls, completion routines |
 | Network | TCP/UDP send, receive, connect, disconnect, retransmit, handshakes |
 | Memory | hard faults, virtual allocations, memory-manager events |
 | Snapshots | one-time filesystem and process snapshots taken at startup |

@@ -19,7 +19,6 @@ Each trace type is stored in its own subdirectory under this prefix:
 - `ds/` - Disk I/O traces  
 - `mr/` - Memory traces
 - `nw/` - Network traces
-- `driver/` - Driver operation traces
 - `process/` - Process snapshot data
 - `filesystem_snapshot/` - Filesystem metadata snapshots
 - `system_spec/` - System hardware/software specifications (JSON)
@@ -236,44 +235,6 @@ Ts,Pid,Comm,Proto,Saddr,Daddr,Sport,Dport,ConnId,BytesSent,BytesReceived
 2026-02-08 23:24:00.000000,1234,chrome.exe,6,192.168.1.100,8.8.8.8,54321,443,12345678,8421,153002
 2026-02-08 23:25:00.000000,1234,chrome.exe,6,192.168.1.100,8.8.8.8,54321,443,12345678,512,2048
 2026-02-08 23:25:00.000000,4321,svchost.exe,17,192.168.1.100,1.1.1.1,53124,53,0,88,264
-```
-
----
-
-### Driver Trace (`driver/`)
-
-Captures lower-level driver interactions.
-
-**CSV Header (column order):**
-```
-Ts,Pid,ThreadId,Comm,Operation,Irp,RequestId,MajorFunction,MinorFunction,RoutineAddr,FileObject,DeviceObject
-```
-
-**Fields:**
-
-| # | Field | Type | Description | Notes |
-|---|-------|------|-------------|-------|
-| 1 | `Ts` | timestamp | Timestamp (local wall-clock) | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
-| 2 | `Pid` | integer | Process ID | |
-| 3 | `ThreadId` | integer | Thread ID | |
-| 4 | `Comm` | string | Command/Process name | |
-| 5 | `Operation` | string | Driver operation type | `driver_call`, `driver_return`, `driver_completion`, `driver_complete_req`, `driver_complete_req_ret` |
-| 6 | `Irp` | pointer | I/O Request Packet pointer | Hex format `0x...`. **Reused** by the kernel across requests — do not use alone to pair events. |
-| 7 | `RequestId` | integer | Session-unique request id | Assigned at `driver_call` and retired at completion. Use this (not `Irp`) to correlate call/return/completion of one request. |
-| 8 | `MajorFunction` | integer | Major function code | Empty when not reported by the event |
-| 9 | `MinorFunction` | integer | Minor function code | Empty when not reported by the event |
-| 10 | `RoutineAddr` | pointer | Address of routine | Hex format: `0x...` |
-| 11 | `FileObject` | pointer | File object address | Hex format: `0x...` |
-| 12 | `DeviceObject` | pointer | Device object address | Hex format: `0x...` |
-
-> **Throughput note:** driver events do not carry a byte count or offset, so
-> block-device throughput cannot be derived from this stream — use the `ds/`
-> (disk) trace, which has `TraceSize`, `Sector`, and `Latency`.
-
-**Example:**
-```csv
-2026-02-09 10:15:30.123456,4568,9102,explorer.exe,driver_call,0xFFFFFA80036F5010,42,0,0,0xFFFFF80002E71000,0xFFFFFA80036F5050,0xFFFFFA80036F6000
-2026-02-09 10:15:30.123789,4568,9102,explorer.exe,driver_complete_req_ret,0xFFFFFA80036F5010,42,,,0x0,0xFFFFFA80036F5050,0xFFFFFA80036F6000
 ```
 
 ---
@@ -561,7 +522,7 @@ CSV files follow this naming pattern:
 ```
 
 Where:
-- `{type}` - Trace type: `fs`, `ds`, `mr`, `nw`, `driver`, `process`, `filesystem_snapshot`
+- `{type}` - Trace type: `fs`, `ds`, `mr`, `nw`, `process`, `filesystem_snapshot`
 - `{timestamp}` - File creation time in format `yyyyMMdd_HHmmss`
 - `{deviceId}` - Unique device identifier (hashed)
 - `.zst` - Zstandard compression extension

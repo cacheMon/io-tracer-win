@@ -19,7 +19,6 @@ namespace IOTracesCORE
         private string ds_filepath;
         private string mr_filepath;
         private string nw_filepath;
-        private string driver_filepath;
         private string fs_snap_filepath;
         private string process_snap_filepath;
 
@@ -27,7 +26,6 @@ namespace IOTracesCORE
         private readonly StringBuilder ds_sb;
         private readonly StringBuilder mr_sb;
         private readonly StringBuilder nw_sb;
-        private readonly StringBuilder driver_sb;
         private readonly StringBuilder fs_snap_sb;
         private readonly StringBuilder process_snap_sb;
 
@@ -42,7 +40,6 @@ namespace IOTracesCORE
         private readonly object ds_lock = new();
         private readonly object mr_lock = new();
         private readonly object nw_lock = new();
-        private readonly object driver_lock = new();
         private readonly object fs_snap_lock = new();
         private readonly object process_snap_lock = new();
 
@@ -51,7 +48,6 @@ namespace IOTracesCORE
             "disk" => ds_lock,
             "memory" => mr_lock,
             "network" => nw_lock,
-            "driver" => driver_lock,
             "process" => process_snap_lock,
             "filesystem_snapshot" => fs_snap_lock,
             _ => fs_lock, // "filesystem" and any fallback
@@ -104,7 +100,6 @@ namespace IOTracesCORE
             ds_sb = new StringBuilder();
             mr_sb = new StringBuilder();
             nw_sb = new StringBuilder();
-            driver_sb = new StringBuilder();
             fs_snap_sb = new StringBuilder();
             process_snap_sb = new StringBuilder();
 
@@ -118,7 +113,6 @@ namespace IOTracesCORE
             ds_filepath = GenerateFilePath("ds");
             mr_filepath = GenerateFilePath("mr");
             nw_filepath = GenerateFilePath("nw");
-            driver_filepath = GenerateFilePath("driver");
             process_snap_filepath = GenerateFilePath("process");
             fs_snap_filepath = GenerateFilePathWithPart("filesystem_snapshot", fs_snap_part_counter);
 
@@ -136,7 +130,6 @@ namespace IOTracesCORE
             string? ds_folder = Path.GetDirectoryName(ds_filepath) ?? throw new Exception("Invalid directory path.");
             string? mr_folder = Path.GetDirectoryName(mr_filepath) ?? throw new Exception("Invalid directory path.");
             string? nw_folder = Path.GetDirectoryName(nw_filepath) ?? throw new Exception("Invalid directory path.");
-            string? driver_folder = Path.GetDirectoryName(driver_filepath) ?? throw new Exception("Invalid directory path.");
             string? proc_snap_folder = Path.GetDirectoryName(process_snap_filepath) ?? throw new Exception("Invalid directory path.");
             string? fs_snap_folder = Path.GetDirectoryName(fs_snap_filepath) ?? throw new Exception("Invalid directory path.");
 
@@ -147,7 +140,6 @@ namespace IOTracesCORE
             EnsureDirectoryExists(proc_snap_folder);
             EnsureDirectoryExists(fs_snap_folder);
             EnsureDirectoryExists(nw_folder);
-            EnsureDirectoryExists(driver_folder);
 
             Console.WriteLine("File output: {0}", this.dir_path);
 
@@ -336,26 +328,6 @@ namespace IOTracesCORE
             }
         }
 
-        public void Write(DriverTrace data)
-        {
-            if (data.Comm.Equals("IOTracesCORE"))
-            {
-                return;
-            }
-
-            ObjectStorageHandler.ResumeGate.Wait();
-            lock (driver_lock)
-            {
-                utils.TraceStats.IncDriver();
-                driver_sb.Append(data.FormatAsCsv());
-
-                if (IsTimeToFlush(driver_sb))
-                {
-                    FlushWriteLocked(driver_sb, driver_filepath, "driver");
-                }
-            }
-        }
-
         public void Write(MemoryTrace data)
         {
             if (data.Comm.Equals("IOTracesCORE"))
@@ -460,11 +432,6 @@ namespace IOTracesCORE
                 old_fp = nw_filepath;
                 nw_filepath = GenerateFilePath("nw");
             }
-            else if (tracetype.Equals("driver"))
-            {
-                old_fp = driver_filepath;
-                driver_filepath = GenerateFilePath("driver");
-            }
             else
             {
                 return;
@@ -565,7 +532,6 @@ namespace IOTracesCORE
                 "disk" => true,
                 "memory" => true,
                 "network" => true,
-                "driver" => true,
                 _ => false,
             };
         }
@@ -712,7 +678,6 @@ namespace IOTracesCORE
             if (process_snap_sb.Length > 0) FlushWrite(process_snap_sb, process_snap_filepath, "process");
             if (fs_snap_sb.Length > 0) FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
             if (nw_sb.Length > 0) FlushWrite(nw_sb, nw_filepath, "network");
-            if (driver_sb.Length > 0) FlushWrite(driver_sb, driver_filepath, "driver");
             Debug.WriteLine("Flushed all StringBuilders.");
 
             // Filesystem snapshot compression is now handled by FinalizeFilesystemSnapshot
