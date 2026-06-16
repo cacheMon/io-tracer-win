@@ -46,6 +46,7 @@ namespace IOTracesCORE.utils
                     Col("file_info_class", "string"), Col("fsctl_code", "string"),
                     Col("irp", "hex_pointer"), Col("file_key", "hex_pointer"),
                     Col("file_attributes", "flags"), Col("command_line", "string"),
+                    Col("nt_status", "hex"),
                 }
             },
             ["ds"] = new Dictionary<string, object?>

@@ -16,6 +16,8 @@ namespace IOTracesCORE.handlers
     {
         private readonly WriterManager wm;
         private readonly ProcessCommandLineCache processCache;
+        // When true, op_end (per-operation completion) rows are suppressed to cut volume.
+        private readonly bool lowOverheadLogging;
 
         private readonly ConcurrentDictionary<ulong, string> nameByObj = new();
         private readonly ConcurrentDictionary<ulong, ConcurrentQueue<(DateTime addedAt, Action<string> emit)>>
@@ -27,10 +29,12 @@ namespace IOTracesCORE.handlers
         private readonly System.Threading.Timer _flushTimer;
         private static readonly TimeSpan MaxPendingAge = TimeSpan.FromMilliseconds(100);
 
-        public FilesystemHandlers(WriterManager wm, ProcessCommandLineCache processCache)
+        public FilesystemHandlers(WriterManager wm, ProcessCommandLineCache processCache,
+            bool lowOverheadLogging = false)
         {
             this.wm = wm;
             this.processCache = processCache;
+            this.lowOverheadLogging = lowOverheadLogging;
             _flushTimer = new System.Threading.Timer(FlushStalePending, null,
                 TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50));
         }
@@ -630,6 +634,26 @@ namespace IOTracesCORE.handlers
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             EmitMapFile(d.TimeStamp, "unmap_file", d.ProcessID, d.ThreadID, d.ProcessName,
                 Clean(d.FileName), d.ViewSize, d.FileKey);
+        }
+
+        // The FileIO OperationEnd event reports the final NTSTATUS of a completed IRP.
+        // It carries only the IRP pointer, status, and completing thread — no FileKey or
+        // FileName — so we cannot resolve a path here. We emit a lightweight "op_end" row
+        // that consumers join back to the originating read/write/create by the `irp`
+        // column: the result code is in `nt_status`, and the operation's latency is
+        // (op_end timestamp − start-event timestamp).
+        //
+        // Emitted for every completed operation by default. This roughly doubles fs row
+        // volume, so it can be turned off via the "low-overhead logging" option, which
+        // suppresses op_end entirely.
+        public void OnOperationEnd(FileIOOpEndTraceData d)
+        {
+            if (lowOverheadLogging) return;   // low-overhead mode: skip per-operation completion events
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            wm.Write(new FilesystemTrace(
+                d.TimeStamp, "op_end", d.ProcessID, d.ThreadID, d.ProcessName, "", 0,
+                null, null, null, null, null, null, null, d.IrpPtr, null, null, null,
+                processCache.Get(d.ProcessID), d.NtStatus));
         }
     }
 }

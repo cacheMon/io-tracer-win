@@ -42,13 +42,13 @@ namespace IOTracesCORE
             CTRL_SHUTDOWN_EVENT = 6
         }
 
-        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output", bool devMode = false)
+        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output", bool devMode = false, bool lowOverheadLogging = false)
         {
             objHandler = obj;
             isUploadAutomatically = upload;
             wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode);
             processCache = new ProcessCommandLineCache();
-            fsHandler = new FilesystemHandlers(wm, processCache);
+            fsHandler = new FilesystemHandlers(wm, processCache, lowOverheadLogging);
             dsHandler = new DiskHandlers(wm);
             memHandler = new MemoryHandlers(wm);
             cacheHandler = new CacheHandlers(wm);
@@ -331,6 +331,7 @@ namespace IOTracesCORE
                     kernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
                     kernel.FileIOSetInfo += fsHandler.OnSetInfo;
                     kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
+                    kernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
                     kernel.ProcessStart += data => processCache.RefreshFromProcess(data.ProcessID);
                     kernel.ProcessStop += data => processCache.Remove(data.ProcessID);
 
