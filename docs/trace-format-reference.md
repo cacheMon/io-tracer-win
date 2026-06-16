@@ -83,7 +83,7 @@ Captures detailed file system operations.
 
 **CSV Header (column order):**
 ```
-timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line
+timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line,nt_status
 ```
 
 **Fields:**
@@ -91,7 +91,7 @@ timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,d
 | # | Field | Type | Description | Notes |
 |---|-------|------|-------------|-------|
 | 1 | `Ts` | timestamp | Timestamp (local wall-clock) of the event | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
-| 2 | `Op` | string | Operation name | `create`, `read`, `write`, `flush`, `close`, `cleanup`, `delete`, `rename`, `set_info`, `query_info`, `dir_enum`, `dir_notify`, `fs_control`, `map_file`, etc. |
+| 2 | `Op` | string | Operation name | `create`, `read`, `write`, `flush`, `close`, `cleanup`, `delete`, `rename`, `set_info`, `query_info`, `dir_enum`, `dir_notify`, `fs_control`, `map_file`, `op_end`, etc. |
 | 3 | `Pid` | integer | Process ID initiating the operation | `-1` when the kernel did not attribute the event to a process (e.g. cache-manager / system-context I/O) |
 | 4 | `Comm` | string | Command/Process name | Empty when the kernel did not supply a name; quoted if it contains special characters |
 | 5 | `Filename` | string | Full path of the file involved | Hashed if anonymous mode enabled |
@@ -109,12 +109,20 @@ timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,d
 | 17 | `FileAttributes` | flags | File attributes | Pipe-separated. Only for `create` ops |
 | 18 | `IoFlags` | flags | I/O specific flags | Pipe-separated. Only for `read`, `write` ops |
 | 19 | `CommandLine` | string | Full command line of the process | Empty if unavailable |
+| 20 | `NtStatus` | hex | Final `NTSTATUS` of the completed IRP | Only on `op_end` rows; hex `0x...` (e.g. `0x00000000` success, `0xC0000034` not-found). Empty otherwise |
+
+> **`op_end` rows.** Emitted from the ETW FileIO *OperationEnd* event, which carries
+> only the IRP pointer, completing thread, and final status — no path/FileKey. Join an
+> `op_end` row back to its originating `read`/`write`/`create` by the `irp` column; the
+> per-operation latency is `op_end.timestamp − start.timestamp`, and the result code is
+> `nt_status`.
 
 **Example:**
 ```csv
-timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line
-2026-02-08 23:23:45.123456,open,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,FILE_FLAG_OVERLAPPED,FILE_SHARE_READ,OPEN_EXISTING,,,,0xFFFFAB12,0xFFFFCD34,FILE_ATTRIBUTE_NORMAL,"C:\Windows\System32\notepad.exe"
-2026-02-08 23:23:45.125789,read,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,4096,0,4096,,,IRP_PAGING_IO|IRP_NOCACHE,,,,,,,0xFFFFAB12,0xFFFFCD34,,"C:\Windows\System32\notepad.exe"
+timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line,nt_status
+2026-02-08 23:23:45.123456,open,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,FILE_FLAG_OVERLAPPED,FILE_SHARE_READ,OPEN_EXISTING,,,,0xFFFFAB12,0xFFFFCD34,FILE_ATTRIBUTE_NORMAL,"C:\Windows\System32\notepad.exe",
+2026-02-08 23:23:45.125789,read,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,4096,0,4096,,,IRP_PAGING_IO|IRP_NOCACHE,,,,,,,0xFFFFAB12,0xFFFFCD34,,"C:\Windows\System32\notepad.exe",
+2026-02-08 23:23:45.126102,op_end,1234,5678,notepad.exe,,0,,,,,,,,,,,,0xFFFFAB12,,,"C:\Windows\System32\notepad.exe",0x00000000
 ```
 
 ---

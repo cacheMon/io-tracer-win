@@ -631,5 +631,22 @@ namespace IOTracesCORE.handlers
             EmitMapFile(d.TimeStamp, "unmap_file", d.ProcessID, d.ThreadID, d.ProcessName,
                 Clean(d.FileName), d.ViewSize, d.FileKey);
         }
+
+        // The FileIO OperationEnd event reports the final NTSTATUS of a completed IRP.
+        // It carries only the IRP pointer, status, and completing thread — no FileKey or
+        // FileName — so we cannot resolve a path here. Instead we emit a lightweight
+        // "op_end" row that consumers join back to the originating read/write/create by
+        // the `irp` column: the operation's status is in `nt_status`, and its latency is
+        // (op_end timestamp − start-event timestamp). Note this roughly doubles fs row
+        // volume; gating it (e.g. failures only, or behind a config flag) is a reasonable
+        // follow-up if that cost matters.
+        public void OnOperationEnd(FileIOOpEndTraceData d)
+        {
+            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            wm.Write(new FilesystemTrace(
+                d.TimeStamp, "op_end", d.ProcessID, d.ThreadID, d.ProcessName, "", 0,
+                null, null, null, null, null, null, null, d.IrpPtr, null, null, null,
+                processCache.Get(d.ProcessID), d.NtStatus));
+        }
     }
 }
