@@ -16,6 +16,7 @@ namespace IOTracesCORE
         private CheckBox chkEnableUpload;
         private CheckBox chkAutoStart;
         private CheckBox chkDevMode;
+        private CheckBox chkLowOverhead;
         private Label lblAnonymous;
         private Label lblStatus;
         private Button btnRunTracer;
@@ -49,7 +50,7 @@ namespace IOTracesCORE
         private void InitializeComponent()
         {
             Text = "IO-Tracer Configuration";
-            ClientSize = new Size(520, 220);
+            ClientSize = new Size(520, 250);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -94,6 +95,15 @@ namespace IOTracesCORE
             };
             chkDevMode.CheckedChanged += ChkDevMode_CheckedChanged;
             root.Controls.Add(chkDevMode);
+
+            chkLowOverhead = new CheckBox
+            {
+                Text = "Low-overhead logging (skip per-operation completion events)",
+                AutoSize = true,
+                Margin = new Padding(0, 6, 0, 0)
+            };
+            chkLowOverhead.CheckedChanged += (s, e) => SaveConfiguration();
+            root.Controls.Add(chkLowOverhead);
 
             lblStatus = new Label
             {
@@ -352,10 +362,10 @@ namespace IOTracesCORE
 
             string outputPath = Path.Combine(Path.GetTempPath(), "IOTraces");
             ObjectStorageHandler obj = new();
-            RunTracer(outputPath, chkAnonymous.Checked, finalUpload, obj, chkDevMode.Checked);
+            RunTracer(outputPath, chkAnonymous.Checked, finalUpload, obj, chkDevMode.Checked, chkLowOverhead.Checked);
         }
 
-        private void RunTracer(string outputPath, bool anonymous, bool upload, ObjectStorageHandler obj, bool devMode)
+        private void RunTracer(string outputPath, bool anonymous, bool upload, ObjectStorageHandler obj, bool devMode, bool lowOverhead)
         {
             EnsureOutputDirectoryExists(outputPath);
 
@@ -366,7 +376,7 @@ namespace IOTracesCORE
             {
                 try
                 {
-                    Tracer trc = new Tracer(anonymous, upload, obj, outputPath, devMode);
+                    Tracer trc = new Tracer(anonymous, upload, obj, outputPath, devMode, lowOverhead);
                     trc.Trace(cancellationToken);
                 }
                 catch (OperationCanceledException) { }
@@ -388,6 +398,7 @@ namespace IOTracesCORE
                     Anonymous = chkAnonymous.Checked,
                     UploadEnabled = chkEnableUpload.Checked,
                     DevMode = chkDevMode.Checked,
+                    LowOverheadLogging = chkLowOverhead.Checked,
                 };
 
                 string json = JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented = true });
@@ -415,6 +426,7 @@ namespace IOTracesCORE
 
                 chkAnonymous.Checked = cfg.Anonymous;
                 chkDevMode.Checked = cfg.DevMode;
+                chkLowOverhead.Checked = cfg.LowOverheadLogging;
                 chkEnableUpload.Checked = true;
             }
             catch (Exception ex)

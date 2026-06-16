@@ -18,6 +18,10 @@ namespace IOTracesCORE.utils
             public bool Anonymous { get; set; }
             public bool UploadEnabled { get; set; }
             public bool DevMode { get; set; }
+            // When true, skip the per-operation FileIO completion (op_end) events to
+            // reduce trace volume/overhead. Default false = full logging (op_end for
+            // every completed operation, giving completion status + latency).
+            public bool LowOverheadLogging { get; set; }
         }
 
         public class TraceMetadata
