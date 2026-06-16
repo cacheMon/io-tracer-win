@@ -117,10 +117,12 @@ timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,d
 > result code is `nt_status` and the operation's latency is
 > `op_end.timestamp − start.timestamp`.
 >
-> Emitted for **every completed operation** by default. Because this roughly doubles fs
-> row volume, it can be disabled with the **"Low-overhead logging"** option in the
-> configuration UI (`LowOverheadLogging` in the saved config), which suppresses `op_end`
-> rows entirely.
+> **Logging modes.** Emitted for **every completed operation** in the default (full)
+> mode. For resource-constrained machines a **"Lightweight logging"** option in the
+> configuration UI (`LowOverheadLogging` in the saved config) switches to a low-overhead
+> mode that suppresses `op_end` rows *and* disables the memory keywords (hard faults +
+> virtual allocations) at the ETW session level, so the kernel never generates those
+> high-frequency events.
 
 **Example:**
 ```csv

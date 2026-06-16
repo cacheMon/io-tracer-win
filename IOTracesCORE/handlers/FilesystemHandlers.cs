@@ -644,8 +644,8 @@ namespace IOTracesCORE.handlers
         // (op_end timestamp − start-event timestamp).
         //
         // Emitted for every completed operation by default. This roughly doubles fs row
-        // volume, so it can be turned off via the "low-overhead logging" option, which
-        // suppresses op_end entirely.
+        // volume, so the "lightweight logging" mode (lowOverheadLogging) suppresses op_end
+        // entirely (it also drops the memory keywords at the session level — see Tracer).
         public void OnOperationEnd(FileIOOpEndTraceData d)
         {
             if (lowOverheadLogging) return;   // low-overhead mode: skip per-operation completion events
