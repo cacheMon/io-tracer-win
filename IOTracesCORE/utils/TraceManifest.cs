@@ -178,6 +178,11 @@ namespace IOTracesCORE.utils
                 ["network_rows"] = snapshot.NetworkRows,
                 ["process_snapshot_rows"] = snapshot.ProcessSnapshotRows,
                 ["filesystem_snapshot_rows"] = snapshot.FilesystemSnapshotRows,
+                // Snapshot coverage: directories fully walked vs. skipped (access
+                // denied / not found / error). A non-zero inaccessible count means the
+                // filesystem snapshot is partial and by roughly how much.
+                ["filesystem_snapshot_dirs_scanned"] = snapshot.FilesystemSnapshotDirsScanned,
+                ["filesystem_snapshot_dirs_inaccessible"] = snapshot.FilesystemSnapshotDirsInaccessible,
                 ["etw_events_lost"] = snapshot.EtwEventsLost,
             };
 
@@ -192,6 +197,16 @@ namespace IOTracesCORE.utils
             // initial (non-final) manifest hasn't seen any events yet.
             if (!final) dead = new List<string>();
 
+            // Per-row timestamps are machine-local wall-clock with no embedded offset
+            // (see clock_source below). Record the capture machine's UTC offset and
+            // timezone so consumers can convert local timestamps to UTC without having
+            // to guess the machine's region. The offset is taken at session start; a
+            // mid-session DST transition would change it, but the timezone id resolves
+            // the exact per-instant offset for the rare long capture that spans one.
+            TimeSpan startOffset = TimeZoneInfo.Local.GetUtcOffset(startUtc);
+            string utcOffset = (startOffset < TimeSpan.Zero ? "-" : "+")
+                + startOffset.Duration().ToString("hh\\:mm");
+
             var manifest = new Dictionary<string, object?>
             {
                 ["schema_version"] = SchemaVersion,
@@ -203,11 +218,16 @@ namespace IOTracesCORE.utils
                 ["upload_enabled"] = uploadEnabled,
                 ["clock_source"] = new Dictionary<string, object?>
                 {
-                    // ETW DateTime timestamps are machine-local wall-clock (QPC-derived);
-                    // dead-probe note: nw counts raw packets, so 0 may simply mean no external traffic.
+                    // ETW DateTime timestamps are machine-local wall-clock (QPC-derived).
+                    // The per-row format carries no offset, so utc_offset/timezone below make
+                    // the local timestamps unambiguous and convertible to UTC. Note that
+                    // folder & shard names and start_utc/stop_utc are already in UTC.
                     ["timestamps"] = "local_wall_clock",
                     ["format"] = "yyyy-MM-dd HH:mm:ss.ffffff",
                     ["derived_from"] = "windows_qpc",
+                    ["utc_offset"] = utcOffset,
+                    ["timezone"] = TimeZoneInfo.Local.Id,
+                    ["timezone_display_name"] = TimeZoneInfo.Local.DisplayName,
                 },
                 ["start_utc"] = startUtc.ToString("yyyy-MM-dd HH:mm:ss.ffffff"),
                 ["stop_utc"] = stopUtc?.ToString("yyyy-MM-dd HH:mm:ss.ffffff"),
