@@ -191,12 +191,15 @@ namespace IOTracesCORE.utils
         }
 
         public static string Build(bool final, string deviceId, bool anonymous, bool uploadEnabled,
-            DateTime startUtc, DateTime? stopUtc)
+            DateTime startUtc, DateTime? stopUtc, bool lowOverheadLogging = false)
         {
             var (counters, dead) = CountersAndDeadProbes();
             // Dead-probe detection is only meaningful once the session has run; an
             // initial (non-final) manifest hasn't seen any events yet.
             if (!final) dead = new List<string>();
+            // In lightweight mode the memory stream is intentionally disabled (its keywords
+            // are never enabled), so an empty `mr` stream is expected — not a dead probe.
+            if (lowOverheadLogging) dead.Remove("mr");
 
             // Per-row timestamps are machine-local wall-clock with no embedded offset
             // (see clock_source below). Record the capture machine's UTC offset and
@@ -217,6 +220,10 @@ namespace IOTracesCORE.utils
                 ["device_id"] = deviceId,
                 ["anonymous"] = anonymous,
                 ["upload_enabled"] = uploadEnabled,
+                // "full" logs everything; "lightweight" suppresses op_end rows and the
+                // memory keywords. Recorded so a consumer knows that missing op_end /
+                // memory data is intentional (the mode), not an absence of activity.
+                ["logging_mode"] = lowOverheadLogging ? "lightweight" : "full",
                 ["clock_source"] = new Dictionary<string, object?>
                 {
                     // ETW DateTime timestamps are machine-local wall-clock (QPC-derived).

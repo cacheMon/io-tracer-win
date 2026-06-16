@@ -27,6 +27,9 @@ namespace IOTracesCORE
         private bool isUploadAutomatically;
         private volatile bool isShuttingDown = false;
         private int cleanupStarted = 0;
+        // Lightweight mode for resource-constrained machines: suppresses the highest-overhead
+        // streams (per-operation op_end completions, and the memory/virtual-alloc keywords).
+        private readonly bool lowOverheadLogging;
 
         [DllImport("kernel32.dll")]
         static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate handler, bool add);
@@ -46,7 +49,8 @@ namespace IOTracesCORE
         {
             objHandler = obj;
             isUploadAutomatically = upload;
-            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode);
+            this.lowOverheadLogging = lowOverheadLogging;
+            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode, lowOverheadLogging);
             processCache = new ProcessCommandLineCache();
             fsHandler = new FilesystemHandlers(wm, processCache, lowOverheadLogging);
             dsHandler = new DiskHandlers(wm);
@@ -289,20 +293,32 @@ namespace IOTracesCORE
                 {
                     session.StopOnDispose = true;
 
-                    session.EnableKernelProvider(
+                    var keywords =
                         KernelTraceEventParser.Keywords.FileIO |
                         KernelTraceEventParser.Keywords.FileIOInit |
                         KernelTraceEventParser.Keywords.Process |
                         KernelTraceEventParser.Keywords.DiskIO |
                         KernelTraceEventParser.Keywords.DiskIOInit |
-                        KernelTraceEventParser.Keywords.NetworkTCPIP |
-                        KernelTraceEventParser.Keywords.Memory |
-                        KernelTraceEventParser.Keywords.MemoryHardFaults |
-                        KernelTraceEventParser.Keywords.VirtualAlloc
-                    );
+                        KernelTraceEventParser.Keywords.NetworkTCPIP;
 
-                    var memoryManagerGuid = new Guid("d1d93ef7-e1f2-4f45-9943-03d245fe6c00");
-                    session.EnableProvider(memoryManagerGuid);
+                    // Lightweight mode drops the memory/virtual-alloc keywords. These are by
+                    // far the chattiest kernel events, so not enabling them means the kernel
+                    // never generates them — a real CPU/buffer saving, not just smaller files.
+                    if (!lowOverheadLogging)
+                    {
+                        keywords |=
+                            KernelTraceEventParser.Keywords.Memory |
+                            KernelTraceEventParser.Keywords.MemoryHardFaults |
+                            KernelTraceEventParser.Keywords.VirtualAlloc;
+                    }
+
+                    session.EnableKernelProvider(keywords);
+
+                    if (!lowOverheadLogging)
+                    {
+                        var memoryManagerGuid = new Guid("d1d93ef7-e1f2-4f45-9943-03d245fe6c00");
+                        session.EnableProvider(memoryManagerGuid);
+                    }
 
                     var tcpIpProviderGuid = new Guid("2F07E2EE-15DB-40F1-90EF-9D7BA282188A");
                     session.EnableProvider(tcpIpProviderGuid);

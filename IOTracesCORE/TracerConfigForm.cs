@@ -98,7 +98,7 @@ namespace IOTracesCORE
 
             chkLowOverhead = new CheckBox
             {
-                Text = "Low-overhead logging (skip per-operation completion events)",
+                Text = "Lightweight logging for low-resource machines (skips op_end + memory events)",
                 AutoSize = true,
                 Margin = new Padding(0, 6, 0, 0)
             };

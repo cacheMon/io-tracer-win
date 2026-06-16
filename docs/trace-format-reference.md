@@ -40,6 +40,7 @@ Key fields:
 | `schema_version` | Version of the column schemas below; bumped on any schema change |
 | `tracer_version` | Release channel + assembly version |
 | `finalized` | `false` for the start-of-session manifest, `true` once counters are filled in |
+| `logging_mode` | `full` (logs everything) or `lightweight` (resource-constrained: no `op_end` rows and memory keywords disabled). Lets a consumer tell intentional omissions from genuine inactivity |
 | `clock_source` | Timestamp clock: local wall-clock (Windows QPC-derived), format `yyyy-MM-dd HH:mm:ss.ffffff`. Includes `utc_offset` (signed `HH:mm` of the capture machine at session start) and `timezone` (Windows tz id) so local row timestamps can be converted to UTC |
 | `start_utc` / `stop_utc` | Session start/stop (`stop_utc` is null until finalized) |
 | `streams` | Per-stream `path_glob` + ordered `columns` (`name`/`type`/`unit`) — the source of truth for parsing |
@@ -53,6 +54,7 @@ Key fields:
   "tracer_version": "Release/1.0.0.0",
   "platform": "windows",
   "finalized": true,
+  "logging_mode": "full",
   "clock_source": { "timestamps": "local_wall_clock", "format": "yyyy-MM-dd HH:mm:ss.ffffff", "derived_from": "windows_qpc", "utc_offset": "+07:00", "timezone": "SE Asia Standard Time", "timezone_display_name": "(UTC+07:00) Bangkok, Hanoi, Jakarta" },
   "start_utc": "2026-06-14 14:00:00.000000",
   "stop_utc": "2026-06-14 16:30:00.000000",
@@ -117,10 +119,12 @@ timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,d
 > result code is `nt_status` and the operation's latency is
 > `op_end.timestamp − start.timestamp`.
 >
-> Emitted for **every completed operation** by default. Because this roughly doubles fs
-> row volume, it can be disabled with the **"Low-overhead logging"** option in the
-> configuration UI (`LowOverheadLogging` in the saved config), which suppresses `op_end`
-> rows entirely.
+> **Logging modes.** Emitted for **every completed operation** in the default (full)
+> mode. For resource-constrained machines a **"Lightweight logging"** option in the
+> configuration UI (`LowOverheadLogging` in the saved config) switches to a low-overhead
+> mode that suppresses `op_end` rows *and* disables the memory keywords (hard faults +
+> virtual allocations) at the ETW session level, so the kernel never generates those
+> high-frequency events.
 
 **Example:**
 ```csv

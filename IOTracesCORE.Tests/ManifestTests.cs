@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text.Json;
 using IOTracesCORE.utils;
 using Xunit;
@@ -37,6 +38,27 @@ namespace IOTracesCORE.Tests
 
             Assert.True(counters.TryGetProperty("filesystem_snapshot_dirs_scanned", out _));
             Assert.True(counters.TryGetProperty("filesystem_snapshot_dirs_inaccessible", out _));
+        }
+
+        [Theory]
+        [InlineData(false, "full")]
+        [InlineData(true, "lightweight")]
+        public void LoggingMode_IsRecorded(bool lowOverhead, string expected)
+        {
+            string json = TraceManifest.Build(
+                final: true, deviceId: "DEV", anonymous: false, uploadEnabled: false,
+                startUtc: new DateTime(2026, 6, 14, 1, 2, 3, DateTimeKind.Utc),
+                stopUtc: new DateTime(2026, 6, 14, 2, 2, 3, DateTimeKind.Utc),
+                lowOverheadLogging: lowOverhead);
+            var root = JsonDocument.Parse(json).RootElement;
+
+            Assert.Equal(expected, root.GetProperty("logging_mode").GetString());
+
+            // In lightweight mode the intentionally-disabled memory stream must not be
+            // reported as a dead probe.
+            var dead = root.GetProperty("dead_probes").EnumerateArray()
+                .Select(e => e.GetString());
+            if (lowOverhead) Assert.DoesNotContain("mr", dead);
         }
     }
 }
