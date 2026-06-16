@@ -50,7 +50,7 @@ namespace IOTracesCORE
             objHandler = obj;
             isUploadAutomatically = upload;
             this.lowOverheadLogging = lowOverheadLogging;
-            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode);
+            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode, lowOverheadLogging);
             processCache = new ProcessCommandLineCache();
             fsHandler = new FilesystemHandlers(wm, processCache, lowOverheadLogging);
             dsHandler = new DiskHandlers(wm);

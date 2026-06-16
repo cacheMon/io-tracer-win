@@ -15,6 +15,7 @@ namespace IOTracesCORE
     {
         private string dir_path;
         private bool is_dev_mode;
+        private bool is_low_overhead;
         private string fs_filepath;
         private string ds_filepath;
         private string mr_filepath;
@@ -91,7 +92,7 @@ namespace IOTracesCORE
 
         private readonly DateTime _sessionStartUtc = DateTime.UtcNow;
 
-        public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj, bool dev_mode = false)
+        public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj, bool dev_mode = false, bool low_overhead = false)
         {
             amount_compressed_file = 0;
             utils.TraceStats.Reset();
@@ -106,6 +107,7 @@ namespace IOTracesCORE
             obj_storage = obj;
             is_upload_automatically = upload;
             is_dev_mode = dev_mode;
+            is_low_overhead = low_overhead;
 
 
             dir_path = $"{dirpath}\\{DateTime.UtcNow:yyyyMMdd_HHmmss}";
@@ -160,7 +162,7 @@ namespace IOTracesCORE
             {
                 string json = utils.TraceManifest.Build(
                     final, PathHasher.deviceId, is_anonymous, is_upload_automatically,
-                    _sessionStartUtc, final ? DateTime.UtcNow : (DateTime?)null);
+                    _sessionStartUtc, final ? DateTime.UtcNow : (DateTime?)null, is_low_overhead);
 
                 // Own subfolder so the upload path's trace_type (derived from the
                 // parent folder name) is a clean "manifest", alongside fs/, ds/, etc.
