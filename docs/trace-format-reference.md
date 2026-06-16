@@ -109,20 +109,26 @@ timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,d
 | 17 | `FileAttributes` | flags | File attributes | Pipe-separated. Only for `create` ops |
 | 18 | `IoFlags` | flags | I/O specific flags | Pipe-separated. Only for `read`, `write` ops |
 | 19 | `CommandLine` | string | Full command line of the process | Empty if unavailable |
-| 20 | `NtStatus` | hex | Final `NTSTATUS` of the completed IRP | Only on `op_end` rows; hex `0x...` (e.g. `0x00000000` success, `0xC0000034` not-found). Empty otherwise |
+| 20 | `NtStatus` | hex | Final `NTSTATUS` of the completed IRP | Only on `op_end` rows; hex `0x...` (e.g. `0xC0000034` object-name-not-found, `0xC0000022` access-denied). Empty otherwise |
 
 > **`op_end` rows.** Emitted from the ETW FileIO *OperationEnd* event, which carries
 > only the IRP pointer, completing thread, and final status — no path/FileKey. Join an
 > `op_end` row back to its originating `read`/`write`/`create` by the `irp` column; the
-> per-operation latency is `op_end.timestamp − start.timestamp`, and the result code is
-> `nt_status`.
+> result code is `nt_status` and the operation's latency is
+> `op_end.timestamp − start.timestamp`.
+>
+> To keep volume down, `op_end` rows are emitted **only for failed operations**
+> (NTSTATUS error severity, `0xC0000000`+) — start events already record every attempted
+> operation, so this captures the success-vs-failure signal they lack without doubling
+> the stream. Capturing `op_end` for *every* completion (for success-path latency) is a
+> possible future opt-in.
 
 **Example:**
 ```csv
 timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line,nt_status
 2026-02-08 23:23:45.123456,open,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,FILE_FLAG_OVERLAPPED,FILE_SHARE_READ,OPEN_EXISTING,,,,0xFFFFAB12,0xFFFFCD34,FILE_ATTRIBUTE_NORMAL,"C:\Windows\System32\notepad.exe",
 2026-02-08 23:23:45.125789,read,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,4096,0,4096,,,IRP_PAGING_IO|IRP_NOCACHE,,,,,,,0xFFFFAB12,0xFFFFCD34,,"C:\Windows\System32\notepad.exe",
-2026-02-08 23:23:45.126102,op_end,1234,5678,notepad.exe,,0,,,,,,,,,,,,0xFFFFAB12,,,"C:\Windows\System32\notepad.exe",0x00000000
+2026-02-08 23:23:45.126102,op_end,1234,5678,notepad.exe,,0,,,,,,,,,,,,0xFFFFAB12,,,"C:\Windows\System32\notepad.exe",0xC0000034
 ```
 
 ---

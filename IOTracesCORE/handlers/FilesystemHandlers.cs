@@ -634,14 +634,21 @@ namespace IOTracesCORE.handlers
 
         // The FileIO OperationEnd event reports the final NTSTATUS of a completed IRP.
         // It carries only the IRP pointer, status, and completing thread — no FileKey or
-        // FileName — so we cannot resolve a path here. Instead we emit a lightweight
-        // "op_end" row that consumers join back to the originating read/write/create by
-        // the `irp` column: the operation's status is in `nt_status`, and its latency is
-        // (op_end timestamp − start-event timestamp). Note this roughly doubles fs row
-        // volume; gating it (e.g. failures only, or behind a config flag) is a reasonable
-        // follow-up if that cost matters.
+        // FileName — so we cannot resolve a path here. We emit a lightweight "op_end" row
+        // that consumers join back to the originating read/write/create by the `irp`
+        // column; the result code is in `nt_status`.
+        //
+        // Volume gate: the start events already record every *attempted* operation, so an
+        // op_end per completion would ~double the fs stream. We therefore emit op_end only
+        // for *failed* operations (NTSTATUS error severity, 0xC0000000+) — the one thing
+        // the start events can't tell you (success vs failure). Capturing op_end for every
+        // completion (to also get success-path latency) is intentionally left as a future
+        // opt-in flag rather than paying 2x volume by default.
+        private const uint NtStatusErrorSeverity = 0xC0000000;
+
         public void OnOperationEnd(FileIOOpEndTraceData d)
         {
+            if ((uint)d.NtStatus < NtStatusErrorSeverity) return;   // success / info / warning — skip
             if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
             wm.Write(new FilesystemTrace(
                 d.TimeStamp, "op_end", d.ProcessID, d.ThreadID, d.ProcessName, "", 0,
