@@ -40,10 +40,10 @@ Key fields:
 | `schema_version` | Version of the column schemas below; bumped on any schema change |
 | `tracer_version` | Release channel + assembly version |
 | `finalized` | `false` for the start-of-session manifest, `true` once counters are filled in |
-| `clock_source` | Timestamp clock: local wall-clock (Windows QPC-derived), format `yyyy-MM-dd HH:mm:ss.ffffff` |
+| `clock_source` | Timestamp clock: local wall-clock (Windows QPC-derived), format `yyyy-MM-dd HH:mm:ss.ffffff`. Includes `utc_offset` (signed `HH:mm` of the capture machine at session start) and `timezone` (Windows tz id) so local row timestamps can be converted to UTC |
 | `start_utc` / `stop_utc` | Session start/stop (`stop_utc` is null until finalized) |
 | `streams` | Per-stream `path_glob` + ordered `columns` (`name`/`type`/`unit`) — the source of truth for parsing |
-| `counters` | Per-stream event counts, `network_packets` (raw), and `etw_events_lost` (kernel drops) |
+| `counters` | Per-stream event counts, `network_packets` (raw), `etw_events_lost` (kernel drops), and `filesystem_snapshot_dirs_scanned` / `filesystem_snapshot_dirs_inaccessible` (snapshot coverage — a non-zero inaccessible count means the filesystem snapshot is partial) |
 | `dead_probes` | Streams that produced **zero** events this session — a likely dead/unattached probe (note: `nw` may legitimately be 0 with no external traffic) |
 
 **Example (truncated):**
@@ -53,11 +53,11 @@ Key fields:
   "tracer_version": "Release/1.0.0.0",
   "platform": "windows",
   "finalized": true,
-  "clock_source": { "timestamps": "local_wall_clock", "format": "yyyy-MM-dd HH:mm:ss.ffffff", "derived_from": "windows_qpc" },
+  "clock_source": { "timestamps": "local_wall_clock", "format": "yyyy-MM-dd HH:mm:ss.ffffff", "derived_from": "windows_qpc", "utc_offset": "+07:00", "timezone": "SE Asia Standard Time", "timezone_display_name": "(UTC+07:00) Bangkok, Hanoi, Jakarta" },
   "start_utc": "2026-06-14 14:00:00.000000",
   "stop_utc": "2026-06-14 16:30:00.000000",
   "streams": { "ds": { "path_glob": "ds/*.csv.zst", "columns": [ { "name": "Ts", "type": "timestamp" } ] } },
-  "counters": { "disk_events": 1052331, "network_packets": 84210, "etw_events_lost": 0 },
+  "counters": { "disk_events": 1052331, "network_packets": 84210, "etw_events_lost": 0, "filesystem_snapshot_dirs_scanned": 184320, "filesystem_snapshot_dirs_inaccessible": 142 },
   "dead_probes": []
 }
 ```
