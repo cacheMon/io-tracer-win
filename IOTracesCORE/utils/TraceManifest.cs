@@ -13,11 +13,10 @@ namespace IOTracesCORE.utils
     /// </summary>
     internal static class TraceManifest
     {
-        // Bump when any stream's column set or semantics change.
-        // v5: cross-OS aligned fs/ds layout — a fixed shared column prefix
-        //     (identical names/order to the Linux tracer), lowercase canonical
-        //     operation names, and a CSV header row on every file.
-        public const string SchemaVersion = "5";
+        // Schema version stamped into manifest.json. Reset to "1" by request; the
+        // cross-OS aligned fs/ds column layout (shared prefix, lowercase canonical
+        // operation names, header row on every file) is unchanged.
+        public const string SchemaVersion = "1";
 
         private static Dictionary<string, object?> Col(string name, string type, string? unit = null)
         {

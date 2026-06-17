@@ -50,7 +50,7 @@ Key fields:
 **Example (truncated):**
 ```json
 {
-  "schema_version": "5",
+  "schema_version": "1",
   "tracer_version": "Release/1.0.0.0",
   "platform": "windows",
   "finalized": true,
@@ -72,7 +72,7 @@ Key fields:
 
 Captures detailed file system operations.
 
-> **Schema v5 — cross-OS aligned.** As of schema_version 5 every CSV file now
+> **Cross-OS aligned.** Every CSV file
 > **begins with a header row**. Columns 1–12 (`timestamp` … `flags`) are the
 > **shared prefix** emitted identically by the Linux tracer's `fs/` stream, so a
 > single parser reads the comparable fields from either OS; the remaining columns
@@ -145,7 +145,7 @@ Captures low-level disk I/O operations.
 timestamp,operation,pid,tid,command,sector,size,latency_ms,device,flags,irp
 ```
 
-> **Schema v5 — cross-OS aligned.** Columns 1–10 (`timestamp` … `flags`) are the
+> **Cross-OS aligned.** Columns 1–10 (`timestamp` … `flags`) are the
 > **shared prefix** emitted identically by the Linux tracer's `ds/` stream
 > (`flags` carries the pipe-separated IRP flags; `device` is the disk index,
 > where Linux uses `major:minor`). Files begin with this header row.

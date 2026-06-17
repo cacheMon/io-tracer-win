@@ -5,7 +5,7 @@ Captures detailed file system I/O operations via Windows ETW kernel tracing.
 **CSV Header:**
 `timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line`
 
-> Schema v5 (cross-OS aligned): files now begin with this header row; columns
+> Cross-OS aligned: files now begin with this header row; columns
 > 1–12 are the shared prefix identical to the Linux `fs/` stream. `operation` is
 > the lowercase canonical name (`create`→`open`, `flush`→`fsync`,
 > `query_info`→`getattr`, `set_info`→`setattr`, `dir_enum`→`readdir`,
