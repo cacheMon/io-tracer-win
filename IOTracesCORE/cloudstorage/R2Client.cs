@@ -27,7 +27,7 @@ namespace IOTracesCORE.cloudstorage
                     trace_type = "unknown_type";
                 }
 
-                var endpoint = $"{EndpointUrl}/windows_trace_v4_test/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}";
+                var endpoint = $"{EndpointUrl}/io-tracer/windows_v1/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}";
 
                 var request = new HttpRequestMessage(
                     HttpMethod.Get,
