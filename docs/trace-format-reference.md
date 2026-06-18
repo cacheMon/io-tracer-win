@@ -7,7 +7,7 @@ Complete reference for all trace formats captured by IOTracer, including CSV hea
 All traces are uploaded to cloud storage with the following prefix structure:
 
 ```
-io-tracer/windows_v1/{deviceId}/{timestamp}/
+windows_v1/{deviceId}/{timestamp}/
 ```
 
 Where:
@@ -325,7 +325,7 @@ Hardware and software specifications captured at trace start. Stored as separate
 
 **Cloud Storage Location:**
 ```
-io-tracer/windows_v1/{deviceId}/{timestamp}/system_spec/
+windows_v1/{deviceId}/{timestamp}/system_spec/
 ```
 
 #### cpu_info.json
