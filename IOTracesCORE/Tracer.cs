@@ -312,7 +312,35 @@ namespace IOTracesCORE
                             KernelTraceEventParser.Keywords.VirtualAlloc;
                     }
 
-                    session.EnableKernelProvider(keywords);
+                    // FileIO is an extremely high-volume kernel provider. The default ETW
+                    // buffer pool is only a few MB, so during a launch/boot burst the kernel
+                    // real-time buffers overflow within seconds; once the consumer is behind,
+                    // the kernel drops the highest-volume provider (FileIO) wholesale for the
+                    // rest of the session while low-rate providers (TcpIp) still find slots.
+                    // This is the cause of the observed "fs/ stream truncated to a startup
+                    // burst" pathology. Size the buffer pool generously so bursts are absorbed,
+                    // but scale to physical RAM and cap it so we never lock an unreasonable
+                    // share of non-paged pool on a small machine. Must be set BEFORE
+                    // EnableKernelProvider. An over-large request can be rejected by ETW, so
+                    // fall back to a conservative size rather than losing the whole session.
+                    long ramBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+                    int ramMb = ramBytes > 0 ? (int)(ramBytes / (1024L * 1024L)) : 0;
+                    int maxBufferMb = lowOverheadLogging ? 128 : 512;
+                    int bufferMb = ramMb > 0 ? Math.Clamp(ramMb / 64, 64, maxBufferMb) : maxBufferMb;
+                    try
+                    {
+                        session.BufferSizeMB = bufferMb;
+                        session.EnableKernelProvider(keywords);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[Tracer] EnableKernelProvider failed at {bufferMb}MB buffers " +
+                            $"({ex.Message}); retrying with default buffer size.");
+                        // Recreate provider enablement at the library default — a too-large
+                        // buffer request must not take down every stream.
+                        session.BufferSizeMB = 64;
+                        session.EnableKernelProvider(keywords);
+                    }
 
                     if (!lowOverheadLogging)
                     {
