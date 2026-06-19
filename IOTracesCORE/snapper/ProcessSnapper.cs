@@ -188,10 +188,10 @@ FROM Win32_Process";
             List<(DateTime ts, TimeSpan totalCpu)> list;
             lock (samples)
             {
-                if (!samples.TryGetValue(pid, out list) || list.Count == 0)
+                if (!samples.TryGetValue(pid, out var found) || found.Count == 0)
                     return 0.0;
 
-                list = [.. list];
+                list = [.. found];
             }
 
             var curr = list.Last();

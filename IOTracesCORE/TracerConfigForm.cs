@@ -12,15 +12,14 @@ namespace IOTracesCORE
 {
     public class TracerConfigForm : Form
     {
-        private CheckBox chkAnonymous;
-        private CheckBox chkEnableUpload;
-        private CheckBox chkAutoStart;
-        private CheckBox chkDevMode;
-        private CheckBox chkLowOverhead;
-        private Label lblAnonymous;
-        private Label lblStatus;
-        private Button btnRunTracer;
-        private TextBox txtInfo;
+        private CheckBox chkAnonymous = null!;
+        private CheckBox chkEnableUpload = null!;
+        private CheckBox chkAutoStart = null!;
+        private CheckBox chkDevMode = null!;
+        private CheckBox chkLowOverhead = null!;
+        private Label lblStatus = null!;
+        private Button btnRunTracer = null!;
+        private TextBox txtInfo = null!;
 
         private bool isConnectionSafe = false;
         private readonly CancellationToken cancellationToken;
@@ -158,7 +157,7 @@ namespace IOTracesCORE
 
 
 
-        private async void ChkEnableUpload_CheckedChanged(object sender, EventArgs e)
+        private async void ChkEnableUpload_CheckedChanged(object? sender, EventArgs e)
         {
             if (!chkEnableUpload.Checked)
             {
@@ -268,7 +267,7 @@ namespace IOTracesCORE
             }
         }
 
-        private async void BtnRunTracer_Click(object sender, EventArgs e)
+        private async void BtnRunTracer_Click(object? sender, EventArgs e)
         {
             if (btnRunTracer.Text == "Retry Connection")
             {
@@ -462,7 +461,11 @@ namespace IOTracesCORE
                     using (var process = Process.Start(psi))
                     {
                         process?.WaitForExit();
-                        if (process?.ExitCode != 0)
+                        if (process == null)
+                        {
+                            throw new InvalidOperationException("Failed to start schtasks process.");
+                        }
+                        if (process.ExitCode != 0)
                         {
                             string error = process.StandardError.ReadToEnd();
                             throw new InvalidOperationException($"Failed to create scheduled task: {error}");
