@@ -16,7 +16,7 @@ Where:
 
 Each trace type is stored in its own subdirectory under this prefix:
 - `fs/` - Filesystem operation traces
-- `ds/` - Disk I/O traces  
+- `block/` - Disk I/O traces  
 - `mr/` - Memory traces
 - `nw/` - Network traces
 - `process/` - Process snapshot data
@@ -58,7 +58,7 @@ Key fields:
   "clock_source": { "timestamps": "local_wall_clock", "format": "yyyy-MM-dd HH:mm:ss.ffffff", "derived_from": "windows_qpc", "utc_offset": "+07:00", "timezone": "SE Asia Standard Time", "timezone_display_name": "(UTC+07:00) Bangkok, Hanoi, Jakarta" },
   "start_utc": "2026-06-14 14:00:00.000000",
   "stop_utc": "2026-06-14 16:30:00.000000",
-  "streams": { "ds": { "path_glob": "ds/*.csv.zst", "columns": [ { "name": "Ts", "type": "timestamp" } ] } },
+  "streams": { "block": { "path_glob": "block/*.csv.zst", "columns": [ { "name": "Ts", "type": "timestamp" } ] } },
   "counters": { "disk_events": 1052331, "network_packets": 84210, "etw_events_lost": 0, "filesystem_snapshot_dirs_scanned": 184320, "filesystem_snapshot_dirs_inaccessible": 142 },
   "dead_probes": []
 }
@@ -136,7 +136,7 @@ timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,d
 
 ---
 
-### Disk Trace (`ds/`)
+### Disk Trace (`block/`)
 
 Captures low-level disk I/O operations.
 
@@ -146,7 +146,7 @@ timestamp,operation,pid,tid,command,sector,size,latency_ms,device,flags,irp
 ```
 
 > **Cross-OS aligned.** Columns 1–10 (`timestamp` … `flags`) are the
-> **shared prefix** emitted identically by the Linux tracer's `ds/` stream
+> **shared prefix** emitted identically by the Linux tracer's `block/` stream
 > (`flags` carries the pipe-separated IRP flags; `device` is the disk index,
 > where Linux uses `major:minor`). Files begin with this header row.
 
@@ -539,7 +539,7 @@ CSV files follow this naming pattern:
 ```
 
 Where:
-- `{type}` - Trace type: `fs`, `ds`, `mr`, `nw`, `process`, `filesystem_snapshot`
+- `{type}` - Trace type: `fs`, `block`, `mr`, `nw`, `process`, `filesystem_snapshot`
 - `{timestamp}` - File creation time in format `yyyyMMdd_HHmmss`
 - `{deviceId}` - Unique device identifier (hashed)
 - `.zst` - Zstandard compression extension
@@ -547,7 +547,7 @@ Where:
 **Example:**
 ```
 fs/fs_20260212_143022_a1b2c3d4e5f6.csv.zst
-ds/ds_20260212_143022_a1b2c3d4e5f6.csv.zst
+block/block_20260212_143022_a1b2c3d4e5f6.csv.zst
 ```
 
 ---

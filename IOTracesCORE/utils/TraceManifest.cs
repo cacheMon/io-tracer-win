@@ -14,7 +14,7 @@ namespace IOTracesCORE.utils
     internal static class TraceManifest
     {
         // Schema version stamped into manifest.json. Reset to "1" by request; the
-        // cross-OS aligned fs/ds column layout (shared prefix, lowercase canonical
+        // cross-OS aligned fs/block column layout (shared prefix, lowercase canonical
         // operation names, header row on every file) is unchanged.
         public const string SchemaVersion = "1";
 
@@ -48,9 +48,9 @@ namespace IOTracesCORE.utils
                     Col("nt_status", "hex"),
                 }
             },
-            ["ds"] = new Dictionary<string, object?>
+            ["block"] = new Dictionary<string, object?>
             {
-                ["path_glob"] = "ds/*.csv.zst",
+                ["path_glob"] = "block/*.csv.zst",
                 ["columns"] = new object[]
                 {
                     // --- shared cross-OS prefix (columns 1-10; identical on Linux) --- #
@@ -121,7 +121,7 @@ namespace IOTracesCORE.utils
         {
             string key = tracetype switch
             {
-                "disk" => "ds",
+                "disk" => "block",
                 "memory" => "mr",
                 "network" => "nw",
                 _ => tracetype, // filesystem, process, filesystem_snapshot
@@ -158,7 +158,7 @@ namespace IOTracesCORE.utils
             var streamCounts = new Dictionary<string, long>
             {
                 ["filesystem"] = snapshot.FilesystemEvents,
-                ["ds"] = snapshot.DiskEvents,
+                ["block"] = snapshot.DiskEvents,
                 ["mr"] = snapshot.MemoryEvents,
                 ["nw"] = snapshot.NetworkPackets,
                 ["process"] = snapshot.ProcessSnapshotRows,

@@ -17,14 +17,14 @@ namespace IOTracesCORE
         private bool is_dev_mode;
         private bool is_low_overhead;
         private string fs_filepath;
-        private string ds_filepath;
+        private string block_filepath;
         private string mr_filepath;
         private string nw_filepath;
         private string fs_snap_filepath;
         private string process_snap_filepath;
 
         private readonly StringBuilder fs_sb;
-        private readonly StringBuilder ds_sb;
+        private readonly StringBuilder block_sb;
         private readonly StringBuilder mr_sb;
         private readonly StringBuilder nw_sb;
         private readonly StringBuilder fs_snap_sb;
@@ -38,7 +38,7 @@ namespace IOTracesCORE
         // is not thread-safe, and FlushWrite mutates the rotating filepath fields, so
         // every append + flush sequence must hold the matching lock.
         private readonly object fs_lock = new();
-        private readonly object ds_lock = new();
+        private readonly object block_lock = new();
         private readonly object mr_lock = new();
         private readonly object nw_lock = new();
         private readonly object fs_snap_lock = new();
@@ -46,7 +46,7 @@ namespace IOTracesCORE
 
         private object GetLock(string tracetype) => tracetype switch
         {
-            "disk" => ds_lock,
+            "disk" => block_lock,
             "memory" => mr_lock,
             "network" => nw_lock,
             "process" => process_snap_lock,
@@ -98,7 +98,7 @@ namespace IOTracesCORE
             utils.TraceStats.Reset();
 
             fs_sb = new StringBuilder();
-            ds_sb = new StringBuilder();
+            block_sb = new StringBuilder();
             mr_sb = new StringBuilder();
             nw_sb = new StringBuilder();
             fs_snap_sb = new StringBuilder();
@@ -112,7 +112,7 @@ namespace IOTracesCORE
 
             dir_path = $"{dirpath}\\{DateTime.UtcNow:yyyyMMdd_HHmmss}";
             fs_filepath = GenerateFilePath("fs");
-            ds_filepath = GenerateFilePath("ds");
+            block_filepath = GenerateFilePath("block");
             mr_filepath = GenerateFilePath("mr");
             nw_filepath = GenerateFilePath("nw");
             process_snap_filepath = GenerateFilePath("process");
@@ -129,7 +129,7 @@ namespace IOTracesCORE
         {
             EnsureDirectoryExists(dir_path);
             string? fs_folder = Path.GetDirectoryName(fs_filepath) ?? throw new Exception("Invalid directory path.");
-            string? ds_folder = Path.GetDirectoryName(ds_filepath) ?? throw new Exception("Invalid directory path.");
+            string? block_folder = Path.GetDirectoryName(block_filepath) ?? throw new Exception("Invalid directory path.");
             string? mr_folder = Path.GetDirectoryName(mr_filepath) ?? throw new Exception("Invalid directory path.");
             string? nw_folder = Path.GetDirectoryName(nw_filepath) ?? throw new Exception("Invalid directory path.");
             string? proc_snap_folder = Path.GetDirectoryName(process_snap_filepath) ?? throw new Exception("Invalid directory path.");
@@ -137,7 +137,7 @@ namespace IOTracesCORE
 
 
             EnsureDirectoryExists(fs_folder);
-            EnsureDirectoryExists(ds_folder);
+            EnsureDirectoryExists(block_folder);
             EnsureDirectoryExists(mr_folder);
             EnsureDirectoryExists(proc_snap_folder);
             EnsureDirectoryExists(fs_snap_folder);
@@ -165,7 +165,7 @@ namespace IOTracesCORE
                     _sessionStartUtc, final ? DateTime.UtcNow : (DateTime?)null, is_low_overhead);
 
                 // Own subfolder so the upload path's trace_type (derived from the
-                // parent folder name) is a clean "manifest", alongside fs/, ds/, etc.
+                // parent folder name) is a clean "manifest", alongside fs/, block/, etc.
                 string manifestDir = Path.Combine(dir_path, "manifest");
                 EnsureDirectoryExists(manifestDir);
                 string path = Path.Combine(manifestDir, "manifest.json");
@@ -298,14 +298,14 @@ namespace IOTracesCORE
             }
 
             ObjectStorageHandler.ResumeGate.Wait();
-            lock (ds_lock)
+            lock (block_lock)
             {
                 Interlocked.Increment(ref disk_event_counter);
                 utils.TraceStats.IncDisk();
-                ds_sb.Append(data.FormatAsCsv());
-                if (IsTimeToFlush(ds_sb))
+                block_sb.Append(data.FormatAsCsv());
+                if (IsTimeToFlush(block_sb))
                 {
-                    FlushWriteLocked(ds_sb, ds_filepath, "disk");
+                    FlushWriteLocked(block_sb, block_filepath, "disk");
                 }
             }
         }
@@ -410,8 +410,8 @@ namespace IOTracesCORE
             }
             else if (tracetype.Equals("disk"))
             {
-                old_fp = ds_filepath;
-                ds_filepath = GenerateFilePath("ds");
+                old_fp = block_filepath;
+                block_filepath = GenerateFilePath("block");
             }
             else if (tracetype.Equals("memory"))
             {
@@ -675,7 +675,7 @@ namespace IOTracesCORE
             Debug.WriteLine("Compressing all remaining data...");
 
             if (fs_sb.Length > 0) FlushWrite(fs_sb, fs_filepath, "filesystem");
-            if (ds_sb.Length > 0) FlushWrite(ds_sb, ds_filepath, "disk");
+            if (block_sb.Length > 0) FlushWrite(block_sb, block_filepath, "disk");
             if (mr_sb.Length > 0) FlushWrite(mr_sb, mr_filepath, "memory");
             if (process_snap_sb.Length > 0) FlushWrite(process_snap_sb, process_snap_filepath, "process");
             if (fs_snap_sb.Length > 0) FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");

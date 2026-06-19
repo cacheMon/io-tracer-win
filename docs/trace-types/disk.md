@@ -1,4 +1,4 @@
-# Disk Trace (`DISK`)
+# Disk Trace (`BLOCK`)
 
 Captures low-level disk I/O operations.
 
@@ -16,7 +16,7 @@ _Note: If no matching start time is found for a given `Irp` (e.g. the `DiskIOIni
 `timestamp,operation,pid,tid,command,sector,size,latency_ms,device,flags,irp`
 
 > Cross-OS aligned: files now begin with this header row; columns
-> 1–10 are the shared prefix identical to the Linux `ds/` stream. `device` is the
+> 1–10 are the shared prefix identical to the Linux `block/` stream. `device` is the
 > disk index (Linux uses `major:minor`); `flags` carries the pipe-separated IRP
 > flags.
 

@@ -6,7 +6,7 @@ using Xunit;
 namespace IOTracesCORE.Tests
 {
     // Locks the cross-OS aligned schema (v5): the shared column prefix and the
-    // FormatAsCsv field order must match the Linux tracer's fs/ds streams.
+    // FormatAsCsv field order must match the Linux tracer's fs/block streams.
     public class AlignedSchemaTests
     {
         // Shared prefixes — identical names/order to the Linux tracer.
@@ -44,7 +44,7 @@ namespace IOTracesCORE.Tests
         [Fact]
         public void DiskHeaderLine_ResolvesTracetypeAlias()
         {
-            // WriterManager passes "disk"; it must resolve to the ds stream.
+            // WriterManager passes "disk"; it must resolve to the block stream.
             Assert.StartsWith("timestamp,operation,pid,tid,command,sector",
                               TraceManifest.HeaderLine("disk"));
         }
