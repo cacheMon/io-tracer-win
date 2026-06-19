@@ -293,6 +293,14 @@ namespace IOTracesCORE
                 {
                     session.StopOnDispose = true;
 
+                    // Give the kernel session generous buffers. FileIO is ~99% of the
+                    // event volume and arrives in bursts (boot, AV scans, Windows
+                    // Update) that can briefly exceed the consumer's drain rate; the
+                    // default buffer pool is small and overflows silently, dropping
+                    // FileIO events (see issue #47). Larger buffers absorb the burst
+                    // while the off-thread flush worker keeps the consumer draining.
+                    session.BufferSizeMB = 256;
+
                     var keywords =
                         KernelTraceEventParser.Keywords.FileIO |
                         KernelTraceEventParser.Keywords.FileIOInit |

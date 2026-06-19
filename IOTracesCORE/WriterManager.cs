@@ -1,6 +1,7 @@
 ﻿using IOTracesCORE.cloudstorage;
 using IOTracesCORE.trace;
 using IOTracesCORE.utils;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -58,6 +59,20 @@ namespace IOTracesCORE
         private string empty_filename_filepath;
 
         private ObjectStorageHandler obj_storage;
+
+        // ── Off-thread flush pipeline ─────────────────────────────────────────
+        // The ETW consumer thread (and the snapper / handler threads) must never
+        // block on disk I/O or zstd compression: while a flush runs inline, the
+        // single real-time ETW consumer cannot drain the kernel buffers, which
+        // overflow and silently drop FileIO events — the bulk of the event volume
+        // (see issue #47). A flush therefore only rotates the file path and hands
+        // the buffered text to this queue; one dedicated worker thread does the
+        // write + compress + upload-queue. The producer-side cost drops to an
+        // in-memory copy + enqueue.
+        private sealed record FlushJob(
+            string Path, string Content, string TraceType, bool IsFinalFsSnap, int PartCount);
+        private readonly BlockingCollection<FlushJob> _flushQueue = new(new ConcurrentQueue<FlushJob>());
+        private readonly Thread _flushWorker;
 
         private const double MEMORY_PRESSURE_RATIO = 0.01;
         private const long ABSOLUTE_MAX_BYTES = 256L * 1024 * 1024; // 256 MB
@@ -121,6 +136,13 @@ namespace IOTracesCORE
             string tmp_dir = Path.Combine(dirpath, "tmp");
             empty_filename_filepath = Path.Combine(tmp_dir, $"empty_filenames_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt");
             this.is_anonymous = is_anonymous;
+
+            _flushWorker = new Thread(FlushWorkerLoop)
+            {
+                IsBackground = true,
+                Name = "WriterFlush"
+            };
+            _flushWorker.Start();
 
             StartEventRateDetector();
         }
@@ -395,9 +417,12 @@ namespace IOTracesCORE
         }
 
         /// <summary>
-        /// Performs the actual rotate + write + compress + queue. The caller MUST
-        /// already hold <see cref="GetLock"/> for <paramref name="tracetype"/> and
-        /// must have waited on <see cref="ObjectStorageHandler.ResumeGate"/>.
+        /// Rotates the output path and hands the buffered text to the flush worker.
+        /// The caller MUST already hold <see cref="GetLock"/> for <paramref
+        /// name="tracetype"/> and must have waited on <see
+        /// cref="ObjectStorageHandler.ResumeGate"/>. The slow part (disk write + zstd
+        /// compression + upload-queue) runs on the dedicated flush worker thread so
+        /// the ETW consumer never stalls and the kernel buffers do not overflow.
         /// </summary>
         private void FlushWriteLocked(StringBuilder sb, string filepath, string tracetype, bool isFinalFsSnap = false)
         {
@@ -440,39 +465,82 @@ namespace IOTracesCORE
             }
             _lastFlushUtc = DateTime.UtcNow;
 
+            // Snapshot the buffered text and clear the builder *under the caller's
+            // lock* (memory-only, fast), then hand the slow write+compress off the
+            // hot path. PartCount must be captured here too: a later rotation will
+            // mutate fs_snap_part_counter before the worker runs the job.
+            var job = new FlushJob(
+                old_fp,
+                sb.ToString(),
+                tracetype,
+                isFinalFsSnap,
+                isFinalFsSnap ? fs_snap_part_counter - 1 : 0);
+            sb.Clear();
+
+            // During shutdown the queue is completed and joined; any straggler flush
+            // (e.g. a late deferred-filename resolution) runs inline so it is not lost.
+            if (_flushQueue.IsAddingCompleted)
+            {
+                ExecuteFlushJob(job);
+            }
+            else
+            {
+                _flushQueue.Add(job);
+            }
+        }
+
+        private void FlushWorkerLoop()
+        {
+            foreach (var job in _flushQueue.GetConsumingEnumerable())
+            {
+                try
+                {
+                    ExecuteFlushJob(job);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[WriterManager] Flush worker error for {job.Path}: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Does the actual write + compress + upload-queue for one rotated chunk.
+        /// Runs on the single flush-worker thread (or inline during shutdown drain),
+        /// so file paths are unique per job and ordering per trace type is preserved.
+        /// </summary>
+        private void ExecuteFlushJob(FlushJob job)
+        {
             // Each rotated file is fresh (compressed + deleted after this flush),
             // so write the schema header row first to make every CSV
             // self-describing — matching the Linux tracer's headered streams.
-            bool needsHeader = !File.Exists(old_fp) || new FileInfo(old_fp).Length == 0;
-            using (var writer = new StreamWriter(old_fp, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+            bool needsHeader = !File.Exists(job.Path) || new FileInfo(job.Path).Length == 0;
+            using (var writer = new StreamWriter(job.Path, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             {
                 if (needsHeader)
                 {
-                    string header = utils.TraceManifest.HeaderLine(tracetype);
+                    string header = utils.TraceManifest.HeaderLine(job.TraceType);
                     if (!string.IsNullOrEmpty(header))
                         writer.Write(header + "\n");
                 }
-                writer.Write(sb);
+                writer.Write(job.Content);
             }
-
-            sb.Clear();
 
             // Compress all trace types including filesystem_snapshot parts
             try
             {
-                string compressed_fp = CompressFile(old_fp);
+                string compressed_fp = CompressFile(job.Path);
 
-                if (isFinalFsSnap && tracetype.Equals("filesystem_snapshot"))
+                if (job.IsFinalFsSnap && job.TraceType.Equals("filesystem_snapshot"))
                 {
                     string dir = Path.GetDirectoryName(compressed_fp) ?? dir_path;
                     string filename = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(compressed_fp)); // Remove .csv.zst
-                    int totalParts = fs_snap_part_counter - 1;
-                    string newFilename = $"{filename}_complete_parts{totalParts}.csv.zst";
+                    string newFilename = $"{filename}_complete_parts{job.PartCount}.csv.zst";
                     string newPath = Path.Combine(dir, newFilename);
 
                     File.Move(compressed_fp, newPath);
                     compressed_fp = newPath;
-                    Debug.WriteLine($"Filesystem snapshot completed with {totalParts} parts. Final file: {newPath}");
+                    Debug.WriteLine($"Filesystem snapshot completed with {job.PartCount} parts. Final file: {newPath}");
                 }
 
                 if (is_upload_automatically)
@@ -480,7 +548,7 @@ namespace IOTracesCORE
                     // High-volume continuous trace types are buffered locally and
                     // uploaded in 100 MB / 20 min batches. Snapshot types keep their
                     // part/complete file semantics, so they upload directly.
-                    if (IsBufferedTraceType(tracetype))
+                    if (IsBufferedTraceType(job.TraceType))
                     {
                         obj_storage.BufferFile(compressed_fp);
                     }
@@ -492,9 +560,30 @@ namespace IOTracesCORE
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error compressing file {old_fp}: {ex.Message}");
+                Debug.WriteLine($"Error compressing file {job.Path}: {ex.Message}");
             }
             WriteStatus();
+        }
+
+        /// <summary>
+        /// Stops accepting new flush jobs and blocks until the worker has written and
+        /// compressed every queued chunk. Called once at shutdown, after the final
+        /// FlushWrite calls have enqueued, and before the upload buffers are drained —
+        /// so every compressed file exists and is queued before upload/cleanup.
+        /// </summary>
+        public void DrainFlushQueue()
+        {
+            if (_flushQueue.IsAddingCompleted)
+                return;
+            _flushQueue.CompleteAdding();
+            try
+            {
+                _flushWorker.Join();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WriterManager] Flush worker join error: {ex.Message}");
+            }
         }
 
         public void DirectWrite(string file_out_path, string input)
@@ -681,6 +770,11 @@ namespace IOTracesCORE
             if (fs_snap_sb.Length > 0) FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
             if (nw_sb.Length > 0) FlushWrite(nw_sb, nw_filepath, "network");
             Debug.WriteLine("Flushed all StringBuilders.");
+
+            // Block until the flush worker has written + compressed every queued
+            // chunk, so all output files exist and are queued before we drain the
+            // upload buffers and clean up below.
+            DrainFlushQueue();
 
             // Filesystem snapshot compression is now handled by FinalizeFilesystemSnapshot
 
