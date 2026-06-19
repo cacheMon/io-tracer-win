@@ -6,7 +6,7 @@ using Xunit;
 namespace IOTracesCORE.Tests
 {
     // Locks the cross-OS aligned schema (v5): the shared column prefix and the
-    // FormatAsCsv field order must match the Linux tracer's fs/ds streams.
+    // FormatAsCsv field order must match the Linux tracer's fs/block streams.
     public class AlignedSchemaTests
     {
         // Shared prefixes — identical names/order to the Linux tracer.
@@ -15,7 +15,7 @@ namespace IOTracesCORE.Tests
             "timestamp", "operation", "pid", "tid", "command", "filename",
             "size", "offset", "bytes_completed", "inode", "device", "flags",
         };
-        private static readonly string[] DsPrefix =
+        private static readonly string[] BlockPrefix =
         {
             "timestamp", "operation", "pid", "tid", "command", "sector",
             "size", "latency_ms", "device", "flags",
@@ -33,18 +33,18 @@ namespace IOTracesCORE.Tests
         }
 
         [Fact]
-        public void DsHeader_MatchesSharedPrefixThenIrp()
+        public void BlockHeader_MatchesSharedPrefixThenIrp()
         {
             var header = TraceManifest.HeaderLine("disk").Split(',');
-            for (int i = 0; i < DsPrefix.Length; i++)
-                Assert.Equal(DsPrefix[i], header[i]);
-            Assert.Equal("irp", header[DsPrefix.Length]); // only Windows extra
+            for (int i = 0; i < BlockPrefix.Length; i++)
+                Assert.Equal(BlockPrefix[i], header[i]);
+            Assert.Equal("irp", header[BlockPrefix.Length]); // only Windows extra
         }
 
         [Fact]
         public void DiskHeaderLine_ResolvesTracetypeAlias()
         {
-            // WriterManager passes "disk"; it must resolve to the ds stream.
+            // WriterManager passes "disk"; it must resolve to the block stream.
             Assert.StartsWith("timestamp,operation,pid,tid,command,sector",
                               TraceManifest.HeaderLine("disk"));
         }
@@ -77,7 +77,7 @@ namespace IOTracesCORE.Tests
         }
 
         [Fact]
-        public void DsRow_AlignsWithHeader()
+        public void BlockRow_AlignsWithHeader()
         {
             var trace = new DiskTrace(
                 new DateTime(2026, 6, 14), 1234, 5678, "notepad.exe",
