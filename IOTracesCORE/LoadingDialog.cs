@@ -8,8 +8,8 @@ namespace IOTracesCORE
 {
     public class LoadingDialog : Form
     {
-        private Label lblMessage;
-        private ProgressBar progressBar;
+        private Label lblMessage = null!;
+        private ProgressBar progressBar = null!;
 
         public LoadingDialog(string message)
         {

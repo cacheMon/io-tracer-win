@@ -22,10 +22,9 @@ namespace IOTracesCORE
         static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         const int SW_HIDE = 0;
-        private static CancellationTokenSource cancellationTokenSource;
-        private static NotifyIcon trayIcon;
-        private static bool isElevated;
-        private static ToolStripMenuItem rewardMenuItem;
+        private static CancellationTokenSource cancellationTokenSource = null!;
+        private static NotifyIcon trayIcon = null!;
+        private static ToolStripMenuItem rewardMenuItem = null!;
 
         [STAThread]
         static void Main(string[] args)
@@ -203,7 +202,7 @@ namespace IOTracesCORE
             }
         }
 
-        private static void OnExitClicked(object sender, EventArgs e)
+        private static void OnExitClicked(object? sender, EventArgs e)
         {
             if (sender is ToolStripMenuItem menuItem)
             {
