@@ -1,12 +1,14 @@
 ﻿using IOTracesCORE.cloudstorage;
 using IOTracesCORE.trace;
 using IOTracesCORE.utils;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Text;
+using System.Threading;
 using ZstdSharp;
 
 namespace IOTracesCORE
@@ -60,9 +62,26 @@ namespace IOTracesCORE
         private ObjectStorageHandler obj_storage;
 
         private const double MEMORY_PRESSURE_RATIO = 0.01;
-        private const long ABSOLUTE_MAX_BYTES = 256L * 1024 * 1024; // 256 MB
+        // Each flush writes a raw CSV of up to this size on the ETW consumer thread (under
+        // the per-trace lock) before handing it to the background compressor. Keep it modest
+        // so that inline raw-write stall stays well under a second — the ETW thread must keep
+        // draining the kernel buffers or FileIO events are dropped. Compression itself (the
+        // expensive part) runs off-thread, see _compressThread.
+        private const long ABSOLUTE_MAX_BYTES = 64L * 1024 * 1024; // 64 MB
         private static readonly TimeSpan MIN_FLUSH_INTERVAL = TimeSpan.FromSeconds(10);
         private static DateTime _lastFlushUtc = DateTime.UtcNow;
+
+        // ── Background compression ────────────────────────────────────────────
+        // zstd-compressing a multi-MB chunk takes hundreds of ms to seconds. Doing it
+        // inline on the ETW Process() thread (which is what FlushWriteLocked used to do)
+        // stalls the kernel-buffer consumer for exactly that long, during the highest-
+        // volume burst — guaranteeing buffer overflow and permanent FileIO event loss.
+        // Instead the flush path writes the raw CSV (cheap, sequential) and hands the
+        // finished file to this single background thread, which compresses + queues it
+        // for upload off the hot path. Unbounded queue: Add never blocks the ETW thread.
+        private readonly record struct CompressJob(string RawPath, string TraceType, bool IsFinalFsSnap, int TotalParts);
+        private readonly BlockingCollection<CompressJob> _compressQueue = new();
+        private readonly Thread _compressThread;
 
         // Cache GC memory info to avoid querying it on every event write
         private static long _cachedAvailableMemory = 0;
@@ -122,7 +141,66 @@ namespace IOTracesCORE
             empty_filename_filepath = Path.Combine(tmp_dir, $"empty_filenames_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt");
             this.is_anonymous = is_anonymous;
 
+            _compressThread = new Thread(CompressLoop)
+            {
+                IsBackground = true,
+                Name = "trace-compressor"
+            };
+            _compressThread.Start();
+
             StartEventRateDetector();
+        }
+
+        private void CompressLoop()
+        {
+            foreach (var job in _compressQueue.GetConsumingEnumerable())
+            {
+                try
+                {
+                    ProcessCompressJob(job);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[compressor] Error compressing {job.RawPath}: {ex.Message}");
+                }
+            }
+        }
+
+        // Compress one rotated raw CSV and queue it for upload. Runs on the dedicated
+        // _compressThread, never on the ETW Process() thread. Mirrors the upload/rename
+        // semantics the inline flush used to perform.
+        private void ProcessCompressJob(CompressJob job)
+        {
+            string compressed_fp = CompressFile(job.RawPath);
+
+            if (job.IsFinalFsSnap && job.TraceType.Equals("filesystem_snapshot"))
+            {
+                string dir = Path.GetDirectoryName(compressed_fp) ?? dir_path;
+                string filename = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(compressed_fp)); // Remove .csv.zst
+                string newFilename = $"{filename}_complete_parts{job.TotalParts}.csv.zst";
+                string newPath = Path.Combine(dir, newFilename);
+
+                File.Move(compressed_fp, newPath);
+                compressed_fp = newPath;
+                Debug.WriteLine($"Filesystem snapshot completed with {job.TotalParts} parts. Final file: {newPath}");
+            }
+
+            if (is_upload_automatically)
+            {
+                // High-volume continuous trace types are buffered locally and uploaded in
+                // 100 MB / 20 min batches. Snapshot types keep their part/complete file
+                // semantics, so they upload directly.
+                if (IsBufferedTraceType(job.TraceType))
+                {
+                    obj_storage.BufferFile(compressed_fp);
+                }
+                else
+                {
+                    obj_storage.QueueFile(compressed_fp);
+                }
+            }
+
+            WriteStatus();
         }
 
         public void InitiateDirectory()
@@ -395,9 +473,11 @@ namespace IOTracesCORE
         }
 
         /// <summary>
-        /// Performs the actual rotate + write + compress + queue. The caller MUST
-        /// already hold <see cref="GetLock"/> for <paramref name="tracetype"/> and
-        /// must have waited on <see cref="ObjectStorageHandler.ResumeGate"/>.
+        /// Rotates the trace file, writes the buffered rows to the raw CSV, and hands
+        /// the finished file to the background compressor (compression + upload-queueing
+        /// happen off this thread). The caller MUST already hold <see cref="GetLock"/>
+        /// for <paramref name="tracetype"/> and must have waited on
+        /// <see cref="ObjectStorageHandler.ResumeGate"/>.
         /// </summary>
         private void FlushWriteLocked(StringBuilder sb, string filepath, string tracetype, bool isFinalFsSnap = false)
         {
@@ -457,44 +537,22 @@ namespace IOTracesCORE
 
             sb.Clear();
 
-            // Compress all trace types including filesystem_snapshot parts
+            // Hand the finished raw CSV to the background compressor. The expensive
+            // zstd compression + upload-queueing must NOT run on this thread (the ETW
+            // Process() thread, or the snapshot/flush-timer threads) — see _compressThread.
+            // Capture fs_snap_part_counter now; it may advance before the job runs.
+            int totalParts = fs_snap_part_counter - 1;
             try
             {
-                string compressed_fp = CompressFile(old_fp);
-
-                if (isFinalFsSnap && tracetype.Equals("filesystem_snapshot"))
-                {
-                    string dir = Path.GetDirectoryName(compressed_fp) ?? dir_path;
-                    string filename = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(compressed_fp)); // Remove .csv.zst
-                    int totalParts = fs_snap_part_counter - 1;
-                    string newFilename = $"{filename}_complete_parts{totalParts}.csv.zst";
-                    string newPath = Path.Combine(dir, newFilename);
-
-                    File.Move(compressed_fp, newPath);
-                    compressed_fp = newPath;
-                    Debug.WriteLine($"Filesystem snapshot completed with {totalParts} parts. Final file: {newPath}");
-                }
-
-                if (is_upload_automatically)
-                {
-                    // High-volume continuous trace types are buffered locally and
-                    // uploaded in 100 MB / 20 min batches. Snapshot types keep their
-                    // part/complete file semantics, so they upload directly.
-                    if (IsBufferedTraceType(tracetype))
-                    {
-                        obj_storage.BufferFile(compressed_fp);
-                    }
-                    else
-                    {
-                        obj_storage.QueueFile(compressed_fp);
-                    }
-                }
+                _compressQueue.Add(new CompressJob(old_fp, tracetype, isFinalFsSnap, totalParts));
             }
-            catch (Exception ex)
+            catch (InvalidOperationException)
             {
-                Debug.WriteLine($"Error compressing file {old_fp}: {ex.Message}");
+                // Queue already marked complete (shutdown). Compress inline as a fallback
+                // so the final chunk is not lost.
+                try { ProcessCompressJob(new CompressJob(old_fp, tracetype, isFinalFsSnap, totalParts)); }
+                catch (Exception ex) { Debug.WriteLine($"Error compressing file {old_fp}: {ex.Message}"); }
             }
-            WriteStatus();
         }
 
         public void DirectWrite(string file_out_path, string input)
@@ -682,6 +740,12 @@ namespace IOTracesCORE
             if (nw_sb.Length > 0) FlushWrite(nw_sb, nw_filepath, "network");
             Debug.WriteLine("Flushed all StringBuilders.");
 
+            // Wait for the background compressor to finish every queued chunk before we
+            // drain the upload buffers/queue below — the compressor is what feeds them
+            // (BufferFile/QueueFile). After CompleteAdding the loop exits once drained.
+            _compressQueue.CompleteAdding();
+            _compressThread.Join();
+
             // Filesystem snapshot compression is now handled by FinalizeFilesystemSnapshot
 
             WriteStatus();
@@ -792,16 +856,36 @@ namespace IOTracesCORE
         }
 
 
+        // Monotonic suffix so two rotations within the same second never collide on a
+        // filename. Collisions matter more now that compression is deferred: the
+        // background compressor reads + deletes a rotated raw file asynchronously, so a
+        // reused path could be appended-to while it is being compressed.
+        private static int _filePathSeq = 0;
+
+        /// <summary>Process-wide, thread-safe monotonic counter feeding rotation filenames.</summary>
+        internal static int NextFilePathSeq() => Interlocked.Increment(ref _filePathSeq);
+
+        /// <summary>
+        /// Builds the relative trace filename (.\type\...csv). The <paramref name="seq"/>
+        /// disambiguates rotations that land in the same millisecond, so distinct seq
+        /// values always yield distinct names. Pure + side-effect-free for testability.
+        /// </summary>
+        internal static string BuildTraceFileName(string type, int seq, string deviceId, DateTime utc, int partNumber = -1)
+        {
+            string part = partNumber >= 0 ? $"part{partNumber:D4}_" : "";
+            return $".\\{type}\\{type}_{part}{utc:yyyyMMdd_HHmmssfff}_{seq}_{deviceId}.csv";
+        }
+
         private string GenerateFilePath(string type)
         {
-            string fs_name = $".\\{type}\\{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{PathHasher.deviceId}.csv";
-            return Path.Combine(dir_path, fs_name);
+            return Path.Combine(dir_path,
+                BuildTraceFileName(type, NextFilePathSeq(), PathHasher.deviceId, DateTime.UtcNow));
         }
 
         private string GenerateFilePathWithPart(string type, int partNumber)
         {
-            string fs_name = $".\\{type}\\{type}_part{partNumber:D4}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{PathHasher.deviceId}.csv";
-            return Path.Combine(dir_path, fs_name);
+            return Path.Combine(dir_path,
+                BuildTraceFileName(type, NextFilePathSeq(), PathHasher.deviceId, DateTime.UtcNow, partNumber));
         }
 
         private static void WriteStatus()
