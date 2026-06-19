@@ -62,24 +62,32 @@ namespace IOTracesCORE
         private ObjectStorageHandler obj_storage;
 
         private const double MEMORY_PRESSURE_RATIO = 0.01;
-        // Each flush writes a raw CSV of up to this size on the ETW consumer thread (under
-        // the per-trace lock) before handing it to the background compressor. Keep it modest
-        // so that inline raw-write stall stays well under a second — the ETW thread must keep
-        // draining the kernel buffers or FileIO events are dropped. Compression itself (the
-        // expensive part) runs off-thread, see _compressThread.
+        // Max in-memory buffer per stream before a flush. On flush the ETW consumer thread
+        // only copies this StringBuilder to a string (pure CPU) and hands it to the
+        // background thread, which does BOTH the raw-CSV write and the compression — so the
+        // size no longer bounds any disk-I/O stall on the consumer thread (see _compressThread),
+        // only the transient string copy and the chunk/file granularity.
         private const long ABSOLUTE_MAX_BYTES = 64L * 1024 * 1024; // 64 MB
         private static readonly TimeSpan MIN_FLUSH_INTERVAL = TimeSpan.FromSeconds(10);
         private static DateTime _lastFlushUtc = DateTime.UtcNow;
 
-        // ── Background compression ────────────────────────────────────────────
-        // zstd-compressing a multi-MB chunk takes hundreds of ms to seconds. Doing it
-        // inline on the ETW Process() thread (which is what FlushWriteLocked used to do)
-        // stalls the kernel-buffer consumer for exactly that long, during the highest-
-        // volume burst — guaranteeing buffer overflow and permanent FileIO event loss.
-        // Instead the flush path writes the raw CSV (cheap, sequential) and hands the
-        // finished file to this single background thread, which compresses + queues it
-        // for upload off the hot path. Unbounded queue: Add never blocks the ETW thread.
-        private readonly record struct CompressJob(string RawPath, string TraceType, bool IsFinalFsSnap, int TotalParts);
+        // ── Background raw-write + compression ────────────────────────────────
+        // Both the raw-CSV write and the zstd compression of a multi-MB chunk must run
+        // OFF the ETW Process() consumer thread. The raw write is the subtle one: it lands
+        // on the same storage device the tracer is observing, so a real device stall
+        // (observed: EBS write p99 ~15s, laptop NVMe ~9s) blocks the consumer for seconds,
+        // the kernel real-time buffers overflow, and once the consumer is chronically
+        // behind the kernel drops the highest-volume provider (FileIO) wholesale for the
+        // rest of the session — the "fs/ truncated to a startup burst" pathology. So the
+        // flush path only snapshots the buffered rows to a string (pure CPU) under the
+        // lock and hands them to this single background thread, which writes the raw CSV,
+        // compresses it, and queues it for upload. Unbounded queue: Add never blocks the
+        // ETW thread (we prefer transient heap growth to permanently dropped kernel events).
+        // Content is non-null only for the high-volume continuous streams whose raw write is
+        // deferred to this thread; for low-volume snapshot streams the raw file is already on
+        // disk (written inline) and Content is null, meaning "compress the existing file".
+        private readonly record struct CompressJob(
+            string RawPath, string? Content, bool NeedsHeader, string TraceType, bool IsFinalFsSnap, int TotalParts);
         private readonly BlockingCollection<CompressJob> _compressQueue = new();
         private readonly Thread _compressThread;
 
@@ -171,6 +179,10 @@ namespace IOTracesCORE
         // semantics the inline flush used to perform.
         private void ProcessCompressJob(CompressJob job)
         {
+            // For deferred high-volume streams the raw write happens here (off the ETW
+            // consumer thread); snapshot streams already wrote their raw file inline.
+            if (job.Content != null)
+                WriteRawCsv(job.RawPath, job.Content, job.NeedsHeader, job.TraceType);
             string compressed_fp = CompressFile(job.RawPath);
 
             if (job.IsFinalFsSnap && job.TraceType.Equals("filesystem_snapshot"))
@@ -473,9 +485,12 @@ namespace IOTracesCORE
         }
 
         /// <summary>
-        /// Rotates the trace file, writes the buffered rows to the raw CSV, and hands
-        /// the finished file to the background compressor (compression + upload-queueing
-        /// happen off this thread). The caller MUST already hold <see cref="GetLock"/>
+        /// Rotates the trace file and hands the buffered rows to the background worker.
+        /// For high-volume continuous streams the raw-CSV write AND compression both run
+        /// off this thread (only an in-memory string copy stays under the lock), so a slow
+        /// disk cannot stall the ETW consumer and cause kernel FileIO event loss; for
+        /// low-volume snapshot streams the raw CSV is still written inline and only
+        /// compression is deferred. The caller MUST already hold <see cref="GetLock"/>
         /// for <paramref name="tracetype"/> and must have waited on
         /// <see cref="ObjectStorageHandler.ResumeGate"/>.
         /// </summary>
@@ -520,39 +535,70 @@ namespace IOTracesCORE
             }
             _lastFlushUtc = DateTime.UtcNow;
 
-            // Each rotated file is fresh (compressed + deleted after this flush),
-            // so write the schema header row first to make every CSV
-            // self-describing — matching the Linux tracer's headered streams.
-            bool needsHeader = !File.Exists(old_fp) || new FileInfo(old_fp).Length == 0;
-            using (var writer = new StreamWriter(old_fp, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
-            {
-                if (needsHeader)
-                {
-                    string header = utils.TraceManifest.HeaderLine(tracetype);
-                    if (!string.IsNullOrEmpty(header))
-                        writer.Write(header + "\n");
-                }
-                writer.Write(sb);
-            }
-
-            sb.Clear();
-
-            // Hand the finished raw CSV to the background compressor. The expensive
-            // zstd compression + upload-queueing must NOT run on this thread (the ETW
-            // Process() thread, or the snapshot/flush-timer threads) — see _compressThread.
             // Capture fs_snap_part_counter now; it may advance before the job runs.
             int totalParts = fs_snap_part_counter - 1;
+            CompressJob job;
+
+            if (IsBufferedTraceType(tracetype))
+            {
+                // High-volume continuous stream (filesystem/disk/memory/network): this is the
+                // burst that overflows the kernel buffers, so the ETW consumer thread must do
+                // NO disk I/O here. Snapshot the buffered rows to a string (pure CPU at memory
+                // bandwidth) and defer BOTH the raw-CSV write and the compression to the
+                // background thread. old_fp is a freshly-rotated path that does not exist yet,
+                // so the chunk always needs a header to stay self-describing.
+                string content = sb.ToString();
+                sb.Clear();
+                job = new CompressJob(old_fp, content, NeedsHeader: true, tracetype, isFinalFsSnap, totalParts);
+            }
+            else
+            {
+                // Low-volume snapshot streams (process, filesystem_snapshot): write the raw CSV
+                // inline as before. These never drive the kernel-buffer overflow, and their
+                // part-counter / abort-delete / completeness file semantics rely on the raw
+                // file existing synchronously once the flush returns. Only compression defers.
+                bool needsHeader = !File.Exists(old_fp) || new FileInfo(old_fp).Length == 0;
+                using (var writer = new StreamWriter(old_fp, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+                {
+                    if (needsHeader)
+                    {
+                        string header = utils.TraceManifest.HeaderLine(tracetype);
+                        if (!string.IsNullOrEmpty(header))
+                            writer.Write(header + "\n");
+                    }
+                    writer.Write(sb);
+                }
+                sb.Clear();
+                job = new CompressJob(old_fp, Content: null, NeedsHeader: false, tracetype, isFinalFsSnap, totalParts);
+            }
+
             try
             {
-                _compressQueue.Add(new CompressJob(old_fp, tracetype, isFinalFsSnap, totalParts));
+                _compressQueue.Add(job);
             }
             catch (InvalidOperationException)
             {
-                // Queue already marked complete (shutdown). Compress inline as a fallback
-                // so the final chunk is not lost.
-                try { ProcessCompressJob(new CompressJob(old_fp, tracetype, isFinalFsSnap, totalParts)); }
-                catch (Exception ex) { Debug.WriteLine($"Error compressing file {old_fp}: {ex.Message}"); }
+                // Queue already marked complete (shutdown). Write (if deferred) + compress
+                // inline as a fallback so the final chunk is not lost.
+                try { ProcessCompressJob(job); }
+                catch (Exception ex) { Debug.WriteLine($"Error writing/compressing file {old_fp}: {ex.Message}"); }
             }
+        }
+
+        // Writes one rotated chunk's buffered rows to a fresh raw CSV (schema header first).
+        // Runs on the background _compressThread, or inline only during the shutdown drain —
+        // NEVER on the ETW consumer thread, so a slow disk here cannot stall kernel-buffer
+        // draining and cause FileIO event loss.
+        private static void WriteRawCsv(string path, string content, bool needsHeader, string tracetype)
+        {
+            using var writer = new StreamWriter(path, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            if (needsHeader)
+            {
+                string header = utils.TraceManifest.HeaderLine(tracetype);
+                if (!string.IsNullOrEmpty(header))
+                    writer.Write(header + "\n");
+            }
+            writer.Write(content);
         }
 
         public void DirectWrite(string file_out_path, string input)
