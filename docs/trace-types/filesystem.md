@@ -3,10 +3,11 @@
 Captures detailed file system I/O operations via Windows ETW kernel tracing.
 
 **CSV Header:**
-`timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line`
+`timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line,nt_status`
 
-> Cross-OS aligned: files now begin with this header row; columns
-> 1–12 are the shared prefix identical to the Linux `fs/` stream. `operation` is
+> Headered; address columns by name, not position. The leading columns are
+> comparable to the Linux `fs/` stream, but Linux's `inode`/`device` are omitted
+> here (see below). `operation` is
 > the lowercase canonical name (`create`→`open`, `flush`→`fsync`,
 > `query_info`→`getattr`, `set_info`→`setattr`, `dir_enum`→`readdir`,
 > `map_file`→`mmap`, `fs_control`→`fsctl`). The Linux prefix's `inode`/`device` are
@@ -14,29 +15,31 @@ Captures detailed file system I/O operations via Windows ETW kernel tracing.
 > in `filename`), so the Windows fs layout intentionally diverges from Linux: read
 > columns by name, not position. `bytes_completed` mirrors `size` for read/write.
 
-**Fields:**
+**Fields** (in CSV column order):
 
-| Field               | Description                              | Notes                                                                             |
-| :------------------ | :--------------------------------------- | :-------------------------------------------------------------------------------- |
-| `Ts`                | Timestamp (local wall-clock) of the event | Format: `yyyy-MM-dd HH:mm:ss.ffffff`                                             |
-| `Op`                | Operation name                           | See [Operation Values](#operation-values-op) below                                |
-| `Pid`               | Process ID initiating the operation      |                                                                                   |
-| `Comm`              | Command / process name                   |                                                                                   |
-| `Filename`          | Full path of the file involved           | Hashed if anonymous mode is enabled                                               |
-| `TraceSize`         | Data transfer size (bytes)               |                                                                                   |
-| `CreateOptions`     | Flags specified during file creation     | See [CreateOptions](#createoptions-values). _`create` only_                       |
-| `ShareAccess`       | File sharing mode flags                  | See [ShareAccess](#shareaccess-values). _`create` only_                           |
-| `CreateDisposition` | Action to take on file creation          | See [CreateDisposition](#createdisposition-values). _`create` only_               |
-| `Offset`            | Byte offset of the operation             | _`read`, `write` only_                                                            |
-| `ViewSize`          | Size of the mapped view                  | _`map_file` family only_                                                          |
-| `FileInfoClass`     | `FILE_INFORMATION_CLASS` for file metadata queries/sets | See [FileInfoClass](#fileinfoclass-values). _`query_info`, `set_info` only_        |
-| `FsctlCode`         | FSCTL control code for file-system control requests      | See [FsctlCode](#fsctlcode-values). _`fs_control` only_                            |
-| `ThreadId`          | Thread ID of the operation               |                                                                                   |
-| `Irp`               | I/O Request Packet pointer               | Hex format: `0x...`. Useful for correlating request/completion pairs              |
-| `FileKey`           | Kernel file-object identifier            | Hex format: `0x...`; empty when absent                                            |
-| `FileAttributes`    | File attribute flags                     | See [FileAttributes](#fileattributes-values). _`create` only_                     |
-| `IoFlags`           | I/O flags                                | See [IoFlags](#ioflags-values). _`read`, `write` only_                            |
-| `CommandLine`       | Full command line of the process         |                                                                                   |
+| Field                | Description                              | Notes                                                                             |
+| :------------------- | :--------------------------------------- | :-------------------------------------------------------------------------------- |
+| `timestamp`          | Event time (local wall-clock)            | Format: `yyyy-MM-dd HH:mm:ss.ffffff`                                              |
+| `operation`          | Canonical lowercase operation name       | See [Operation Values](#operation-values-op) below                                |
+| `pid`                | Process ID initiating the operation      | `-1` when unattributed (cache-manager / system-context I/O)                       |
+| `tid`                | Thread ID of the operation               |                                                                                   |
+| `command`            | Command / process name                   | Empty when the kernel supplied none                                               |
+| `filename`           | Full path of the file involved           | Hashed if anonymous mode is enabled                                               |
+| `size`               | Requested transfer size (bytes)          |                                                                                   |
+| `offset`             | Byte offset of the operation             | _`read`, `write` only_                                                            |
+| `bytes_completed`    | Bytes actually transferred               | Mirrors `size` for `read`/`write`; empty for non-I/O ops                          |
+| `flags`              | IRP / I/O flags                          | See [IoFlags](#ioflags-values). _`read`, `write` only_                            |
+| `create_options`     | CreateOptions                            | See [CreateOptions](#createoptions-values). _`open` only_                         |
+| `share_access`       | File sharing mode flags                  | See [ShareAccess](#shareaccess-values). _`open` only_                             |
+| `create_disposition` | Create/open disposition                  | See [CreateDisposition](#createdisposition-values). _`open` only_                 |
+| `view_size`          | Size of the mapped view                  | _`mmap` family only_                                                              |
+| `file_info_class`    | `FILE_INFORMATION_CLASS` for metadata queries/sets | See [FileInfoClass](#fileinfoclass-values). _`getattr`, `setattr` only_  |
+| `fsctl_code`         | FSCTL control code                       | See [FsctlCode](#fsctlcode-values). _`fsctl` only_                                |
+| `irp`                | I/O Request Packet pointer               | Hex `0x...`. Join an `op_end` back to its start by this                           |
+| `file_key`           | Kernel file-object identity              | Hex `0x...`; the Windows analog of `inode` (session-scoped). Empty when absent    |
+| `file_attributes`    | File attribute flags                     | See [FileAttributes](#fileattributes-values). _`open` only_                       |
+| `command_line`       | Full command line of the process         |                                                                                   |
+| `nt_status`          | Final `NTSTATUS` of the completed IRP    | `op_end` rows only; hex `0x...`. Empty otherwise                                  |
 
 > **Note:** `DesiredAccess` is **not** available in Windows ETW FileIO events. Capturing it would require a minifilter driver (e.g., Process Monitor).
 

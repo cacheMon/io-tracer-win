@@ -44,7 +44,7 @@ Key fields:
 | `clock_source` | Timestamp clock: local wall-clock (Windows QPC-derived), format `yyyy-MM-dd HH:mm:ss.ffffff`. Includes `utc_offset` (signed `HH:mm` of the capture machine at session start) and `timezone` (Windows tz id) so local row timestamps can be converted to UTC |
 | `start_utc` / `stop_utc` | Session start/stop (`stop_utc` is null until finalized) |
 | `streams` | Per-stream `path_glob` + ordered `columns` (`name`/`type`/`unit`) — the source of truth for parsing |
-| `counters` | Per-stream event counts, `network_packets` (raw), `etw_events_lost` (kernel drops), and `filesystem_snapshot_dirs_scanned` / `filesystem_snapshot_dirs_inaccessible` (snapshot coverage — a non-zero inaccessible count means the filesystem snapshot is partial) |
+| `counters` | Per-stream event counts plus diagnostics: `network_packets` (raw); `etw_events_lost` (consumer-side ETW drop count) and `session_events_lost` (authoritative OS-queried kernel drop count — trust this one); `filesystem_events_received` / `filesystem_events_filtered_by_process` (raw FileIO the kernel delivered vs. the subset `ProcessFilter` excluded — their gap explains a sparse `fs/`); `fs_format_dropped` / `fs_format_queue_depth` / `fs_format_queue_high_water` (off-thread formatter back-pressure); and `filesystem_snapshot_dirs_scanned` / `filesystem_snapshot_dirs_inaccessible` (snapshot coverage — a non-zero inaccessible count means the snapshot is partial) |
 | `dead_probes` | Streams that produced **zero** events this session — a likely dead/unattached probe (note: `nw` may legitimately be 0 with no external traffic) |
 
 **Example (truncated):**
@@ -59,7 +59,7 @@ Key fields:
   "start_utc": "2026-06-14 14:00:00.000000",
   "stop_utc": "2026-06-14 16:30:00.000000",
   "streams": { "block": { "path_glob": "block/*.csv.zst", "columns": [ { "name": "Ts", "type": "timestamp" } ] } },
-  "counters": { "disk_events": 1052331, "network_packets": 84210, "etw_events_lost": 0, "filesystem_snapshot_dirs_scanned": 184320, "filesystem_snapshot_dirs_inaccessible": 142 },
+  "counters": { "filesystem_events": 2373533, "filesystem_events_received": 3827696, "filesystem_events_filtered_by_process": 1453282, "disk_events": 1052331, "network_packets": 84210, "etw_events_lost": 0, "session_events_lost": 0, "fs_format_dropped": 0, "fs_format_queue_high_water": 2681, "filesystem_snapshot_dirs_scanned": 184320, "filesystem_snapshot_dirs_inaccessible": 142 },
   "dead_probes": []
 }
 ```
@@ -72,11 +72,11 @@ Key fields:
 
 Captures detailed file system operations.
 
-> **Cross-OS aligned.** Every CSV file
-> **begins with a header row**. Columns 1–12 (`timestamp` … `flags`) are the
-> **shared prefix** emitted identically by the Linux tracer's `fs/` stream, so a
-> single parser reads the comparable fields from either OS; the remaining columns
-> are Windows-only extras. `operation` is a **lowercase** canonical name shared
+> **Headered; address columns by name.** Every CSV file **begins with a header
+> row** — parse by column name, not fixed position. The leading columns are
+> comparable to the Linux tracer's `fs/` stream, but Linux's `inode`/`device` are
+> omitted here (see below), so the two layouts are no longer positionally identical;
+> the trailing columns are Windows-only extras. `operation` is a **lowercase** canonical name shared
 > with Linux (`create` → `open`, `flush` → `fsync`, `query_info` → `getattr`,
 > `set_info` → `setattr`, `dir_enum` → `readdir`, `map_file` → `mmap`,
 > `fs_control` → `fsctl`; `read`/`write`/`close`/`delete`/`rename` unchanged).
@@ -92,28 +92,32 @@ timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,flags,c
 
 **Fields:**
 
+Listed **in CSV column order** (matching the header above). `operation` is the
+lowercase canonical name; `read`/`write`/`close`/`delete`/`rename` unchanged.
+
 | # | Field | Type | Description | Notes |
 |---|-------|------|-------------|-------|
-| 1 | `Ts` | timestamp | Timestamp (local wall-clock) of the event | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
-| 2 | `Op` | string | Operation name | `create`, `read`, `write`, `flush`, `close`, `cleanup`, `delete`, `rename`, `set_info`, `query_info`, `dir_enum`, `dir_notify`, `fs_control`, `map_file`, `op_end`, etc. |
-| 3 | `Pid` | integer | Process ID initiating the operation | `-1` when the kernel did not attribute the event to a process (e.g. cache-manager / system-context I/O) |
-| 4 | `Comm` | string | Command/Process name | Empty when the kernel did not supply a name; quoted if it contains special characters |
-| 5 | `Filename` | string | Full path of the file involved | Hashed if anonymous mode enabled |
-| 6 | `TraceSize` | integer | Size of the data transfer (bytes) | |
-| 7 | `CreateOptions` | flags | Flags specified during file creation | Pipe-separated. Only for `create` ops |
-| 8 | `ShareAccess` | flags | File sharing mode flags | Pipe-separated. Only for `create` ops |
-| 9 | `CreateDisposition` | enum | Action to take on file creation | Only for `create` ops |
-| 10 | `Offset` | integer | Byte offset where operation occurred | Only for `read`, `write` ops; empty otherwise |
-| 11 | `ViewSize` | integer | Size of the view | Only for `map_file` family ops |
-| 12 | `FileInfoClass` | string | `FILE_INFORMATION_CLASS` value | Only for `query_info` / `set_info` |
-| 13 | `FsctlCode` | string | FSCTL control code | Only for `fs_control` |
-| 14 | `ThreadId` | integer | Thread ID of the operation | |
-| 15 | `Irp` | pointer | Pointer to I/O Request Packet | Hex format `0x...`; empty when absent |
-| 16 | `FileKey` | pointer | Kernel file-object identifier | Hex format `0x...`; empty when absent |
-| 17 | `FileAttributes` | flags | File attributes | Pipe-separated. Only for `create` ops |
-| 18 | `IoFlags` | flags | I/O specific flags | Pipe-separated. Only for `read`, `write` ops |
-| 19 | `CommandLine` | string | Full command line of the process | Empty if unavailable |
-| 20 | `NtStatus` | hex | Final `NTSTATUS` of the completed IRP | Only on `op_end` rows; hex `0x...` (e.g. `0x00000000` success, `0xC0000034` object-name-not-found, `0xC0000022` access-denied). Empty otherwise |
+| 1 | `timestamp` | timestamp | Event time (local wall-clock) | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
+| 2 | `operation` | string | Canonical lowercase operation name | `open`, `read`, `write`, `fsync`, `close`, `cleanup`, `delete`, `rename`, `getattr`, `setattr`, `readdir`, `dir_notify`, `fsctl`, `mmap`, `op_end`, … |
+| 3 | `pid` | integer | Process ID initiating the operation | `-1` when the kernel did not attribute the event to a process (cache-manager / system-context I/O) |
+| 4 | `tid` | integer | Thread ID of the operation | |
+| 5 | `command` | string | Command / process name | Empty when the kernel supplied none; quoted if it contains special characters |
+| 6 | `filename` | string | Full path of the file involved | Hashed if anonymous mode enabled |
+| 7 | `size` | integer (bytes) | Requested transfer size | |
+| 8 | `offset` | integer (bytes) | Byte offset of the operation | `read` / `write` only; empty otherwise |
+| 9 | `bytes_completed` | integer (bytes) | Bytes actually transferred | Mirrors `size` for `read` / `write`; empty for non-I/O ops |
+| 10 | `flags` | flags | IRP / I/O flags | Pipe-separated. `read` / `write` only |
+| 11 | `create_options` | flags | CreateOptions | Pipe-separated. `open` only |
+| 12 | `share_access` | flags | ShareAccess (file sharing mode) | Pipe-separated. `open` only |
+| 13 | `create_disposition` | enum | Create/open disposition | `open` only |
+| 14 | `view_size` | integer (bytes) | Mapped view size | `mmap` family only |
+| 15 | `file_info_class` | string | `FILE_INFORMATION_CLASS` value | `getattr` / `setattr` only |
+| 16 | `fsctl_code` | string | FSCTL control code | `fsctl` only |
+| 17 | `irp` | hex_pointer | I/O Request Packet pointer | `0x...`; join an `op_end` back to its start by this. Empty when absent |
+| 18 | `file_key` | hex_pointer | Kernel file-object identity | `0x...`; the Windows analog of `inode` (session-scoped). Empty when absent |
+| 19 | `file_attributes` | flags | File attributes | Pipe-separated. `open` only |
+| 20 | `command_line` | string | Full command line of the process | Empty if unavailable |
+| 21 | `nt_status` | hex | Final `NTSTATUS` of the completed IRP | `op_end` rows only; `0x...` (e.g. `0x00000000` success, `0xC0000034` object-name-not-found, `0xC0000022` access-denied). Empty otherwise |
 
 > **`op_end` rows.** Emitted from the ETW FileIO *OperationEnd* event, which carries
 > only the IRP pointer, completing thread, and final status — no path/FileKey. Join an
@@ -581,8 +585,8 @@ Network traffic is the exception: it is summarized **per connection, once per
 minute** (see the Network Trace section).
 
 Compressed chunks are then batched into a local per-trace-type buffer and
-uploaded to cloud storage as a single object once the buffer reaches **100 MB**
-or is **20 minutes** old (whichever comes first).
+uploaded to cloud storage as a single object once the buffer reaches **20 MB**
+or is **5 minutes** old (whichever comes first).
 
 ### Device Identification
 The `{deviceId}` is a persistent unique identifier generated for each device, used to correlate traces from the same machine across multiple trace sessions.
