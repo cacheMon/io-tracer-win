@@ -26,6 +26,10 @@ namespace IOTracesCORE
         private ObjectStorageHandler objHandler;
         private bool isUploadAutomatically;
         private volatile bool isShuttingDown = false;
+
+        // Cumulative ETW dropped-event count from any prior (restarted) sessions; the
+        // live total published to TraceStats is this plus the current source.EventsLost.
+        private long _etwLostBaseline = 0;
         private int cleanupStarted = 0;
         // Lightweight mode for resource-constrained machines: suppresses the highest-overhead
         // streams (per-operation op_end completions, and the memory/virtual-alloc keywords).
@@ -409,11 +413,34 @@ namespace IOTracesCORE
                         }
                     };
 
+                    // Poll the kernel's dropped-event count live (it rises as consumer
+                    // buffers overrun) and publish it to TraceStats every couple of seconds,
+                    // so the periodically-refreshed manifest reports capture loss even when
+                    // the session is killed before the clean-shutdown path below runs. The
+                    // running total is baseline (from any prior, restarted sessions) plus
+                    // this session's source.EventsLost. The flag stops THIS session's poller
+                    // when Process() returns (a session restart creates a fresh source/poller).
+                    bool sessionEnded = false;
+                    var lostPoller = new Thread(() =>
+                    {
+                        while (!Volatile.Read(ref sessionEnded) && !isShuttingDown)
+                        {
+                            try { utils.TraceStats.SetEtwEventsLost(_etwLostBaseline + source.EventsLost); }
+                            catch { /* source not ready / torn read — try again next tick */ }
+                            Thread.Sleep(2000);
+                        }
+                    })
+                    { IsBackground = true, Name = "etw-lost-poller" };
+                    lostPoller.Start();
+
                     source.Process(); // blocks until session.Stop() is called
 
-                    // Record events the kernel dropped this session (consumer buffers
-                    // overran) so the manifest can report capture loss.
-                    utils.TraceStats.AddEtwEventsLost(source.EventsLost);
+                    // Session ended: stop the poller and fold this session's dropped-event
+                    // count into the baseline so a subsequent restarted session accumulates
+                    // rather than overwrites.
+                    Volatile.Write(ref sessionEnded, true);
+                    _etwLostBaseline += source.EventsLost;
+                    utils.TraceStats.SetEtwEventsLost(_etwLostBaseline);
                 }
             }
             catch (Exception ex) when (!isShuttingDown && !cancellationToken.IsCancellationRequested)

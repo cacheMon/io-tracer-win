@@ -91,6 +91,23 @@ namespace IOTracesCORE
         private readonly BlockingCollection<CompressJob> _compressQueue = new();
         private readonly Thread _compressThread;
 
+        // ── Off-thread filesystem formatting ──────────────────────────────────
+        // The fs/ stream is ~99% of event volume and is what overflows the kernel
+        // buffers. CSV-formatting each event (CsvHelper, 23 fields) is pure CPU but,
+        // done inline on the single ETW Process() consumer thread, it caps how fast
+        // that thread can drain the kernel buffers — so a sustained high-rate burst
+        // (e.g. a VS Code install at ~30k ev/s on 2 vCPUs) overflows the buffers and
+        // the kernel drops FileIO wholesale, regardless of where the disk write lands.
+        // So the ETW callback now only extracts the event fields (unavoidably on its
+        // thread, since TraceEvent data is recycled) and enqueues the FilesystemTrace;
+        // this background thread does the formatting + lock + append + flush-trigger.
+        // The consumer thread's per-event cost drops to an enqueue, so it keeps draining
+        // at line rate and back-pressure becomes bounded heap growth, not dropped events.
+        // Unbounded queue: Add never blocks the ETW thread. Single formatter for now
+        // (ordering-preserving + simple); parallel formatters are a future optimization.
+        private readonly BlockingCollection<FilesystemTrace> _fsFormatQueue = new();
+        private readonly Thread _fsFormatThread;
+
         // Cache GC memory info to avoid querying it on every event write
         private static long _cachedAvailableMemory = 0;
         private static DateTime _memCacheTime = DateTime.MinValue;
@@ -118,6 +135,10 @@ namespace IOTracesCORE
         public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
 
         private readonly DateTime _sessionStartUtc = DateTime.UtcNow;
+
+        // Set once the shutdown drain begins so the periodic manifest refresh stops and
+        // cannot overwrite the authoritative final manifest with a non-final one.
+        private volatile bool _finalizing = false;
 
         public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj, bool dev_mode = false, bool low_overhead = false)
         {
@@ -155,6 +176,13 @@ namespace IOTracesCORE
                 Name = "trace-compressor"
             };
             _compressThread.Start();
+
+            _fsFormatThread = new Thread(FsFormatLoop)
+            {
+                IsBackground = true,
+                Name = "fs-formatter"
+            };
+            _fsFormatThread.Start();
 
             StartEventRateDetector();
         }
@@ -235,18 +263,25 @@ namespace IOTracesCORE
 
             Console.WriteLine("File output: {0}", this.dir_path);
 
-            // Write an initial manifest so the session's schema/start are on disk even
-            // if the process is killed before a clean shutdown. Finalized in CompressAllAsync.
-            WriteManifest(final: false);
+            // Write an initial manifest so the session's schema/start are on disk (and
+            // uploaded) even if the process is killed before a clean shutdown. Refreshed
+            // periodically by EventRateDetector and finalized in CompressAllAsync.
+            WriteManifest(final: false, upload: true);
         }
 
         /// <summary>
-        /// Writes the per-session manifest.json (authoritative schema + counters).
-        /// Called once at start (schema/start time) and once at shutdown (final:
-        /// stop time, per-stream counts, ETW lost events, dead probes). The final
-        /// manifest is queued for upload.
+        /// Writes the per-session manifest.json (authoritative schema + counters,
+        /// including the live ETW lost-event count). Called at start, periodically
+        /// during the session, and once at shutdown (final: stop time + dead probes).
         /// </summary>
-        public void WriteManifest(bool final)
+        /// <param name="final">Final manifest (stop time, dead-probe detection).</param>
+        /// <param name="upload">
+        /// Queue the manifest for upload. The final manifest always uploads. Periodic
+        /// and initial manifests upload too so a session that is killed before clean
+        /// shutdown still has a recent manifest (with EventsLost) server-side — the
+        /// reason truncated captures previously had no manifest at all.
+        /// </param>
+        public void WriteManifest(bool final, bool upload = false)
         {
             try
             {
@@ -259,9 +294,14 @@ namespace IOTracesCORE
                 string manifestDir = Path.Combine(dir_path, "manifest");
                 EnsureDirectoryExists(manifestDir);
                 string path = Path.Combine(manifestDir, "manifest.json");
-                File.WriteAllText(path, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-                if (final && is_upload_automatically)
+                // Write to a temp file then atomically replace, so a periodic refresh can
+                // never be observed (by a reader or the uploader) as a torn/partial JSON.
+                string tmp = path + ".tmp";
+                File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                File.Move(tmp, path, overwrite: true);
+
+                if ((final || upload) && is_upload_automatically)
                 {
                     obj_storage.QueueFile(path);
                 }
@@ -282,8 +322,13 @@ namespace IOTracesCORE
             eventRateThread.Start();
         }
 
+        // How often the manifest is refreshed + re-uploaded mid-session, so a killed
+        // capture still has a recent manifest (counters + live EventsLost) server-side.
+        private const int MANIFEST_REFRESH_SECONDS = 30;
+
         private void EventRateDetector()
         {
+            int secondsSinceManifest = 0;
             while (true)
             {
                 Thread.Sleep(1000);
@@ -293,6 +338,17 @@ namespace IOTracesCORE
                 if (events_in_interval > 100)
                 {
                     active_session += TimeSpan.FromSeconds(1);
+                }
+
+                if (++secondsSinceManifest >= MANIFEST_REFRESH_SECONDS)
+                {
+                    secondsSinceManifest = 0;
+                    // Skip once shutdown's final manifest is being written (see _finalizing).
+                    if (!_finalizing)
+                    {
+                        try { WriteManifest(final: false, upload: true); }
+                        catch (Exception ex) { Debug.WriteLine($"[manifest] periodic refresh failed: {ex.Message}"); }
+                    }
                 }
             }
         }
@@ -347,32 +403,50 @@ namespace IOTracesCORE
             }
         }
 
+        // Called on the ETW Process() consumer thread (and the FilesystemHandlers flush
+        // timer for late-resolved filenames). Does only the cheap drop-our-own-events
+        // guards, then hands the event to the background formatter — the expensive CSV
+        // formatting + lock + append + flush all run off this thread (see _fsFormatThread)
+        // so the consumer keeps draining the kernel buffers and FileIO is not dropped.
         public void Write(FilesystemTrace data)
         {
-            if (data.Comm.Equals("IOTracesCORE"))
-            {
-                return;
-            }
-
-            string process_name = EscapeCsvField(data.Comm);
-
-            int size = data.TraceSize;
-            if (process_name.Equals("IOTracesCORE"))
-            {
-                return;
-            }
-
+            if (data.Comm.Equals("IOTracesCORE")) return;
             if (data.Filename != null && data.Filename.Contains("IOTracer", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
 
+            try { _fsFormatQueue.Add(data); }
+            catch (InvalidOperationException)
+            {
+                // Queue already marked complete (shutdown). Format inline as a fallback so
+                // a late event (e.g. an in-flight deferred-filename flush) is not lost.
+                FormatAndAppendFs(data);
+            }
+        }
+
+        private void FsFormatLoop()
+        {
+            foreach (var data in _fsFormatQueue.GetConsumingEnumerable())
+            {
+                try { FormatAndAppendFs(data); }
+                catch (Exception ex) { Debug.WriteLine($"[fs-formatter] {ex.Message}"); }
+            }
+        }
+
+        // The hot-path work moved off the ETW consumer thread: CSV-format the event, then
+        // (waiting on the reconnect gate OUTSIDE the lock) append under fs_lock and flush
+        // at the threshold. Runs on _fsFormatThread, or inline only as the shutdown-race
+        // fallback in Write().
+        private void FormatAndAppendFs(FilesystemTrace data)
+        {
+            string csv = data.FormatAsCsv(is_anonymous);
             ObjectStorageHandler.ResumeGate.Wait();
             lock (fs_lock)
             {
                 file_event_counter += 1;
                 utils.TraceStats.IncFilesystem();
-                fs_sb.Append(data.FormatAsCsv(is_anonymous));
+                fs_sb.Append(csv);
                 if (IsTimeToFlush(fs_sb))
                 {
                     FlushWriteLocked(fs_sb, fs_filepath, "filesystem");
@@ -777,6 +851,17 @@ namespace IOTracesCORE
         public async Task CompressAllAsync()
         {
             Debug.WriteLine("Compressing all remaining data...");
+
+            // Stop periodic (non-final) manifest refreshes so the authoritative final
+            // manifest written below cannot be overwritten by a racing periodic one.
+            _finalizing = true;
+
+            // Drain the fs formatter first: it is what fills fs_sb, so flushing fs_sb
+            // before the formatter is idle would drop every still-queued event. By now
+            // the ETW session and the handlers' flush timer are stopped (see Tracer), so
+            // no new events are arriving; CompleteAdding + Join formats the remainder.
+            _fsFormatQueue.CompleteAdding();
+            _fsFormatThread.Join();
 
             if (fs_sb.Length > 0) FlushWrite(fs_sb, fs_filepath, "filesystem");
             if (block_sb.Length > 0) FlushWrite(block_sb, block_filepath, "disk");
