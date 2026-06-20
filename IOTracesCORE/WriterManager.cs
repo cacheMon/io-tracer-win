@@ -101,12 +101,24 @@ namespace IOTracesCORE
         // So the ETW callback now only extracts the event fields (unavoidably on its
         // thread, since TraceEvent data is recycled) and enqueues the FilesystemTrace;
         // this background thread does the formatting + lock + append + flush-trigger.
-        // The consumer thread's per-event cost drops to an enqueue, so it keeps draining
-        // at line rate and back-pressure becomes bounded heap growth, not dropped events.
-        // Unbounded queue: Add never blocks the ETW thread. Single formatter for now
-        // (ordering-preserving + simple); parallel formatters are a future optimization.
-        private readonly BlockingCollection<FilesystemTrace> _fsFormatQueue = new();
-        private readonly Thread _fsFormatThread;
+        // The consumer thread's per-event cost drops to a non-blocking TryAdd, so it keeps
+        // draining the kernel buffers at line rate.
+        //
+        // The queue is BOUNDED. An unbounded queue (v2.4.7) hid the failure: when the
+        // formatter could not keep up, the kernel honestly reported 0 lost events (the
+        // consumer kept up) while the queue grew without bound and the fs file silently
+        // froze. Bounding it turns that into an EXPLICIT, COUNTED drop (TryAdd fail ->
+        // TraceStats.IncFsFormatDropped), surfaced in the manifest, and keeps memory finite.
+        // Capacity is generous (seconds of burst headroom) but finite.
+        //
+        // N parallel formatter threads: FormatAsCsv (CsvHelper, 23 fields) is the
+        // parallelizable per-event cost; only the cheap append+flush-trigger is serialized
+        // under fs_lock. So formatting throughput scales past one core — the v2.4.7 single
+        // formatter could not keep up with a ~30k ev/s burst on a multi-vCPU box.
+        private const int FS_FORMAT_QUEUE_CAPACITY = 250_000;
+        private readonly BlockingCollection<FilesystemTrace> _fsFormatQueue =
+            new(FS_FORMAT_QUEUE_CAPACITY);
+        private readonly Thread[] _fsFormatThreads;
 
         // Cache GC memory info to avoid querying it on every event write
         private static long _cachedAvailableMemory = 0;
@@ -177,12 +189,20 @@ namespace IOTracesCORE
             };
             _compressThread.Start();
 
-            _fsFormatThread = new Thread(FsFormatLoop)
+            // BlockingCollection supports multiple concurrent consumers, so several
+            // formatter threads can drain the one queue in parallel. Leave headroom for the
+            // ETW consumer + compressor + snapper threads; at least 1, at most 4.
+            int nFormatters = Math.Clamp(Environment.ProcessorCount - 2, 1, 4);
+            _fsFormatThreads = new Thread[nFormatters];
+            for (int i = 0; i < nFormatters; i++)
             {
-                IsBackground = true,
-                Name = "fs-formatter"
-            };
-            _fsFormatThread.Start();
+                _fsFormatThreads[i] = new Thread(FsFormatLoop)
+                {
+                    IsBackground = true,
+                    Name = $"fs-formatter-{i}"
+                };
+                _fsFormatThreads[i].Start();
+            }
 
             StartEventRateDetector();
         }
@@ -406,7 +426,7 @@ namespace IOTracesCORE
         // Called on the ETW Process() consumer thread (and the FilesystemHandlers flush
         // timer for late-resolved filenames). Does only the cheap drop-our-own-events
         // guards, then hands the event to the background formatter — the expensive CSV
-        // formatting + lock + append + flush all run off this thread (see _fsFormatThread)
+        // formatting + lock + append + flush all run off this thread (see _fsFormatThreads)
         // so the consumer keeps draining the kernel buffers and FileIO is not dropped.
         public void Write(FilesystemTrace data)
         {
@@ -416,13 +436,21 @@ namespace IOTracesCORE
                 return;
             }
 
-            try { _fsFormatQueue.Add(data); }
+            // Non-blocking: the ETW consumer thread must never block here. If the bounded
+            // queue is full (formatters can't keep up), record an explicit, counted drop so
+            // the loss is visible in the manifest instead of silently lost. Also publish the
+            // live queue depth so the manifest shows whether the formatters are keeping up.
+            bool added;
+            try { added = _fsFormatQueue.TryAdd(data, 0); }   // 0 timeout => never blocks the ETW thread
             catch (InvalidOperationException)
             {
                 // Queue already marked complete (shutdown). Format inline as a fallback so
                 // a late event (e.g. an in-flight deferred-filename flush) is not lost.
                 FormatAndAppendFs(data);
+                return;
             }
+            if (added) utils.TraceStats.NoteFsFormatQueueDepth(_fsFormatQueue.Count);
+            else utils.TraceStats.IncFsFormatDropped();
         }
 
         private void FsFormatLoop()
@@ -436,8 +464,8 @@ namespace IOTracesCORE
 
         // The hot-path work moved off the ETW consumer thread: CSV-format the event, then
         // (waiting on the reconnect gate OUTSIDE the lock) append under fs_lock and flush
-        // at the threshold. Runs on _fsFormatThread, or inline only as the shutdown-race
-        // fallback in Write().
+        // at the threshold. Runs on the _fsFormatThreads workers (synchronized by fs_lock),
+        // or inline only as the shutdown-race fallback in Write().
         private void FormatAndAppendFs(FilesystemTrace data)
         {
             string csv = data.FormatAsCsv(is_anonymous);
@@ -861,7 +889,7 @@ namespace IOTracesCORE
             // the ETW session and the handlers' flush timer are stopped (see Tracer), so
             // no new events are arriving; CompleteAdding + Join formats the remainder.
             _fsFormatQueue.CompleteAdding();
-            _fsFormatThread.Join();
+            foreach (var t in _fsFormatThreads) t.Join();
 
             if (fs_sb.Length > 0) FlushWrite(fs_sb, fs_filepath, "filesystem");
             if (block_sb.Length > 0) FlushWrite(block_sb, block_filepath, "disk");
