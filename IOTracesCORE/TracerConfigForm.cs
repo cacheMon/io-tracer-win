@@ -444,15 +444,46 @@ namespace IOTracesCORE
             }
         }
 
+        // Copies the running exe into a stable per-user location (%LOCALAPPDATA%\IOTracer)
+        // and returns that path, so the logon auto-start task keeps working even if the
+        // original download (e.g. in Downloads) is later moved or deleted. The current
+        // session keeps running from wherever it is; the stable copy is what the task
+        // launches at the next logon. Falls back to the current exe path if the copy fails,
+        // so auto-start still works (just less robust) rather than failing outright.
+        private static string EnsureStableInstall()
+        {
+            string current = Application.ExecutablePath;
+            try
+            {
+                string dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "IOTracer");
+                string stable = Path.Combine(dir, "IOTracer.exe");
+                if (string.Equals(current, stable, StringComparison.OrdinalIgnoreCase))
+                    return stable; // already running from the installed location
+                Directory.CreateDirectory(dir);
+                File.Copy(current, stable, overwrite: true);
+                return stable;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Stable-install copy failed, using current exe path: {ex.Message}");
+                return current;
+            }
+        }
+
         private void SetAutoStart(bool enable)
         {
             try
             {
                 string taskName = "IOTracesCORE_AutoStart";
-                string exePath = Application.ExecutablePath;
 
                 if (enable)
                 {
+                    // Point the logon task at a STABLE copy of the exe, not wherever it was
+                    // launched from (often Downloads, which the user may later move/delete and
+                    // leave the task pointing at nothing).
+                    string exePath = EnsureStableInstall();
                     string arguments = $@"/Create /TN ""{taskName}"" /TR ""\""{exePath}\"""" /SC ONLOGON /RL HIGHEST /F";
 
                     var psi = new ProcessStartInfo
