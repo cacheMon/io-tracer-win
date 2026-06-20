@@ -26,8 +26,8 @@ namespace IOTracesCORE.cloudstorage
         // upload once it reaches MaxBufferBytes or MaxBufferAge, at which point it
         // is uploaded as a single file. zstd frames concatenate into a valid
         // single stream, so appended chunks remain decompressible as one file.
-        private const long MaxBufferBytes = 100L * 1024 * 1024; // 100 MB
-        private static readonly TimeSpan MaxBufferAge = TimeSpan.FromMinutes(20);
+        private const long MaxBufferBytes = 20L * 1024 * 1024; // 20 MB
+        private static readonly TimeSpan MaxBufferAge = TimeSpan.FromMinutes(5);
 
         private readonly object bufferLock = new();
         // Keyed by trace-type folder (which is also the R2 trace_type prefix).

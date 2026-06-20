@@ -248,7 +248,7 @@ namespace IOTracesCORE
             if (is_upload_automatically)
             {
                 // High-volume continuous trace types are buffered locally and uploaded in
-                // 100 MB / 20 min batches. Snapshot types keep their part/complete file
+                // 20 MB / 5 min batches. Snapshot types keep their part/complete file
                 // semantics, so they upload directly.
                 if (IsBufferedTraceType(job.TraceType))
                 {
