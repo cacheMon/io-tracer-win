@@ -28,6 +28,14 @@ namespace IOTracesCORE.utils
         public static long FilesystemSnapshotDirsInaccessible;
         // ETW events the kernel dropped because consumer buffers could not keep up.
         public static long EtwEventsLost;
+        // Filesystem events the off-thread formatter could not keep up with: the bounded
+        // _fsFormatQueue rejected them (TryAdd failed). Distinct from EtwEventsLost (which
+        // is kernel->consumer loss): this is loss DOWNSTREAM of the consumer, invisible to
+        // the kernel counter. FsFormatQueueDepth is the last observed queue depth and
+        // FsFormatQueueHighWater its peak — together they show whether formatting kept up.
+        public static long FsFormatDropped;
+        public static long FsFormatQueueDepth;
+        public static long FsFormatQueueHighWater;
 
         public static void Reset()
         {
@@ -41,6 +49,9 @@ namespace IOTracesCORE.utils
             Interlocked.Exchange(ref FilesystemSnapshotDirsScanned, 0);
             Interlocked.Exchange(ref FilesystemSnapshotDirsInaccessible, 0);
             Interlocked.Exchange(ref EtwEventsLost, 0);
+            Interlocked.Exchange(ref FsFormatDropped, 0);
+            Interlocked.Exchange(ref FsFormatQueueDepth, 0);
+            Interlocked.Exchange(ref FsFormatQueueHighWater, 0);
         }
 
         /// <summary>Immutable snapshot of all counters, each read atomically.</summary>
@@ -56,6 +67,9 @@ namespace IOTracesCORE.utils
             public long FilesystemSnapshotDirsScanned { get; init; }
             public long FilesystemSnapshotDirsInaccessible { get; init; }
             public long EtwEventsLost { get; init; }
+            public long FsFormatDropped { get; init; }
+            public long FsFormatQueueDepth { get; init; }
+            public long FsFormatQueueHighWater { get; init; }
         }
 
         /// <summary>
@@ -74,6 +88,9 @@ namespace IOTracesCORE.utils
             FilesystemSnapshotDirsScanned = Interlocked.Read(ref FilesystemSnapshotDirsScanned),
             FilesystemSnapshotDirsInaccessible = Interlocked.Read(ref FilesystemSnapshotDirsInaccessible),
             EtwEventsLost = Interlocked.Read(ref EtwEventsLost),
+            FsFormatDropped = Interlocked.Read(ref FsFormatDropped),
+            FsFormatQueueDepth = Interlocked.Read(ref FsFormatQueueDepth),
+            FsFormatQueueHighWater = Interlocked.Read(ref FsFormatQueueHighWater),
         };
 
         public static void IncFilesystem() => Interlocked.Increment(ref FilesystemEvents);
@@ -91,5 +108,19 @@ namespace IOTracesCORE.utils
         // periodically-refreshed manifest reports drops even when the session is
         // killed before a clean shutdown.
         public static void SetEtwEventsLost(long n) => Interlocked.Exchange(ref EtwEventsLost, n);
+
+        public static void IncFsFormatDropped() => Interlocked.Increment(ref FsFormatDropped);
+        // Publish the current fs-format queue depth and track its peak. Called on each
+        // enqueue from the ETW consumer thread; the high-water update is a lock-free CAS
+        // max so concurrent enqueues never lose a peak.
+        public static void NoteFsFormatQueueDepth(long depth)
+        {
+            Interlocked.Exchange(ref FsFormatQueueDepth, depth);
+            long hw;
+            while (depth > (hw = Interlocked.Read(ref FsFormatQueueHighWater)))
+            {
+                if (Interlocked.CompareExchange(ref FsFormatQueueHighWater, depth, hw) == hw) break;
+            }
+        }
     }
 }
