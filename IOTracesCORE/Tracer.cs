@@ -28,8 +28,10 @@ namespace IOTracesCORE
         private volatile bool isShuttingDown = false;
 
         // Cumulative ETW dropped-event count from any prior (restarted) sessions; the
-        // live total published to TraceStats is this plus the current source.EventsLost.
+        // live total published to TraceStats is this plus the current source.EventsLost
+        // (consumer-side) / session.EventsLost (OS-authoritative) respectively.
         private long _etwLostBaseline = 0;
+        private long _sessionLostBaseline = 0;
         private int cleanupStarted = 0;
         // Lightweight mode for resource-constrained machines: suppresses the highest-overhead
         // streams (per-operation op_end completions, and the memory/virtual-alloc keywords).
@@ -349,8 +351,13 @@ namespace IOTracesCORE
                     // fall back to a conservative size rather than losing the whole session.
                     long ramBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
                     int ramMb = ramBytes > 0 ? (int)(ramBytes / (1024L * 1024L)) : 0;
-                    int maxBufferMb = lowOverheadLogging ? 128 : 512;
-                    int bufferMb = ramMb > 0 ? Math.Clamp(ramMb / 64, 64, maxBufferMb) : maxBufferMb;
+                    // Enlarge the kernel buffer reservation for more burst absorption. TraceEvent
+                    // exposes no public buffer-COUNT setter (only BufferSizeMB), so this is the
+                    // only headroom knob via the wrapper; an over-large request is rejected and
+                    // falls back below. (The real remaining truncation is kernel-side under a mega
+                    // FileIO burst — see the authoritative session.EventsLost diagnostic.)
+                    int maxBufferMb = lowOverheadLogging ? 256 : 1024;
+                    int bufferMb = ramMb > 0 ? Math.Clamp(ramMb / 32, 128, maxBufferMb) : maxBufferMb;
                     try
                     {
                         session.BufferSizeMB = bufferMb;
@@ -445,8 +452,20 @@ namespace IOTracesCORE
                     {
                         while (!Volatile.Read(ref sessionEnded) && !isShuttingDown)
                         {
+                            // Consumer-side count — often a false 0 for real-time kernel
+                            // sessions even when the kernel dropped (e.g. fs truncation).
                             try { utils.TraceStats.SetEtwEventsLost(_etwLostBaseline + source.EventsLost); }
                             catch { /* source not ready / torn read — try again next tick */ }
+                            // AUTHORITATIVE count: session.EventsLost queries the OS
+                            // (ControlTrace -> EVENT_TRACE_PROPERTIES). This is the one that
+                            // actually reveals kernel drops when the consumer-side reads 0.
+                            try
+                            {
+                                var s = session;
+                                if (s != null)
+                                    utils.TraceStats.SetSessionEventsLost(_sessionLostBaseline + s.EventsLost);
+                            }
+                            catch { /* OS query failed / session stopping — retry next tick */ }
                             Thread.Sleep(2000);
                         }
                     })
@@ -456,11 +475,21 @@ namespace IOTracesCORE
                     source.Process(); // blocks until session.Stop() is called
 
                     // Session ended: stop the poller and fold this session's dropped-event
-                    // count into the baseline so a subsequent restarted session accumulates
+                    // counts into the baselines so a subsequent restarted session accumulates
                     // rather than overwrites.
                     Volatile.Write(ref sessionEnded, true);
                     _etwLostBaseline += source.EventsLost;
                     utils.TraceStats.SetEtwEventsLost(_etwLostBaseline);
+                    try
+                    {
+                        var s = session;
+                        if (s != null)
+                        {
+                            _sessionLostBaseline += s.EventsLost;
+                            utils.TraceStats.SetSessionEventsLost(_sessionLostBaseline);
+                        }
+                    }
+                    catch { /* session already stopped; the last polled value stands */ }
                 }
             }
             catch (Exception ex) when (!isShuttingDown && !cancellationToken.IsCancellationRequested)
