@@ -98,7 +98,7 @@ namespace IOTracesCORE.handlers
 
         private void FlushWindow()
         {
-            List<NetworkTrace> rows = null;
+            List<NetworkTrace>? rows = null;
 
             lock (_flushLock)
             {

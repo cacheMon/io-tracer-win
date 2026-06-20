@@ -18,6 +18,11 @@ namespace IOTracesCORE.utils
             public bool Anonymous { get; set; }
             public bool UploadEnabled { get; set; }
             public bool DevMode { get; set; }
+            // Lightweight logging mode for resource-constrained machines. When true,
+            // suppresses the highest-overhead streams: per-operation FileIO completion
+            // (op_end) events, and the memory keywords (hard faults + virtual allocations,
+            // disabled at the ETW session level). Default false = full logging.
+            public bool LowOverheadLogging { get; set; }
         }
 
         public class TraceMetadata

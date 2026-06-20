@@ -51,7 +51,7 @@ namespace IOTracesCORE.handlers
         // Emits a disk read/write row. The matching DiskIOInit gives the request
         // latency; if it was missed/dropped we still emit the row (with an unknown
         // latency) rather than silently discarding the operation — otherwise every
-        // read/write whose Init we didn't catch would vanish from the ds stream.
+        // read/write whose Init we didn't catch would vanish from the block stream.
         private void EmitDiskIO(DiskIOTraceData data, string operation)
         {
             ulong irp = (ulong)data.Irp;

@@ -26,7 +26,14 @@ namespace IOTracesCORE
         private ObjectStorageHandler objHandler;
         private bool isUploadAutomatically;
         private volatile bool isShuttingDown = false;
+
+        // Cumulative ETW dropped-event count from any prior (restarted) sessions; the
+        // live total published to TraceStats is this plus the current source.EventsLost.
+        private long _etwLostBaseline = 0;
         private int cleanupStarted = 0;
+        // Lightweight mode for resource-constrained machines: suppresses the highest-overhead
+        // streams (per-operation op_end completions, and the memory/virtual-alloc keywords).
+        private readonly bool lowOverheadLogging;
 
         [DllImport("kernel32.dll")]
         static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate handler, bool add);
@@ -42,13 +49,14 @@ namespace IOTracesCORE
             CTRL_SHUTDOWN_EVENT = 6
         }
 
-        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output", bool devMode = false)
+        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output", bool devMode = false, bool lowOverheadLogging = false)
         {
             objHandler = obj;
             isUploadAutomatically = upload;
-            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode);
+            this.lowOverheadLogging = lowOverheadLogging;
+            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode, lowOverheadLogging);
             processCache = new ProcessCommandLineCache();
-            fsHandler = new FilesystemHandlers(wm, processCache);
+            fsHandler = new FilesystemHandlers(wm, processCache, lowOverheadLogging);
             dsHandler = new DiskHandlers(wm);
             memHandler = new MemoryHandlers(wm);
             cacheHandler = new CacheHandlers(wm);
@@ -309,20 +317,60 @@ namespace IOTracesCORE
                 {
                     session.StopOnDispose = true;
 
-                    session.EnableKernelProvider(
+                    var keywords =
                         KernelTraceEventParser.Keywords.FileIO |
                         KernelTraceEventParser.Keywords.FileIOInit |
                         KernelTraceEventParser.Keywords.Process |
                         KernelTraceEventParser.Keywords.DiskIO |
                         KernelTraceEventParser.Keywords.DiskIOInit |
-                        KernelTraceEventParser.Keywords.NetworkTCPIP |
-                        KernelTraceEventParser.Keywords.Memory |
-                        KernelTraceEventParser.Keywords.MemoryHardFaults |
-                        KernelTraceEventParser.Keywords.VirtualAlloc
-                    );
+                        KernelTraceEventParser.Keywords.NetworkTCPIP;
 
-                    var memoryManagerGuid = new Guid("d1d93ef7-e1f2-4f45-9943-03d245fe6c00");
-                    session.EnableProvider(memoryManagerGuid);
+                    // Lightweight mode drops the memory/virtual-alloc keywords. These are by
+                    // far the chattiest kernel events, so not enabling them means the kernel
+                    // never generates them — a real CPU/buffer saving, not just smaller files.
+                    if (!lowOverheadLogging)
+                    {
+                        keywords |=
+                            KernelTraceEventParser.Keywords.Memory |
+                            KernelTraceEventParser.Keywords.MemoryHardFaults |
+                            KernelTraceEventParser.Keywords.VirtualAlloc;
+                    }
+
+                    // FileIO is an extremely high-volume kernel provider. The default ETW
+                    // buffer pool is only a few MB, so during a launch/boot burst the kernel
+                    // real-time buffers overflow within seconds; once the consumer is behind,
+                    // the kernel drops the highest-volume provider (FileIO) wholesale for the
+                    // rest of the session while low-rate providers (TcpIp) still find slots.
+                    // This is the cause of the observed "fs/ stream truncated to a startup
+                    // burst" pathology. Size the buffer pool generously so bursts are absorbed,
+                    // but scale to physical RAM and cap it so we never lock an unreasonable
+                    // share of non-paged pool on a small machine. Must be set BEFORE
+                    // EnableKernelProvider. An over-large request can be rejected by ETW, so
+                    // fall back to a conservative size rather than losing the whole session.
+                    long ramBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+                    int ramMb = ramBytes > 0 ? (int)(ramBytes / (1024L * 1024L)) : 0;
+                    int maxBufferMb = lowOverheadLogging ? 128 : 512;
+                    int bufferMb = ramMb > 0 ? Math.Clamp(ramMb / 64, 64, maxBufferMb) : maxBufferMb;
+                    try
+                    {
+                        session.BufferSizeMB = bufferMb;
+                        session.EnableKernelProvider(keywords);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[Tracer] EnableKernelProvider failed at {bufferMb}MB buffers " +
+                            $"({ex.Message}); retrying with default buffer size.");
+                        // Recreate provider enablement at the library default — a too-large
+                        // buffer request must not take down every stream.
+                        session.BufferSizeMB = 64;
+                        session.EnableKernelProvider(keywords);
+                    }
+
+                    if (!lowOverheadLogging)
+                    {
+                        var memoryManagerGuid = new Guid("d1d93ef7-e1f2-4f45-9943-03d245fe6c00");
+                        session.EnableProvider(memoryManagerGuid);
+                    }
 
                     var tcpIpProviderGuid = new Guid("2F07E2EE-15DB-40F1-90EF-9D7BA282188A");
                     session.EnableProvider(tcpIpProviderGuid);
@@ -351,6 +399,7 @@ namespace IOTracesCORE
                     kernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
                     kernel.FileIOSetInfo += fsHandler.OnSetInfo;
                     kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
+                    kernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
                     kernel.ProcessStart += data => processCache.RefreshFromProcess(data.ProcessID);
                     kernel.ProcessStop += data => processCache.Remove(data.ProcessID);
 
@@ -384,11 +433,34 @@ namespace IOTracesCORE
                         }
                     };
 
+                    // Poll the kernel's dropped-event count live (it rises as consumer
+                    // buffers overrun) and publish it to TraceStats every couple of seconds,
+                    // so the periodically-refreshed manifest reports capture loss even when
+                    // the session is killed before the clean-shutdown path below runs. The
+                    // running total is baseline (from any prior, restarted sessions) plus
+                    // this session's source.EventsLost. The flag stops THIS session's poller
+                    // when Process() returns (a session restart creates a fresh source/poller).
+                    bool sessionEnded = false;
+                    var lostPoller = new Thread(() =>
+                    {
+                        while (!Volatile.Read(ref sessionEnded) && !isShuttingDown)
+                        {
+                            try { utils.TraceStats.SetEtwEventsLost(_etwLostBaseline + source.EventsLost); }
+                            catch { /* source not ready / torn read — try again next tick */ }
+                            Thread.Sleep(2000);
+                        }
+                    })
+                    { IsBackground = true, Name = "etw-lost-poller" };
+                    lostPoller.Start();
+
                     source.Process(); // blocks until session.Stop() is called
 
-                    // Record events the kernel dropped this session (consumer buffers
-                    // overran) so the manifest can report capture loss.
-                    utils.TraceStats.AddEtwEventsLost(source.EventsLost);
+                    // Session ended: stop the poller and fold this session's dropped-event
+                    // count into the baseline so a subsequent restarted session accumulates
+                    // rather than overwrites.
+                    Volatile.Write(ref sessionEnded, true);
+                    _etwLostBaseline += source.EventsLost;
+                    utils.TraceStats.SetEtwEventsLost(_etwLostBaseline);
                 }
             }
             catch (Exception ex) when (!isShuttingDown && !cancellationToken.IsCancellationRequested)

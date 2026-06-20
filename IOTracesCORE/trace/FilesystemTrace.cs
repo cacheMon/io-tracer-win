@@ -38,6 +38,7 @@ namespace IOTracesCORE.trace
         public string? FileAttributes { get; set; }     // For Create - file attributes
         public string? IoFlags { get; set; }            // For Read/Write - IO operation flags
         public string CommandLine { get; set; }
+        public int? NtStatus { get; set; }              // For op_end - final NTSTATUS of the completed IRP
 
         private readonly StringWriter buffer = new StringWriter();
         private readonly CsvWriter csv;
@@ -108,6 +109,9 @@ namespace IOTracesCORE.trace
             csv.WriteField(FileKey.HasValue && FileKey.Value != 0 ? string.Format("0x{0:X}", FileKey.Value) : "");
             csv.WriteField(FileAttributes ?? "");
             csv.WriteField(CommandLine);
+            // NTSTATUS of the completed IRP (op_end rows only; empty otherwise).
+            // Hex so it lines up with the documented NTSTATUS constants (e.g. 0xC0000034).
+            csv.WriteField(NtStatus.HasValue ? string.Format("0x{0:X8}", (uint)NtStatus.Value) : "");
 
             csv.NextRecord();
             return buffer.ToString();
@@ -146,7 +150,8 @@ namespace IOTracesCORE.trace
                 ulong? fileKey,
                 string? fileAttributes,
                 string? ioFlags,
-                string? commandLine
+                string? commandLine,
+                int? ntStatus = null
             )
         {
             Ts = ts;
@@ -170,6 +175,7 @@ namespace IOTracesCORE.trace
             FileAttributes = fileAttributes;
             IoFlags = ioFlags;
             CommandLine = string.IsNullOrEmpty(commandLine) ? "" : commandLine;
+            NtStatus = ntStatus;
 
             var config = new CsvConfiguration(CultureInfo.InvariantCulture)
             {

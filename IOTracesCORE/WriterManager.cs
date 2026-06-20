@@ -1,12 +1,14 @@
 ﻿using IOTracesCORE.cloudstorage;
 using IOTracesCORE.trace;
 using IOTracesCORE.utils;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Text;
+using System.Threading;
 using ZstdSharp;
 
 namespace IOTracesCORE
@@ -15,15 +17,16 @@ namespace IOTracesCORE
     {
         private string dir_path;
         private bool is_dev_mode;
+        private bool is_low_overhead;
         private string fs_filepath;
-        private string ds_filepath;
+        private string block_filepath;
         private string mr_filepath;
         private string nw_filepath;
         private string fs_snap_filepath;
         private string process_snap_filepath;
 
         private readonly StringBuilder fs_sb;
-        private readonly StringBuilder ds_sb;
+        private readonly StringBuilder block_sb;
         private readonly StringBuilder mr_sb;
         private readonly StringBuilder nw_sb;
         private readonly StringBuilder fs_snap_sb;
@@ -37,7 +40,7 @@ namespace IOTracesCORE
         // is not thread-safe, and FlushWrite mutates the rotating filepath fields, so
         // every append + flush sequence must hold the matching lock.
         private readonly object fs_lock = new();
-        private readonly object ds_lock = new();
+        private readonly object block_lock = new();
         private readonly object mr_lock = new();
         private readonly object nw_lock = new();
         private readonly object fs_snap_lock = new();
@@ -45,7 +48,7 @@ namespace IOTracesCORE
 
         private object GetLock(string tracetype) => tracetype switch
         {
-            "disk" => ds_lock,
+            "disk" => block_lock,
             "memory" => mr_lock,
             "network" => nw_lock,
             "process" => process_snap_lock,
@@ -59,9 +62,51 @@ namespace IOTracesCORE
         private ObjectStorageHandler obj_storage;
 
         private const double MEMORY_PRESSURE_RATIO = 0.01;
-        private const long ABSOLUTE_MAX_BYTES = 256L * 1024 * 1024; // 256 MB
+        // Max in-memory buffer per stream before a flush. On flush the ETW consumer thread
+        // only copies this StringBuilder to a string (pure CPU) and hands it to the
+        // background thread, which does BOTH the raw-CSV write and the compression — so the
+        // size no longer bounds any disk-I/O stall on the consumer thread (see _compressThread),
+        // only the transient string copy and the chunk/file granularity.
+        private const long ABSOLUTE_MAX_BYTES = 64L * 1024 * 1024; // 64 MB
         private static readonly TimeSpan MIN_FLUSH_INTERVAL = TimeSpan.FromSeconds(10);
         private static DateTime _lastFlushUtc = DateTime.UtcNow;
+
+        // ── Background raw-write + compression ────────────────────────────────
+        // Both the raw-CSV write and the zstd compression of a multi-MB chunk must run
+        // OFF the ETW Process() consumer thread. The raw write is the subtle one: it lands
+        // on the same storage device the tracer is observing, so a real device stall
+        // (observed: EBS write p99 ~15s, laptop NVMe ~9s) blocks the consumer for seconds,
+        // the kernel real-time buffers overflow, and once the consumer is chronically
+        // behind the kernel drops the highest-volume provider (FileIO) wholesale for the
+        // rest of the session — the "fs/ truncated to a startup burst" pathology. So the
+        // flush path only snapshots the buffered rows to a string (pure CPU) under the
+        // lock and hands them to this single background thread, which writes the raw CSV,
+        // compresses it, and queues it for upload. Unbounded queue: Add never blocks the
+        // ETW thread (we prefer transient heap growth to permanently dropped kernel events).
+        // Content is non-null only for the high-volume continuous streams whose raw write is
+        // deferred to this thread; for low-volume snapshot streams the raw file is already on
+        // disk (written inline) and Content is null, meaning "compress the existing file".
+        private readonly record struct CompressJob(
+            string RawPath, string? Content, bool NeedsHeader, string TraceType, bool IsFinalFsSnap, int TotalParts);
+        private readonly BlockingCollection<CompressJob> _compressQueue = new();
+        private readonly Thread _compressThread;
+
+        // ── Off-thread filesystem formatting ──────────────────────────────────
+        // The fs/ stream is ~99% of event volume and is what overflows the kernel
+        // buffers. CSV-formatting each event (CsvHelper, 23 fields) is pure CPU but,
+        // done inline on the single ETW Process() consumer thread, it caps how fast
+        // that thread can drain the kernel buffers — so a sustained high-rate burst
+        // (e.g. a VS Code install at ~30k ev/s on 2 vCPUs) overflows the buffers and
+        // the kernel drops FileIO wholesale, regardless of where the disk write lands.
+        // So the ETW callback now only extracts the event fields (unavoidably on its
+        // thread, since TraceEvent data is recycled) and enqueues the FilesystemTrace;
+        // this background thread does the formatting + lock + append + flush-trigger.
+        // The consumer thread's per-event cost drops to an enqueue, so it keeps draining
+        // at line rate and back-pressure becomes bounded heap growth, not dropped events.
+        // Unbounded queue: Add never blocks the ETW thread. Single formatter for now
+        // (ordering-preserving + simple); parallel formatters are a future optimization.
+        private readonly BlockingCollection<FilesystemTrace> _fsFormatQueue = new();
+        private readonly Thread _fsFormatThread;
 
         // Cache GC memory info to avoid querying it on every event write
         private static long _cachedAvailableMemory = 0;
@@ -91,13 +136,17 @@ namespace IOTracesCORE
 
         private readonly DateTime _sessionStartUtc = DateTime.UtcNow;
 
-        public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj, bool dev_mode = false)
+        // Set once the shutdown drain begins so the periodic manifest refresh stops and
+        // cannot overwrite the authoritative final manifest with a non-final one.
+        private volatile bool _finalizing = false;
+
+        public WriterManager(string dirpath, bool is_anonymous, bool upload, ObjectStorageHandler obj, bool dev_mode = false, bool low_overhead = false)
         {
             amount_compressed_file = 0;
             utils.TraceStats.Reset();
 
             fs_sb = new StringBuilder();
-            ds_sb = new StringBuilder();
+            block_sb = new StringBuilder();
             mr_sb = new StringBuilder();
             nw_sb = new StringBuilder();
             fs_snap_sb = new StringBuilder();
@@ -106,11 +155,12 @@ namespace IOTracesCORE
             obj_storage = obj;
             is_upload_automatically = upload;
             is_dev_mode = dev_mode;
+            is_low_overhead = low_overhead;
 
 
             dir_path = $"{dirpath}\\{DateTime.UtcNow:yyyyMMdd_HHmmss}";
             fs_filepath = GenerateFilePath("fs");
-            ds_filepath = GenerateFilePath("ds");
+            block_filepath = GenerateFilePath("block");
             mr_filepath = GenerateFilePath("mr");
             nw_filepath = GenerateFilePath("nw");
             process_snap_filepath = GenerateFilePath("process");
@@ -120,14 +170,84 @@ namespace IOTracesCORE
             empty_filename_filepath = Path.Combine(tmp_dir, $"empty_filenames_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt");
             this.is_anonymous = is_anonymous;
 
+            _compressThread = new Thread(CompressLoop)
+            {
+                IsBackground = true,
+                Name = "trace-compressor"
+            };
+            _compressThread.Start();
+
+            _fsFormatThread = new Thread(FsFormatLoop)
+            {
+                IsBackground = true,
+                Name = "fs-formatter"
+            };
+            _fsFormatThread.Start();
+
             StartEventRateDetector();
+        }
+
+        private void CompressLoop()
+        {
+            foreach (var job in _compressQueue.GetConsumingEnumerable())
+            {
+                try
+                {
+                    ProcessCompressJob(job);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[compressor] Error compressing {job.RawPath}: {ex.Message}");
+                }
+            }
+        }
+
+        // Compress one rotated raw CSV and queue it for upload. Runs on the dedicated
+        // _compressThread, never on the ETW Process() thread. Mirrors the upload/rename
+        // semantics the inline flush used to perform.
+        private void ProcessCompressJob(CompressJob job)
+        {
+            // For deferred high-volume streams the raw write happens here (off the ETW
+            // consumer thread); snapshot streams already wrote their raw file inline.
+            if (job.Content != null)
+                WriteRawCsv(job.RawPath, job.Content, job.NeedsHeader, job.TraceType);
+            string compressed_fp = CompressFile(job.RawPath);
+
+            if (job.IsFinalFsSnap && job.TraceType.Equals("filesystem_snapshot"))
+            {
+                string dir = Path.GetDirectoryName(compressed_fp) ?? dir_path;
+                string filename = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(compressed_fp)); // Remove .csv.zst
+                string newFilename = $"{filename}_complete_parts{job.TotalParts}.csv.zst";
+                string newPath = Path.Combine(dir, newFilename);
+
+                File.Move(compressed_fp, newPath);
+                compressed_fp = newPath;
+                Debug.WriteLine($"Filesystem snapshot completed with {job.TotalParts} parts. Final file: {newPath}");
+            }
+
+            if (is_upload_automatically)
+            {
+                // High-volume continuous trace types are buffered locally and uploaded in
+                // 100 MB / 20 min batches. Snapshot types keep their part/complete file
+                // semantics, so they upload directly.
+                if (IsBufferedTraceType(job.TraceType))
+                {
+                    obj_storage.BufferFile(compressed_fp);
+                }
+                else
+                {
+                    obj_storage.QueueFile(compressed_fp);
+                }
+            }
+
+            WriteStatus();
         }
 
         public void InitiateDirectory()
         {
             EnsureDirectoryExists(dir_path);
             string? fs_folder = Path.GetDirectoryName(fs_filepath) ?? throw new Exception("Invalid directory path.");
-            string? ds_folder = Path.GetDirectoryName(ds_filepath) ?? throw new Exception("Invalid directory path.");
+            string? block_folder = Path.GetDirectoryName(block_filepath) ?? throw new Exception("Invalid directory path.");
             string? mr_folder = Path.GetDirectoryName(mr_filepath) ?? throw new Exception("Invalid directory path.");
             string? nw_folder = Path.GetDirectoryName(nw_filepath) ?? throw new Exception("Invalid directory path.");
             string? proc_snap_folder = Path.GetDirectoryName(process_snap_filepath) ?? throw new Exception("Invalid directory path.");
@@ -135,7 +255,7 @@ namespace IOTracesCORE
 
 
             EnsureDirectoryExists(fs_folder);
-            EnsureDirectoryExists(ds_folder);
+            EnsureDirectoryExists(block_folder);
             EnsureDirectoryExists(mr_folder);
             EnsureDirectoryExists(proc_snap_folder);
             EnsureDirectoryExists(fs_snap_folder);
@@ -143,33 +263,45 @@ namespace IOTracesCORE
 
             Console.WriteLine("File output: {0}", this.dir_path);
 
-            // Write an initial manifest so the session's schema/start are on disk even
-            // if the process is killed before a clean shutdown. Finalized in CompressAllAsync.
-            WriteManifest(final: false);
+            // Write an initial manifest so the session's schema/start are on disk (and
+            // uploaded) even if the process is killed before a clean shutdown. Refreshed
+            // periodically by EventRateDetector and finalized in CompressAllAsync.
+            WriteManifest(final: false, upload: true);
         }
 
         /// <summary>
-        /// Writes the per-session manifest.json (authoritative schema + counters).
-        /// Called once at start (schema/start time) and once at shutdown (final:
-        /// stop time, per-stream counts, ETW lost events, dead probes). The final
-        /// manifest is queued for upload.
+        /// Writes the per-session manifest.json (authoritative schema + counters,
+        /// including the live ETW lost-event count). Called at start, periodically
+        /// during the session, and once at shutdown (final: stop time + dead probes).
         /// </summary>
-        public void WriteManifest(bool final)
+        /// <param name="final">Final manifest (stop time, dead-probe detection).</param>
+        /// <param name="upload">
+        /// Queue the manifest for upload. The final manifest always uploads. Periodic
+        /// and initial manifests upload too so a session that is killed before clean
+        /// shutdown still has a recent manifest (with EventsLost) server-side — the
+        /// reason truncated captures previously had no manifest at all.
+        /// </param>
+        public void WriteManifest(bool final, bool upload = false)
         {
             try
             {
                 string json = utils.TraceManifest.Build(
                     final, PathHasher.deviceId, is_anonymous, is_upload_automatically,
-                    _sessionStartUtc, final ? DateTime.UtcNow : (DateTime?)null);
+                    _sessionStartUtc, final ? DateTime.UtcNow : (DateTime?)null, is_low_overhead);
 
                 // Own subfolder so the upload path's trace_type (derived from the
-                // parent folder name) is a clean "manifest", alongside fs/, ds/, etc.
+                // parent folder name) is a clean "manifest", alongside fs/, block/, etc.
                 string manifestDir = Path.Combine(dir_path, "manifest");
                 EnsureDirectoryExists(manifestDir);
                 string path = Path.Combine(manifestDir, "manifest.json");
-                File.WriteAllText(path, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-                if (final && is_upload_automatically)
+                // Write to a temp file then atomically replace, so a periodic refresh can
+                // never be observed (by a reader or the uploader) as a torn/partial JSON.
+                string tmp = path + ".tmp";
+                File.WriteAllText(tmp, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                File.Move(tmp, path, overwrite: true);
+
+                if ((final || upload) && is_upload_automatically)
                 {
                     obj_storage.QueueFile(path);
                 }
@@ -190,8 +322,13 @@ namespace IOTracesCORE
             eventRateThread.Start();
         }
 
+        // How often the manifest is refreshed + re-uploaded mid-session, so a killed
+        // capture still has a recent manifest (counters + live EventsLost) server-side.
+        private const int MANIFEST_REFRESH_SECONDS = 30;
+
         private void EventRateDetector()
         {
+            int secondsSinceManifest = 0;
             while (true)
             {
                 Thread.Sleep(1000);
@@ -201,6 +338,17 @@ namespace IOTracesCORE
                 if (events_in_interval > 100)
                 {
                     active_session += TimeSpan.FromSeconds(1);
+                }
+
+                if (++secondsSinceManifest >= MANIFEST_REFRESH_SECONDS)
+                {
+                    secondsSinceManifest = 0;
+                    // Skip once shutdown's final manifest is being written (see _finalizing).
+                    if (!_finalizing)
+                    {
+                        try { WriteManifest(final: false, upload: true); }
+                        catch (Exception ex) { Debug.WriteLine($"[manifest] periodic refresh failed: {ex.Message}"); }
+                    }
                 }
             }
         }
@@ -255,32 +403,50 @@ namespace IOTracesCORE
             }
         }
 
+        // Called on the ETW Process() consumer thread (and the FilesystemHandlers flush
+        // timer for late-resolved filenames). Does only the cheap drop-our-own-events
+        // guards, then hands the event to the background formatter — the expensive CSV
+        // formatting + lock + append + flush all run off this thread (see _fsFormatThread)
+        // so the consumer keeps draining the kernel buffers and FileIO is not dropped.
         public void Write(FilesystemTrace data)
         {
-            if (data.Comm.Equals("IOTracesCORE"))
-            {
-                return;
-            }
-
-            string process_name = EscapeCsvField(data.Comm);
-
-            int size = data.TraceSize;
-            if (process_name.Equals("IOTracesCORE"))
-            {
-                return;
-            }
-
+            if (data.Comm.Equals("IOTracesCORE")) return;
             if (data.Filename != null && data.Filename.Contains("IOTracer", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
 
+            try { _fsFormatQueue.Add(data); }
+            catch (InvalidOperationException)
+            {
+                // Queue already marked complete (shutdown). Format inline as a fallback so
+                // a late event (e.g. an in-flight deferred-filename flush) is not lost.
+                FormatAndAppendFs(data);
+            }
+        }
+
+        private void FsFormatLoop()
+        {
+            foreach (var data in _fsFormatQueue.GetConsumingEnumerable())
+            {
+                try { FormatAndAppendFs(data); }
+                catch (Exception ex) { Debug.WriteLine($"[fs-formatter] {ex.Message}"); }
+            }
+        }
+
+        // The hot-path work moved off the ETW consumer thread: CSV-format the event, then
+        // (waiting on the reconnect gate OUTSIDE the lock) append under fs_lock and flush
+        // at the threshold. Runs on _fsFormatThread, or inline only as the shutdown-race
+        // fallback in Write().
+        private void FormatAndAppendFs(FilesystemTrace data)
+        {
+            string csv = data.FormatAsCsv(is_anonymous);
             ObjectStorageHandler.ResumeGate.Wait();
             lock (fs_lock)
             {
                 file_event_counter += 1;
                 utils.TraceStats.IncFilesystem();
-                fs_sb.Append(data.FormatAsCsv(is_anonymous));
+                fs_sb.Append(csv);
                 if (IsTimeToFlush(fs_sb))
                 {
                     FlushWriteLocked(fs_sb, fs_filepath, "filesystem");
@@ -296,14 +462,14 @@ namespace IOTracesCORE
             }
 
             ObjectStorageHandler.ResumeGate.Wait();
-            lock (ds_lock)
+            lock (block_lock)
             {
                 Interlocked.Increment(ref disk_event_counter);
                 utils.TraceStats.IncDisk();
-                ds_sb.Append(data.FormatAsCsv());
-                if (IsTimeToFlush(ds_sb))
+                block_sb.Append(data.FormatAsCsv());
+                if (IsTimeToFlush(block_sb))
                 {
-                    FlushWriteLocked(ds_sb, ds_filepath, "disk");
+                    FlushWriteLocked(block_sb, block_filepath, "disk");
                 }
             }
         }
@@ -393,9 +559,14 @@ namespace IOTracesCORE
         }
 
         /// <summary>
-        /// Performs the actual rotate + write + compress + queue. The caller MUST
-        /// already hold <see cref="GetLock"/> for <paramref name="tracetype"/> and
-        /// must have waited on <see cref="ObjectStorageHandler.ResumeGate"/>.
+        /// Rotates the trace file and hands the buffered rows to the background worker.
+        /// For high-volume continuous streams the raw-CSV write AND compression both run
+        /// off this thread (only an in-memory string copy stays under the lock), so a slow
+        /// disk cannot stall the ETW consumer and cause kernel FileIO event loss; for
+        /// low-volume snapshot streams the raw CSV is still written inline and only
+        /// compression is deferred. The caller MUST already hold <see cref="GetLock"/>
+        /// for <paramref name="tracetype"/> and must have waited on
+        /// <see cref="ObjectStorageHandler.ResumeGate"/>.
         /// </summary>
         private void FlushWriteLocked(StringBuilder sb, string filepath, string tracetype, bool isFinalFsSnap = false)
         {
@@ -408,8 +579,8 @@ namespace IOTracesCORE
             }
             else if (tracetype.Equals("disk"))
             {
-                old_fp = ds_filepath;
-                ds_filepath = GenerateFilePath("ds");
+                old_fp = block_filepath;
+                block_filepath = GenerateFilePath("block");
             }
             else if (tracetype.Equals("memory"))
             {
@@ -438,61 +609,70 @@ namespace IOTracesCORE
             }
             _lastFlushUtc = DateTime.UtcNow;
 
-            // Each rotated file is fresh (compressed + deleted after this flush),
-            // so write the schema header row first to make every CSV
-            // self-describing — matching the Linux tracer's headered streams.
-            bool needsHeader = !File.Exists(old_fp) || new FileInfo(old_fp).Length == 0;
-            using (var writer = new StreamWriter(old_fp, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+            // Capture fs_snap_part_counter now; it may advance before the job runs.
+            int totalParts = fs_snap_part_counter - 1;
+            CompressJob job;
+
+            if (IsBufferedTraceType(tracetype))
             {
-                if (needsHeader)
+                // High-volume continuous stream (filesystem/disk/memory/network): this is the
+                // burst that overflows the kernel buffers, so the ETW consumer thread must do
+                // NO disk I/O here. Snapshot the buffered rows to a string (pure CPU at memory
+                // bandwidth) and defer BOTH the raw-CSV write and the compression to the
+                // background thread. old_fp is a freshly-rotated path that does not exist yet,
+                // so the chunk always needs a header to stay self-describing.
+                string content = sb.ToString();
+                sb.Clear();
+                job = new CompressJob(old_fp, content, NeedsHeader: true, tracetype, isFinalFsSnap, totalParts);
+            }
+            else
+            {
+                // Low-volume snapshot streams (process, filesystem_snapshot): write the raw CSV
+                // inline as before. These never drive the kernel-buffer overflow, and their
+                // part-counter / abort-delete / completeness file semantics rely on the raw
+                // file existing synchronously once the flush returns. Only compression defers.
+                bool needsHeader = !File.Exists(old_fp) || new FileInfo(old_fp).Length == 0;
+                using (var writer = new StreamWriter(old_fp, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
                 {
-                    string header = utils.TraceManifest.HeaderLine(tracetype);
-                    if (!string.IsNullOrEmpty(header))
-                        writer.Write(header + "\n");
+                    if (needsHeader)
+                    {
+                        string header = utils.TraceManifest.HeaderLine(tracetype);
+                        if (!string.IsNullOrEmpty(header))
+                            writer.Write(header + "\n");
+                    }
+                    writer.Write(sb);
                 }
-                writer.Write(sb);
+                sb.Clear();
+                job = new CompressJob(old_fp, Content: null, NeedsHeader: false, tracetype, isFinalFsSnap, totalParts);
             }
 
-            sb.Clear();
-
-            // Compress all trace types including filesystem_snapshot parts
             try
             {
-                string compressed_fp = CompressFile(old_fp);
-
-                if (isFinalFsSnap && tracetype.Equals("filesystem_snapshot"))
-                {
-                    string dir = Path.GetDirectoryName(compressed_fp) ?? dir_path;
-                    string filename = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(compressed_fp)); // Remove .csv.zst
-                    int totalParts = fs_snap_part_counter - 1;
-                    string newFilename = $"{filename}_complete_parts{totalParts}.csv.zst";
-                    string newPath = Path.Combine(dir, newFilename);
-
-                    File.Move(compressed_fp, newPath);
-                    compressed_fp = newPath;
-                    Debug.WriteLine($"Filesystem snapshot completed with {totalParts} parts. Final file: {newPath}");
-                }
-
-                if (is_upload_automatically)
-                {
-                    // High-volume continuous trace types are buffered locally and
-                    // uploaded in 100 MB / 20 min batches. Snapshot types keep their
-                    // part/complete file semantics, so they upload directly.
-                    if (IsBufferedTraceType(tracetype))
-                    {
-                        obj_storage.BufferFile(compressed_fp);
-                    }
-                    else
-                    {
-                        obj_storage.QueueFile(compressed_fp);
-                    }
-                }
+                _compressQueue.Add(job);
             }
-            catch (Exception ex)
+            catch (InvalidOperationException)
             {
-                Debug.WriteLine($"Error compressing file {old_fp}: {ex.Message}");
+                // Queue already marked complete (shutdown). Write (if deferred) + compress
+                // inline as a fallback so the final chunk is not lost.
+                try { ProcessCompressJob(job); }
+                catch (Exception ex) { Debug.WriteLine($"Error writing/compressing file {old_fp}: {ex.Message}"); }
             }
-            WriteStatus();
+        }
+
+        // Writes one rotated chunk's buffered rows to a fresh raw CSV (schema header first).
+        // Runs on the background _compressThread, or inline only during the shutdown drain —
+        // NEVER on the ETW consumer thread, so a slow disk here cannot stall kernel-buffer
+        // draining and cause FileIO event loss.
+        private static void WriteRawCsv(string path, string content, bool needsHeader, string tracetype)
+        {
+            using var writer = new StreamWriter(path, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            if (needsHeader)
+            {
+                string header = utils.TraceManifest.HeaderLine(tracetype);
+                if (!string.IsNullOrEmpty(header))
+                    writer.Write(header + "\n");
+            }
+            writer.Write(content);
         }
 
         public void DirectWrite(string file_out_path, string input)
@@ -672,13 +852,30 @@ namespace IOTracesCORE
         {
             Debug.WriteLine("Compressing all remaining data...");
 
+            // Stop periodic (non-final) manifest refreshes so the authoritative final
+            // manifest written below cannot be overwritten by a racing periodic one.
+            _finalizing = true;
+
+            // Drain the fs formatter first: it is what fills fs_sb, so flushing fs_sb
+            // before the formatter is idle would drop every still-queued event. By now
+            // the ETW session and the handlers' flush timer are stopped (see Tracer), so
+            // no new events are arriving; CompleteAdding + Join formats the remainder.
+            _fsFormatQueue.CompleteAdding();
+            _fsFormatThread.Join();
+
             if (fs_sb.Length > 0) FlushWrite(fs_sb, fs_filepath, "filesystem");
-            if (ds_sb.Length > 0) FlushWrite(ds_sb, ds_filepath, "disk");
+            if (block_sb.Length > 0) FlushWrite(block_sb, block_filepath, "disk");
             if (mr_sb.Length > 0) FlushWrite(mr_sb, mr_filepath, "memory");
             if (process_snap_sb.Length > 0) FlushWrite(process_snap_sb, process_snap_filepath, "process");
             if (fs_snap_sb.Length > 0) FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
             if (nw_sb.Length > 0) FlushWrite(nw_sb, nw_filepath, "network");
             Debug.WriteLine("Flushed all StringBuilders.");
+
+            // Wait for the background compressor to finish every queued chunk before we
+            // drain the upload buffers/queue below — the compressor is what feeds them
+            // (BufferFile/QueueFile). After CompleteAdding the loop exits once drained.
+            _compressQueue.CompleteAdding();
+            _compressThread.Join();
 
             // Filesystem snapshot compression is now handled by FinalizeFilesystemSnapshot
 
@@ -790,16 +987,36 @@ namespace IOTracesCORE
         }
 
 
+        // Monotonic suffix so two rotations within the same second never collide on a
+        // filename. Collisions matter more now that compression is deferred: the
+        // background compressor reads + deletes a rotated raw file asynchronously, so a
+        // reused path could be appended-to while it is being compressed.
+        private static int _filePathSeq = 0;
+
+        /// <summary>Process-wide, thread-safe monotonic counter feeding rotation filenames.</summary>
+        internal static int NextFilePathSeq() => Interlocked.Increment(ref _filePathSeq);
+
+        /// <summary>
+        /// Builds the relative trace filename (.\type\...csv). The <paramref name="seq"/>
+        /// disambiguates rotations that land in the same millisecond, so distinct seq
+        /// values always yield distinct names. Pure + side-effect-free for testability.
+        /// </summary>
+        internal static string BuildTraceFileName(string type, int seq, string deviceId, DateTime utc, int partNumber = -1)
+        {
+            string part = partNumber >= 0 ? $"part{partNumber:D4}_" : "";
+            return $".\\{type}\\{type}_{part}{utc:yyyyMMdd_HHmmssfff}_{seq}_{deviceId}.csv";
+        }
+
         private string GenerateFilePath(string type)
         {
-            string fs_name = $".\\{type}\\{type}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{PathHasher.deviceId}.csv";
-            return Path.Combine(dir_path, fs_name);
+            return Path.Combine(dir_path,
+                BuildTraceFileName(type, NextFilePathSeq(), PathHasher.deviceId, DateTime.UtcNow));
         }
 
         private string GenerateFilePathWithPart(string type, int partNumber)
         {
-            string fs_name = $".\\{type}\\{type}_part{partNumber:D4}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{PathHasher.deviceId}.csv";
-            return Path.Combine(dir_path, fs_name);
+            return Path.Combine(dir_path,
+                BuildTraceFileName(type, NextFilePathSeq(), PathHasher.deviceId, DateTime.UtcNow, partNumber));
         }
 
         private static void WriteStatus()

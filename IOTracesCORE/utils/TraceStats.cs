@@ -20,6 +20,12 @@ namespace IOTracesCORE.utils
         public static long NetworkRows;
         public static long ProcessSnapshotRows;
         public static long FilesystemSnapshotRows;
+        // Filesystem-snapshot directory coverage: directories fully enumerated vs.
+        // those skipped because they could not be read (access denied / not found /
+        // error). A non-zero inaccessible count means the snapshot is partial; both
+        // are surfaced in the manifest so consumers can judge snapshot completeness.
+        public static long FilesystemSnapshotDirsScanned;
+        public static long FilesystemSnapshotDirsInaccessible;
         // ETW events the kernel dropped because consumer buffers could not keep up.
         public static long EtwEventsLost;
 
@@ -32,6 +38,8 @@ namespace IOTracesCORE.utils
             Interlocked.Exchange(ref NetworkRows, 0);
             Interlocked.Exchange(ref ProcessSnapshotRows, 0);
             Interlocked.Exchange(ref FilesystemSnapshotRows, 0);
+            Interlocked.Exchange(ref FilesystemSnapshotDirsScanned, 0);
+            Interlocked.Exchange(ref FilesystemSnapshotDirsInaccessible, 0);
             Interlocked.Exchange(ref EtwEventsLost, 0);
         }
 
@@ -45,6 +53,8 @@ namespace IOTracesCORE.utils
             public long NetworkRows { get; init; }
             public long ProcessSnapshotRows { get; init; }
             public long FilesystemSnapshotRows { get; init; }
+            public long FilesystemSnapshotDirsScanned { get; init; }
+            public long FilesystemSnapshotDirsInaccessible { get; init; }
             public long EtwEventsLost { get; init; }
         }
 
@@ -61,6 +71,8 @@ namespace IOTracesCORE.utils
             NetworkRows = Interlocked.Read(ref NetworkRows),
             ProcessSnapshotRows = Interlocked.Read(ref ProcessSnapshotRows),
             FilesystemSnapshotRows = Interlocked.Read(ref FilesystemSnapshotRows),
+            FilesystemSnapshotDirsScanned = Interlocked.Read(ref FilesystemSnapshotDirsScanned),
+            FilesystemSnapshotDirsInaccessible = Interlocked.Read(ref FilesystemSnapshotDirsInaccessible),
             EtwEventsLost = Interlocked.Read(ref EtwEventsLost),
         };
 
@@ -70,7 +82,14 @@ namespace IOTracesCORE.utils
         public static void IncNetworkPacket() => Interlocked.Increment(ref NetworkPackets);
         public static void IncNetworkRow() => Interlocked.Increment(ref NetworkRows);
         public static void IncFilesystemSnapshot() => Interlocked.Increment(ref FilesystemSnapshotRows);
+        public static void IncFilesystemSnapshotDirScanned() => Interlocked.Increment(ref FilesystemSnapshotDirsScanned);
+        public static void IncFilesystemSnapshotDirInaccessible() => Interlocked.Increment(ref FilesystemSnapshotDirsInaccessible);
         public static void AddProcessSnapshotRows(long n) => Interlocked.Add(ref ProcessSnapshotRows, n);
         public static void AddEtwEventsLost(long n) => Interlocked.Add(ref EtwEventsLost, n);
+        // Overwrite with an authoritative running total. Used to publish the live
+        // ETW lost-event count mid-session (polled from source.EventsLost) so the
+        // periodically-refreshed manifest reports drops even when the session is
+        // killed before a clean shutdown.
+        public static void SetEtwEventsLost(long n) => Interlocked.Exchange(ref EtwEventsLost, n);
     }
 }

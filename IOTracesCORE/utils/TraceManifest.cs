@@ -13,11 +13,10 @@ namespace IOTracesCORE.utils
     /// </summary>
     internal static class TraceManifest
     {
-        // Bump when any stream's column set or semantics change.
-        // v5: cross-OS aligned fs/ds layout — a fixed shared column prefix
-        //     (identical names/order to the Linux tracer), lowercase canonical
-        //     operation names, and a CSV header row on every file.
-        public const string SchemaVersion = "5";
+        // Schema version stamped into manifest.json. Reset to "1" by request; the
+        // cross-OS aligned fs/block column layout (shared prefix, lowercase canonical
+        // operation names, header row on every file) is unchanged.
+        public const string SchemaVersion = "1";
 
         private static Dictionary<string, object?> Col(string name, string type, string? unit = null)
         {
@@ -46,11 +45,12 @@ namespace IOTracesCORE.utils
                     Col("file_info_class", "string"), Col("fsctl_code", "string"),
                     Col("irp", "hex_pointer"), Col("file_key", "hex_pointer"),
                     Col("file_attributes", "flags"), Col("command_line", "string"),
+                    Col("nt_status", "hex"),
                 }
             },
-            ["ds"] = new Dictionary<string, object?>
+            ["block"] = new Dictionary<string, object?>
             {
-                ["path_glob"] = "ds/*.csv.zst",
+                ["path_glob"] = "block/*.csv.zst",
                 ["columns"] = new object[]
                 {
                     // --- shared cross-OS prefix (columns 1-10; identical on Linux) --- #
@@ -121,7 +121,7 @@ namespace IOTracesCORE.utils
         {
             string key = tracetype switch
             {
-                "disk" => "ds",
+                "disk" => "block",
                 "memory" => "mr",
                 "network" => "nw",
                 _ => tracetype, // filesystem, process, filesystem_snapshot
@@ -158,7 +158,7 @@ namespace IOTracesCORE.utils
             var streamCounts = new Dictionary<string, long>
             {
                 ["filesystem"] = snapshot.FilesystemEvents,
-                ["ds"] = snapshot.DiskEvents,
+                ["block"] = snapshot.DiskEvents,
                 ["mr"] = snapshot.MemoryEvents,
                 ["nw"] = snapshot.NetworkPackets,
                 ["process"] = snapshot.ProcessSnapshotRows,
@@ -178,6 +178,11 @@ namespace IOTracesCORE.utils
                 ["network_rows"] = snapshot.NetworkRows,
                 ["process_snapshot_rows"] = snapshot.ProcessSnapshotRows,
                 ["filesystem_snapshot_rows"] = snapshot.FilesystemSnapshotRows,
+                // Snapshot coverage: directories fully walked vs. skipped (access
+                // denied / not found / error). A non-zero inaccessible count means the
+                // filesystem snapshot is partial and by roughly how much.
+                ["filesystem_snapshot_dirs_scanned"] = snapshot.FilesystemSnapshotDirsScanned,
+                ["filesystem_snapshot_dirs_inaccessible"] = snapshot.FilesystemSnapshotDirsInaccessible,
                 ["etw_events_lost"] = snapshot.EtwEventsLost,
             };
 
@@ -185,12 +190,25 @@ namespace IOTracesCORE.utils
         }
 
         public static string Build(bool final, string deviceId, bool anonymous, bool uploadEnabled,
-            DateTime startUtc, DateTime? stopUtc)
+            DateTime startUtc, DateTime? stopUtc, bool lowOverheadLogging = false)
         {
             var (counters, dead) = CountersAndDeadProbes();
             // Dead-probe detection is only meaningful once the session has run; an
             // initial (non-final) manifest hasn't seen any events yet.
             if (!final) dead = new List<string>();
+            // In lightweight mode the memory stream is intentionally disabled (its keywords
+            // are never enabled), so an empty `mr` stream is expected — not a dead probe.
+            if (lowOverheadLogging) dead.Remove("mr");
+
+            // Per-row timestamps are machine-local wall-clock with no embedded offset
+            // (see clock_source below). Record the capture machine's UTC offset and
+            // timezone so consumers can convert local timestamps to UTC without having
+            // to guess the machine's region. The offset is taken at session start; a
+            // mid-session DST transition would change it, but the timezone id resolves
+            // the exact per-instant offset for the rare long capture that spans one.
+            TimeSpan startOffset = TimeZoneInfo.Local.GetUtcOffset(startUtc);
+            string utcOffset = (startOffset < TimeSpan.Zero ? "-" : "+")
+                + startOffset.Duration().ToString("hh\\:mm");
 
             var manifest = new Dictionary<string, object?>
             {
@@ -201,13 +219,22 @@ namespace IOTracesCORE.utils
                 ["device_id"] = deviceId,
                 ["anonymous"] = anonymous,
                 ["upload_enabled"] = uploadEnabled,
+                // "full" logs everything; "lightweight" suppresses op_end rows and the
+                // memory keywords. Recorded so a consumer knows that missing op_end /
+                // memory data is intentional (the mode), not an absence of activity.
+                ["logging_mode"] = lowOverheadLogging ? "lightweight" : "full",
                 ["clock_source"] = new Dictionary<string, object?>
                 {
-                    // ETW DateTime timestamps are machine-local wall-clock (QPC-derived);
-                    // dead-probe note: nw counts raw packets, so 0 may simply mean no external traffic.
+                    // ETW DateTime timestamps are machine-local wall-clock (QPC-derived).
+                    // The per-row format carries no offset, so utc_offset/timezone below make
+                    // the local timestamps unambiguous and convertible to UTC. Note that
+                    // folder & shard names and start_utc/stop_utc are already in UTC.
                     ["timestamps"] = "local_wall_clock",
                     ["format"] = "yyyy-MM-dd HH:mm:ss.ffffff",
                     ["derived_from"] = "windows_qpc",
+                    ["utc_offset"] = utcOffset,
+                    ["timezone"] = TimeZoneInfo.Local.Id,
+                    ["timezone_display_name"] = TimeZoneInfo.Local.DisplayName,
                 },
                 ["start_utc"] = startUtc.ToString("yyyy-MM-dd HH:mm:ss.ffffff"),
                 ["stop_utc"] = stopUtc?.ToString("yyyy-MM-dd HH:mm:ss.ffffff"),

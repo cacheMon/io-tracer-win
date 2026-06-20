@@ -54,6 +54,12 @@ namespace IOTracesCORE.cloudstorage
         /// <summary>Number of reconnect attempts made in the current disconnect window.</summary>
         public static int RetryAttempts = 0;
 
+        private static int _consecutiveFailures = 0;
+        private static int _consecutiveSuccesses = 0;
+        private const int FailureThreshold = 2;
+        private const int SuccessThreshold = 2;
+        private static readonly HttpClient s_httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+
         /// <summary>
         /// Registered by <see cref="IOTracesCORE.Tracer"/> so the upload worker
         /// can signal it to stop the active ETW session.
@@ -344,8 +350,9 @@ namespace IOTracesCORE.cloudstorage
                             // Re-queue the file so it is not lost
                             QueueFile(filepath);
 
-                            // Signal the tracer to stop the ETW session and enter reconnect mode
-                            await EnterReconnectModeAsync(ct);
+                            // Back off before retrying; let the heartbeat detect true
+                            // connectivity loss rather than forcing a reconnect cycle.
+                            await Task.Delay(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
                         }
                     }
                     await Task.Delay(500, ct).ConfigureAwait(false);
@@ -371,7 +378,7 @@ namespace IOTracesCORE.cloudstorage
         /// </summary>
         private async Task HeartbeatAsync(CancellationToken ct)
         {
-            const int HeartbeatIntervalSeconds = 15;
+            const int HeartbeatIntervalSeconds = 60;
             Debug.WriteLine("[Heartbeat] started.");
 
             while (!ct.IsCancellationRequested)
@@ -387,10 +394,21 @@ namespace IOTracesCORE.cloudstorage
                 if (!IsConnected) continue;
 
                 bool ok = await CheckInternetAsync().ConfigureAwait(false);
-                if (!ok && IsConnected && !ct.IsCancellationRequested)
+                if (!ok)
                 {
-                    Debug.WriteLine("[Heartbeat] Connectivity lost — entering reconnect mode.");
-                    await EnterReconnectModeAsync(ct).ConfigureAwait(false);
+                    _consecutiveFailures++;
+                    _consecutiveSuccesses = 0;
+                    if (_consecutiveFailures >= FailureThreshold && IsConnected && !ct.IsCancellationRequested)
+                    {
+                        _consecutiveFailures = 0;
+                        Debug.WriteLine("[Heartbeat] Connectivity lost — entering reconnect mode.");
+                        await EnterReconnectModeAsync(ct).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    _consecutiveSuccesses = 0;
+                    _consecutiveFailures = 0;
                 }
             }
 
@@ -410,6 +428,7 @@ namespace IOTracesCORE.cloudstorage
             ResumeGate.Reset();
             IsConnected = false;
             RetryAttempts = 0;
+            _consecutiveSuccesses = 0;
             ConnectionStatus = "Reconnecting…";
             OnConnectionStateChanged?.Invoke(ConnectionStatus);
 
@@ -421,13 +440,14 @@ namespace IOTracesCORE.cloudstorage
             while (!ct.IsCancellationRequested)
             {
                 RetryAttempts++;
-                ConnectionStatus = $"Reconnecting… (attempt {RetryAttempts})";
+                int delaySeconds = Math.Min(300, RetryIntervalSeconds * (int)Math.Pow(2, RetryAttempts - 1));
+                ConnectionStatus = $"Reconnecting… (attempt {RetryAttempts}, next in {delaySeconds}s)";
                 Debug.WriteLine($"[Upload] {ConnectionStatus}");
                 OnConnectionStateChanged?.Invoke(ConnectionStatus);
 
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(RetryIntervalSeconds), ct).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -436,8 +456,16 @@ namespace IOTracesCORE.cloudstorage
 
                 if (await CheckInternetAsync().ConfigureAwait(false))
                 {
-                    MarkConnected();
-                    return;
+                    _consecutiveSuccesses++;
+                    if (_consecutiveSuccesses >= SuccessThreshold)
+                    {
+                        MarkConnected();
+                        return;
+                    }
+                }
+                else
+                {
+                    _consecutiveSuccesses = 0;
                 }
             }
         }
@@ -447,6 +475,8 @@ namespace IOTracesCORE.cloudstorage
             IsConnected = true;
             ConnectionStatus = "Connected";
             RetryAttempts = 0;
+            _consecutiveSuccesses = 0;
+            _consecutiveFailures = 0;
             Debug.WriteLine("[Upload] Connection restored — resuming ETW session.");
             OnConnectionStateChanged?.Invoke(ConnectionStatus);
             // Unblock the Tracer outer loop so it can restart the ETW session
@@ -457,8 +487,7 @@ namespace IOTracesCORE.cloudstorage
         {
             try
             {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                var response = await http.GetAsync(TestUrl).ConfigureAwait(false);
+                var response = await s_httpClient.GetAsync(TestUrl).ConfigureAwait(false);
                 return response.IsSuccessStatusCode;
             }
             catch (Exception ex)

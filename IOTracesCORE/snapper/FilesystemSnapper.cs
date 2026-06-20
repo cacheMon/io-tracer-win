@@ -114,18 +114,23 @@ namespace IOTracesCORE.snapper
                             wm.Write(fi);
                         }
                     }
+                    // Reached only when the directory was fully enumerated without throwing.
+                    TraceStats.IncFilesystemSnapshotDirScanned();
                 }
                 catch (UnauthorizedAccessException)
                 {
                     Debug.WriteLine($"[ACCESS DENIED] {currentDir}");
+                    TraceStats.IncFilesystemSnapshotDirInaccessible();
                 }
                 catch (DirectoryNotFoundException)
                 {
                     Debug.WriteLine($"[NOT FOUND] {currentDir}");
+                    TraceStats.IncFilesystemSnapshotDirInaccessible();
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"[ERROR] {currentDir}: {ex.Message}");
+                    TraceStats.IncFilesystemSnapshotDirInaccessible();
                 }
             }
         }

@@ -7,7 +7,7 @@ Complete reference for all trace formats captured by IOTracer, including CSV hea
 All traces are uploaded to cloud storage with the following prefix structure:
 
 ```
-windows_trace_v4_test/{deviceId}/{timestamp}/
+windows_v1/{deviceId}/{timestamp}/
 ```
 
 Where:
@@ -16,7 +16,7 @@ Where:
 
 Each trace type is stored in its own subdirectory under this prefix:
 - `fs/` - Filesystem operation traces
-- `ds/` - Disk I/O traces  
+- `block/` - Disk I/O traces  
 - `mr/` - Memory traces
 - `nw/` - Network traces
 - `process/` - Process snapshot data
@@ -40,24 +40,26 @@ Key fields:
 | `schema_version` | Version of the column schemas below; bumped on any schema change |
 | `tracer_version` | Release channel + assembly version |
 | `finalized` | `false` for the start-of-session manifest, `true` once counters are filled in |
-| `clock_source` | Timestamp clock: local wall-clock (Windows QPC-derived), format `yyyy-MM-dd HH:mm:ss.ffffff` |
+| `logging_mode` | `full` (logs everything) or `lightweight` (resource-constrained: no `op_end` rows and memory keywords disabled). Lets a consumer tell intentional omissions from genuine inactivity |
+| `clock_source` | Timestamp clock: local wall-clock (Windows QPC-derived), format `yyyy-MM-dd HH:mm:ss.ffffff`. Includes `utc_offset` (signed `HH:mm` of the capture machine at session start) and `timezone` (Windows tz id) so local row timestamps can be converted to UTC |
 | `start_utc` / `stop_utc` | Session start/stop (`stop_utc` is null until finalized) |
 | `streams` | Per-stream `path_glob` + ordered `columns` (`name`/`type`/`unit`) — the source of truth for parsing |
-| `counters` | Per-stream event counts, `network_packets` (raw), and `etw_events_lost` (kernel drops) |
+| `counters` | Per-stream event counts, `network_packets` (raw), `etw_events_lost` (kernel drops), and `filesystem_snapshot_dirs_scanned` / `filesystem_snapshot_dirs_inaccessible` (snapshot coverage — a non-zero inaccessible count means the filesystem snapshot is partial) |
 | `dead_probes` | Streams that produced **zero** events this session — a likely dead/unattached probe (note: `nw` may legitimately be 0 with no external traffic) |
 
 **Example (truncated):**
 ```json
 {
-  "schema_version": "5",
+  "schema_version": "1",
   "tracer_version": "Release/1.0.0.0",
   "platform": "windows",
   "finalized": true,
-  "clock_source": { "timestamps": "local_wall_clock", "format": "yyyy-MM-dd HH:mm:ss.ffffff", "derived_from": "windows_qpc" },
+  "logging_mode": "full",
+  "clock_source": { "timestamps": "local_wall_clock", "format": "yyyy-MM-dd HH:mm:ss.ffffff", "derived_from": "windows_qpc", "utc_offset": "+07:00", "timezone": "SE Asia Standard Time", "timezone_display_name": "(UTC+07:00) Bangkok, Hanoi, Jakarta" },
   "start_utc": "2026-06-14 14:00:00.000000",
   "stop_utc": "2026-06-14 16:30:00.000000",
-  "streams": { "ds": { "path_glob": "ds/*.csv.zst", "columns": [ { "name": "Ts", "type": "timestamp" } ] } },
-  "counters": { "disk_events": 1052331, "network_packets": 84210, "etw_events_lost": 0 },
+  "streams": { "block": { "path_glob": "block/*.csv.zst", "columns": [ { "name": "Ts", "type": "timestamp" } ] } },
+  "counters": { "disk_events": 1052331, "network_packets": 84210, "etw_events_lost": 0, "filesystem_snapshot_dirs_scanned": 184320, "filesystem_snapshot_dirs_inaccessible": 142 },
   "dead_probes": []
 }
 ```
@@ -70,7 +72,7 @@ Key fields:
 
 Captures detailed file system operations.
 
-> **Schema v5 — cross-OS aligned.** As of schema_version 5 every CSV file now
+> **Cross-OS aligned.** Every CSV file
 > **begins with a header row**. Columns 1–12 (`timestamp` … `flags`) are the
 > **shared prefix** emitted identically by the Linux tracer's `fs/` stream, so a
 > single parser reads the comparable fields from either OS; the remaining columns
@@ -83,7 +85,7 @@ Captures detailed file system operations.
 
 **CSV Header (column order):**
 ```
-timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line
+timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line,nt_status
 ```
 
 **Fields:**
@@ -91,7 +93,7 @@ timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,d
 | # | Field | Type | Description | Notes |
 |---|-------|------|-------------|-------|
 | 1 | `Ts` | timestamp | Timestamp (local wall-clock) of the event | Format: `yyyy-MM-dd HH:mm:ss.ffffff` |
-| 2 | `Op` | string | Operation name | `create`, `read`, `write`, `flush`, `close`, `cleanup`, `delete`, `rename`, `set_info`, `query_info`, `dir_enum`, `dir_notify`, `fs_control`, `map_file`, etc. |
+| 2 | `Op` | string | Operation name | `create`, `read`, `write`, `flush`, `close`, `cleanup`, `delete`, `rename`, `set_info`, `query_info`, `dir_enum`, `dir_notify`, `fs_control`, `map_file`, `op_end`, etc. |
 | 3 | `Pid` | integer | Process ID initiating the operation | `-1` when the kernel did not attribute the event to a process (e.g. cache-manager / system-context I/O) |
 | 4 | `Comm` | string | Command/Process name | Empty when the kernel did not supply a name; quoted if it contains special characters |
 | 5 | `Filename` | string | Full path of the file involved | Hashed if anonymous mode enabled |
@@ -109,17 +111,32 @@ timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,d
 | 17 | `FileAttributes` | flags | File attributes | Pipe-separated. Only for `create` ops |
 | 18 | `IoFlags` | flags | I/O specific flags | Pipe-separated. Only for `read`, `write` ops |
 | 19 | `CommandLine` | string | Full command line of the process | Empty if unavailable |
+| 20 | `NtStatus` | hex | Final `NTSTATUS` of the completed IRP | Only on `op_end` rows; hex `0x...` (e.g. `0x00000000` success, `0xC0000034` object-name-not-found, `0xC0000022` access-denied). Empty otherwise |
+
+> **`op_end` rows.** Emitted from the ETW FileIO *OperationEnd* event, which carries
+> only the IRP pointer, completing thread, and final status — no path/FileKey. Join an
+> `op_end` row back to its originating `read`/`write`/`create` by the `irp` column; the
+> result code is `nt_status` and the operation's latency is
+> `op_end.timestamp − start.timestamp`.
+>
+> **Logging modes.** Emitted for **every completed operation** in the default (full)
+> mode. For resource-constrained machines a **"Lightweight logging"** option in the
+> configuration UI (`LowOverheadLogging` in the saved config) switches to a low-overhead
+> mode that suppresses `op_end` rows *and* disables the memory keywords (hard faults +
+> virtual allocations) at the ETW session level, so the kernel never generates those
+> high-frequency events.
 
 **Example:**
 ```csv
-timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line
-2026-02-08 23:23:45.123456,open,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,FILE_FLAG_OVERLAPPED,FILE_SHARE_READ,OPEN_EXISTING,,,,0xFFFFAB12,0xFFFFCD34,FILE_ATTRIBUTE_NORMAL,"C:\Windows\System32\notepad.exe"
-2026-02-08 23:23:45.125789,read,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,4096,0,4096,,,IRP_PAGING_IO|IRP_NOCACHE,,,,,,,0xFFFFAB12,0xFFFFCD34,,"C:\Windows\System32\notepad.exe"
+timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line,nt_status
+2026-02-08 23:23:45.123456,open,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,FILE_FLAG_OVERLAPPED,FILE_SHARE_READ,OPEN_EXISTING,,,,0xFFFFAB12,0xFFFFCD34,FILE_ATTRIBUTE_NORMAL,"C:\Windows\System32\notepad.exe",
+2026-02-08 23:23:45.125789,read,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,4096,0,4096,,,IRP_PAGING_IO|IRP_NOCACHE,,,,,,,0xFFFFAB12,0xFFFFCD34,,"C:\Windows\System32\notepad.exe",
+2026-02-08 23:23:45.126102,op_end,1234,5678,notepad.exe,,0,,,,,,,,,,,,0xFFFFAB12,,,"C:\Windows\System32\notepad.exe",0x00000000
 ```
 
 ---
 
-### Disk Trace (`ds/`)
+### Disk Trace (`block/`)
 
 Captures low-level disk I/O operations.
 
@@ -128,8 +145,8 @@ Captures low-level disk I/O operations.
 timestamp,operation,pid,tid,command,sector,size,latency_ms,device,flags,irp
 ```
 
-> **Schema v5 — cross-OS aligned.** Columns 1–10 (`timestamp` … `flags`) are the
-> **shared prefix** emitted identically by the Linux tracer's `ds/` stream
+> **Cross-OS aligned.** Columns 1–10 (`timestamp` … `flags`) are the
+> **shared prefix** emitted identically by the Linux tracer's `block/` stream
 > (`flags` carries the pipe-separated IRP flags; `device` is the disk index,
 > where Linux uses `major:minor`). Files begin with this header row.
 
@@ -308,7 +325,7 @@ Hardware and software specifications captured at trace start. Stored as separate
 
 **Cloud Storage Location:**
 ```
-windows_trace_v4_test/{deviceId}/{timestamp}/system_spec/
+windows_v1/{deviceId}/{timestamp}/system_spec/
 ```
 
 #### cpu_info.json
@@ -522,7 +539,7 @@ CSV files follow this naming pattern:
 ```
 
 Where:
-- `{type}` - Trace type: `fs`, `ds`, `mr`, `nw`, `process`, `filesystem_snapshot`
+- `{type}` - Trace type: `fs`, `block`, `mr`, `nw`, `process`, `filesystem_snapshot`
 - `{timestamp}` - File creation time in format `yyyyMMdd_HHmmss`
 - `{deviceId}` - Unique device identifier (hashed)
 - `.zst` - Zstandard compression extension
@@ -530,7 +547,7 @@ Where:
 **Example:**
 ```
 fs/fs_20260212_143022_a1b2c3d4e5f6.csv.zst
-ds/ds_20260212_143022_a1b2c3d4e5f6.csv.zst
+block/block_20260212_143022_a1b2c3d4e5f6.csv.zst
 ```
 
 ---
