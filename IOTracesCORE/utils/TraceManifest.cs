@@ -184,6 +184,10 @@ namespace IOTracesCORE.utils
                 ["filesystem_snapshot_dirs_scanned"] = snapshot.FilesystemSnapshotDirsScanned,
                 ["filesystem_snapshot_dirs_inaccessible"] = snapshot.FilesystemSnapshotDirsInaccessible,
                 ["etw_events_lost"] = snapshot.EtwEventsLost,
+                // AUTHORITATIVE OS-queried kernel-side lost count (session.EventsLost). When
+                // session_events_lost > etw_events_lost, the kernel dropped events that the
+                // consumer-side counter could not see — the actual fs-truncation signal.
+                ["session_events_lost"] = snapshot.SessionEventsLost,
                 // Loss/back-pressure DOWNSTREAM of the ETW consumer: filesystem events the
                 // off-thread formatter could not keep up with (bounded queue rejected them),
                 // plus the queue's last/peak depth. etw_events_lost covers kernel->consumer

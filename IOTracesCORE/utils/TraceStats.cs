@@ -26,8 +26,16 @@ namespace IOTracesCORE.utils
         // are surfaced in the manifest so consumers can judge snapshot completeness.
         public static long FilesystemSnapshotDirsScanned;
         public static long FilesystemSnapshotDirsInaccessible;
-        // ETW events the kernel dropped because consumer buffers could not keep up.
+        // ETW events the kernel dropped, CONSUMER-side count (source.EventsLost). For a
+        // real-time kernel session this often reads 0 even when the kernel did drop events,
+        // so it is NOT authoritative on its own — pair it with SessionEventsLost below.
         public static long EtwEventsLost;
+        // Authoritative session-level lost-event count, queried from the OS via
+        // session.EventsLost (ControlTrace -> EVENT_TRACE_PROPERTIES). This is the count
+        // that actually reveals fs truncation when EtwEventsLost (the consumer-side view)
+        // reads a false 0. A gap (SessionEventsLost > EtwEventsLost) means the kernel
+        // dropped events that the consumer-side counter never saw.
+        public static long SessionEventsLost;
         // Filesystem events the off-thread formatter could not keep up with: the bounded
         // _fsFormatQueue rejected them (TryAdd failed). Distinct from EtwEventsLost (which
         // is kernel->consumer loss): this is loss DOWNSTREAM of the consumer, invisible to
@@ -49,6 +57,7 @@ namespace IOTracesCORE.utils
             Interlocked.Exchange(ref FilesystemSnapshotDirsScanned, 0);
             Interlocked.Exchange(ref FilesystemSnapshotDirsInaccessible, 0);
             Interlocked.Exchange(ref EtwEventsLost, 0);
+            Interlocked.Exchange(ref SessionEventsLost, 0);
             Interlocked.Exchange(ref FsFormatDropped, 0);
             Interlocked.Exchange(ref FsFormatQueueDepth, 0);
             Interlocked.Exchange(ref FsFormatQueueHighWater, 0);
@@ -67,6 +76,7 @@ namespace IOTracesCORE.utils
             public long FilesystemSnapshotDirsScanned { get; init; }
             public long FilesystemSnapshotDirsInaccessible { get; init; }
             public long EtwEventsLost { get; init; }
+            public long SessionEventsLost { get; init; }
             public long FsFormatDropped { get; init; }
             public long FsFormatQueueDepth { get; init; }
             public long FsFormatQueueHighWater { get; init; }
@@ -88,6 +98,7 @@ namespace IOTracesCORE.utils
             FilesystemSnapshotDirsScanned = Interlocked.Read(ref FilesystemSnapshotDirsScanned),
             FilesystemSnapshotDirsInaccessible = Interlocked.Read(ref FilesystemSnapshotDirsInaccessible),
             EtwEventsLost = Interlocked.Read(ref EtwEventsLost),
+            SessionEventsLost = Interlocked.Read(ref SessionEventsLost),
             FsFormatDropped = Interlocked.Read(ref FsFormatDropped),
             FsFormatQueueDepth = Interlocked.Read(ref FsFormatQueueDepth),
             FsFormatQueueHighWater = Interlocked.Read(ref FsFormatQueueHighWater),
@@ -108,6 +119,10 @@ namespace IOTracesCORE.utils
         // periodically-refreshed manifest reports drops even when the session is
         // killed before a clean shutdown.
         public static void SetEtwEventsLost(long n) => Interlocked.Exchange(ref EtwEventsLost, n);
+        // Authoritative OS-queried session-level lost count (session.EventsLost). Set on the
+        // same poll as SetEtwEventsLost so the manifest carries both the consumer-side and
+        // the authoritative view, and their gap exposes the consumer-side false negative.
+        public static void SetSessionEventsLost(long n) => Interlocked.Exchange(ref SessionEventsLost, n);
 
         public static void IncFsFormatDropped() => Interlocked.Increment(ref FsFormatDropped);
         // Publish the current fs-format queue depth and track its peak. Called on each
