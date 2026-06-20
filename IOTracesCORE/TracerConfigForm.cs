@@ -36,13 +36,20 @@ namespace IOTracesCORE
             chkEnableUpload.Checked = true;
             ChkEnableUpload_CheckedChanged(this, EventArgs.Empty);
 
-            if (!File.Exists(AppConfigPath))
+            bool firstRun = !File.Exists(AppConfigPath);
+            if (firstRun)
             {
                 chkEnableUpload.Checked = true;
                 ChkEnableUpload_CheckedChanged(this, EventArgs.Empty);
             }
 
-            chkAutoStart.Checked = IsAutoStartEnabled();
+            // Start at Windows logon is ON by default for a fresh install: checking the box
+            // here fires ChkAutoStart_CheckedChanged, which creates the elevated ONLOGON
+            // scheduled task (schtasks /SC ONLOGON /RL HIGHEST). On later runs it just
+            // reflects whether that task still exists, so a user who unticks it stays opted
+            // out. Note: the task launches the exe from its current path, so a portable exe
+            // moved/deleted after first run will leave a stale task.
+            chkAutoStart.Checked = IsAutoStartEnabled() || firstRun;
         }
 
 
