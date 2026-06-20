@@ -137,7 +137,7 @@ namespace IOTracesCORE
                 // physical disk I/O leaves no ds/ folder at all — which looks like
                 // a broken stream. Saying so distinguishes "no block I/O happened"
                 // (expected) from "disk tracing failed".
-                long diskEvents = TraceStats.Snapshot().DiskEvents;
+                long diskEvents = Interlocked.Read(ref TraceStats.DiskEvents);
                 if (diskEvents == 0)
                 {
                     Console.WriteLine(
