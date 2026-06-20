@@ -345,10 +345,17 @@ namespace IOTracesCORE
         // How often the manifest is refreshed + re-uploaded mid-session, so a killed
         // capture still has a recent manifest (counters + live EventsLost) server-side.
         private const int MANIFEST_REFRESH_SECONDS = 30;
+        // Max seconds buffered continuous-stream rows may sit unflushed before a
+        // timer-driven flush forces them out regardless of size. Bounds how much low-rate
+        // data is stranded in memory (and lost on an unclean kill) when the size threshold
+        // is never reached. Timer-driven, so it also fires after a burst goes silent — when
+        // no new event would ever re-trigger the event-driven size check.
+        private const int IDLE_FLUSH_SECONDS = 15;
 
         private void EventRateDetector()
         {
             int secondsSinceManifest = 0;
+            int secondsSinceIdleFlush = 0;
             while (true)
             {
                 Thread.Sleep(1000);
@@ -358,6 +365,17 @@ namespace IOTracesCORE
                 if (events_in_interval > 100)
                 {
                     active_session += TimeSpan.FromSeconds(1);
+                }
+
+                if (++secondsSinceIdleFlush >= IDLE_FLUSH_SECONDS)
+                {
+                    secondsSinceIdleFlush = 0;
+                    // Skip during the shutdown drain (CompressAllAsync flushes everything).
+                    if (!_finalizing)
+                    {
+                        try { FlushIdleBuffers(); }
+                        catch (Exception ex) { Debug.WriteLine($"[idle-flush] {ex.Message}"); }
+                    }
                 }
 
                 if (++secondsSinceManifest >= MANIFEST_REFRESH_SECONDS)
@@ -370,6 +388,34 @@ namespace IOTracesCORE
                         catch (Exception ex) { Debug.WriteLine($"[manifest] periodic refresh failed: {ex.Message}"); }
                     }
                 }
+            }
+        }
+
+        // Flush any non-empty continuous-stream buffer (fs/disk/memory/network) so low-rate
+        // or post-burst data is not stranded in memory until a size-triggered flush. Snapshot
+        // streams (process, filesystem_snapshot) are excluded — their part-counter /
+        // completeness file naming relies on their own flush points. Runs on the
+        // EventRateDetector thread (never the ETW consumer thread).
+        private void FlushIdleBuffers()
+        {
+            FlushIfBuffered(fs_sb, fs_filepath, "filesystem");
+            FlushIfBuffered(block_sb, block_filepath, "disk");
+            FlushIfBuffered(mr_sb, mr_filepath, "memory");
+            FlushIfBuffered(nw_sb, nw_filepath, "network");
+        }
+
+        // Flush one continuous-stream buffer iff it holds data. The length is re-checked
+        // under the lock so this never emits an empty (header-only) shard and never races a
+        // concurrent size-triggered flush from a formatter/writer thread. The cheap
+        // unsynchronized pre-check avoids waiting on the reconnect gate when already empty.
+        private void FlushIfBuffered(StringBuilder sb, string filepath, string tracetype)
+        {
+            if (sb.Length == 0) return;
+            ObjectStorageHandler.ResumeGate.Wait();
+            lock (GetLock(tracetype))
+            {
+                if (sb.Length > 0)
+                    FlushWriteLocked(sb, filepath, tracetype);
             }
         }
 
