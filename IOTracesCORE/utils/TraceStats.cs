@@ -12,6 +12,16 @@ namespace IOTracesCORE.utils
     internal static class TraceStats
     {
         public static long FilesystemEvents;
+        // Diagnostic: raw FileIO events the kernel DELIVERED to a filesystem handler,
+        // counted at the per-handler gate BEFORE ProcessFilter / filename resolution.
+        // FilesystemEventsReceived >> FilesystemEvents means we discard most of what the
+        // kernel delivers (in our own code); Received ~= Events ~= low means the kernel
+        // genuinely delivers little (a low-file-I/O box, not under-capture). FilteredByProcess
+        // is the subset rejected by ProcessFilter (excluded process names). Together with the
+        // authoritative session_events_lost (kernel-side drop), these separate the three
+        // possible causes of a sparse fs stream.
+        public static long FilesystemEventsReceived;
+        public static long FilesystemEventsFilteredByProcess;
         public static long DiskEvents;
         public static long MemoryEvents;
         // Raw send/receive packets observed (pre-aggregation) — the network probe
@@ -48,6 +58,8 @@ namespace IOTracesCORE.utils
         public static void Reset()
         {
             Interlocked.Exchange(ref FilesystemEvents, 0);
+            Interlocked.Exchange(ref FilesystemEventsReceived, 0);
+            Interlocked.Exchange(ref FilesystemEventsFilteredByProcess, 0);
             Interlocked.Exchange(ref DiskEvents, 0);
             Interlocked.Exchange(ref MemoryEvents, 0);
             Interlocked.Exchange(ref NetworkPackets, 0);
@@ -67,6 +79,8 @@ namespace IOTracesCORE.utils
         public readonly struct Counts
         {
             public long FilesystemEvents { get; init; }
+            public long FilesystemEventsReceived { get; init; }
+            public long FilesystemEventsFilteredByProcess { get; init; }
             public long DiskEvents { get; init; }
             public long MemoryEvents { get; init; }
             public long NetworkPackets { get; init; }
@@ -89,6 +103,8 @@ namespace IOTracesCORE.utils
         public static Counts Snapshot() => new Counts
         {
             FilesystemEvents = Interlocked.Read(ref FilesystemEvents),
+            FilesystemEventsReceived = Interlocked.Read(ref FilesystemEventsReceived),
+            FilesystemEventsFilteredByProcess = Interlocked.Read(ref FilesystemEventsFilteredByProcess),
             DiskEvents = Interlocked.Read(ref DiskEvents),
             MemoryEvents = Interlocked.Read(ref MemoryEvents),
             NetworkPackets = Interlocked.Read(ref NetworkPackets),
@@ -105,6 +121,8 @@ namespace IOTracesCORE.utils
         };
 
         public static void IncFilesystem() => Interlocked.Increment(ref FilesystemEvents);
+        public static void IncFilesystemReceived() => Interlocked.Increment(ref FilesystemEventsReceived);
+        public static void IncFilesystemFilteredByProcess() => Interlocked.Increment(ref FilesystemEventsFilteredByProcess);
         public static void IncDisk() => Interlocked.Increment(ref DiskEvents);
         public static void IncMemory() => Interlocked.Increment(ref MemoryEvents);
         public static void IncNetworkPacket() => Interlocked.Increment(ref NetworkPackets);

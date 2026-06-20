@@ -172,6 +172,15 @@ namespace IOTracesCORE.utils
             var counters = new Dictionary<string, object?>
             {
                 ["filesystem_events"] = snapshot.FilesystemEvents,
+                // Diagnostic for a sparse fs/ stream. filesystem_events_received = raw FileIO
+                // events the kernel delivered to a handler (before ProcessFilter / filename
+                // resolution); filesystem_events_filtered_by_process = those dropped for an
+                // excluded process. received >> filesystem_events => we discard most of what
+                // the kernel delivers; received ~= filesystem_events ~= low (with
+                // session_events_lost 0) => the kernel genuinely delivers little (low-I/O box,
+                // not under-capture).
+                ["filesystem_events_received"] = snapshot.FilesystemEventsReceived,
+                ["filesystem_events_filtered_by_process"] = snapshot.FilesystemEventsFilteredByProcess,
                 ["disk_events"] = snapshot.DiskEvents,
                 ["memory_events"] = snapshot.MemoryEvents,
                 ["network_packets"] = snapshot.NetworkPackets,
