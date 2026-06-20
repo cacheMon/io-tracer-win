@@ -8,6 +8,15 @@ and (optionally) uploads the results to cloud object storage for research.
 📖 Full documentation: [raflyhangga.github.io/iotracerdocs](https://raflyhangga.github.io/iotracerdocs/)
 The Markdown sources also live in [`docs/`](docs/).
 
+## Install (just one file)
+
+1. Download **[`IOTracer.exe`](https://github.com/cacheMon/io-tracer-win/releases/latest)** from the latest release.
+2. Double-click it. There's nothing to install or unzip.
+3. Windows prompts for **administrator** (ETW kernel tracing needs it) — click **Yes**.
+
+The app appears in the system tray. That's it. (`winiotracer.zip` on the release is
+the same app as separate files — a fallback if the single `.exe` won't run on your machine.)
+
 ## What it captures
 
 The tracer subscribes to the NT Kernel Logger and a few user-mode providers and
