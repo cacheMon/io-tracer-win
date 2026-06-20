@@ -67,7 +67,13 @@ namespace IOTracesCORE.trace
             // bytes_completed column; empty for non-I/O ops.
             string bytesCompleted = (op == "read" || op == "write") ? TraceSize.ToString() : "";
 
-            // --- shared cross-OS prefix (columns 1-12; identical on Linux) --- #
+            // --- cross-OS prefix --- #
+            // NOTE: the Linux tracer's shared prefix has `inode` and `device` after
+            // bytes_completed; they are omitted here because Windows ETW FileIO events carry
+            // neither (the kernel file identity is emitted as `file_key`, and the volume is in
+            // `filename`), so on Windows they were always empty. This intentionally diverges
+            // the Windows fs column layout from Linux — consumers must read columns by name
+            // (the manifest is the source of truth), not by fixed position.
             csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
             csv.WriteField(op);
             csv.WriteField(Pid);
@@ -92,8 +98,6 @@ namespace IOTracesCORE.trace
             csv.WriteField(TraceSize);
             csv.WriteField(Offset?.ToString() ?? "");
             csv.WriteField(bytesCompleted);
-            csv.WriteField("");                 // inode — not available on Windows
-            csv.WriteField("");                 // device — not carried by the fs stream on Windows
             csv.WriteField(IoFlags ?? "");
 
             // --- Windows-only extras (columns 13+) --- #

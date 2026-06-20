@@ -32,7 +32,7 @@ namespace IOTracesCORE.Tests
             var f = FirstRow(trace.FormatAsCsv(false));
 
             Assert.Equal("op_end", f[1]);
-            Assert.Equal("0xFFFFAB12", f[18]);   // irp column
+            Assert.Equal("0xFFFFAB12", f[16]);   // irp column (shifted -2 after dropping inode/device)
             Assert.Equal("0xC0000034", f[^1]);   // nt_status column
         }
 

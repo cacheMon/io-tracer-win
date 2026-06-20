@@ -33,13 +33,16 @@ namespace IOTracesCORE.utils
                 ["path_glob"] = "fs/*.csv.zst",
                 ["columns"] = new object[]
                 {
-                    // --- shared cross-OS prefix (columns 1-12; identical on Linux) --- #
+                    // --- cross-OS prefix --- #
+                    // Omits the Linux prefix's `inode` and `device`: Windows ETW FileIO events
+                    // carry neither (kernel file identity is `file_key`, volume is in `filename`),
+                    // so they were always empty here. This diverges the Windows fs layout from
+                    // Linux by design — read columns by NAME, not position.
                     Col("timestamp", "timestamp"), Col("operation", "string"), Col("pid", "int"),
                     Col("tid", "int"), Col("command", "string"), Col("filename", "string"),
                     Col("size", "int", "bytes"), Col("offset", "int", "bytes"),
-                    Col("bytes_completed", "int", "bytes"), Col("inode", "int"),
-                    Col("device", "string"), Col("flags", "flags"),
-                    // --- Windows-only extras (columns 13+) --- #
+                    Col("bytes_completed", "int", "bytes"), Col("flags", "flags"),
+                    // --- Windows-only extras --- #
                     Col("create_options", "flags"), Col("share_access", "flags"),
                     Col("create_disposition", "enum"), Col("view_size", "int", "bytes"),
                     Col("file_info_class", "string"), Col("fsctl_code", "string"),
