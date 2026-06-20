@@ -67,7 +67,11 @@ jobs:
           ## Install — just one file
 
           **Download `IOTracer.exe` below and run it.** No installer, no extracting.
-          Windows will prompt for administrator (required for ETW kernel tracing) — click **Yes**.
 
-          `winiotracer.zip` is the same app as separate files (a fallback if the single
-          `.exe` has trouble on your machine).
+          - If your browser warns the file *"isn't commonly downloaded"* / *"may be dangerous"*, **keep it** (Edge: `⋯ → Keep`; Chrome: `Keep anyway`).
+          - If **"Windows protected your PC"** appears, click **More info → Run anyway**.
+          - Windows prompts for **administrator** (required for ETW kernel tracing) — click **Yes**.
+
+          These warnings appear because the app isn't code-signed yet; they're safe to dismiss.
+
+          `winiotracer.zip` is the same app as separate files (a fallback if the single `.exe` has trouble on your machine).
