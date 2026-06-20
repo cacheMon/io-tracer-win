@@ -57,6 +57,18 @@ namespace IOTracesCORE.handlers
             _keyAliases.Clear();
         }
 
+        // Single chokepoint for every FileIO handler's "should I trace this?" gate. Counts
+        // the raw event the kernel delivered (received) before any filtering, and separately
+        // the ones ProcessFilter rejects (excluded process), so the manifest can tell whether
+        // a sparse fs/ stream is the kernel delivering little vs. us discarding most of it.
+        private bool ShouldTrace(int pid, string processName)
+        {
+            TraceStats.IncFilesystemReceived();
+            bool ok = ProcessFilter.ShouldTrace(pid, processName);
+            if (!ok) TraceStats.IncFilesystemFilteredByProcess();
+            return ok;
+        }
+
         private static string Clean(string s) => string.IsNullOrEmpty(s) ? "" : s.Trim();
 
         private static bool IsIgnored(string s)
@@ -284,7 +296,7 @@ namespace IOTracesCORE.handlers
 
         public void OnRead(FileIOReadWriteTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileKey, d.FileObject, d.FileName);
             if (!string.IsNullOrEmpty(name))
             {
@@ -305,7 +317,7 @@ namespace IOTracesCORE.handlers
 
         public void OnWrite(FileIOReadWriteTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileKey, d.FileObject, d.FileName);
             if (!string.IsNullOrEmpty(name))
             {
@@ -326,7 +338,7 @@ namespace IOTracesCORE.handlers
 
         public void OnFlush(FileIOSimpleOpTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileKey, d.FileObject, d.FileName);
             if (!string.IsNullOrEmpty(name))
             {
@@ -347,7 +359,7 @@ namespace IOTracesCORE.handlers
 
         public void OnDirEnum(FileIODirEnumTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             // d.FileName is the search pattern (e.g. "*.txt", "Get-WmiObject*"), not the directory path.
             // Resolve the directory name from the cache instead.
             var name = Resolve(d.FileKey, d.FileObject, "");
@@ -376,7 +388,7 @@ namespace IOTracesCORE.handlers
             // Cache population happens regardless of process filter so all files are indexed.
             if (!string.IsNullOrEmpty(name)) nameByObj[d.FileObject] = name;
 
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
 
             // Capturing CreateOptions, ShareAccess, CreateDisposition, and FileAttributes
             // Note: FileIOCreateTraceData uses FileObject as file identifier
@@ -388,13 +400,13 @@ namespace IOTracesCORE.handlers
 
         public void OnFileCreate(FileIONameTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "file_create", d.ProcessID, d.ThreadID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnDelete(FileIOInfoTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileKey, d.FileObject, d.FileName);
             if (!string.IsNullOrEmpty(name))
             {
@@ -415,13 +427,13 @@ namespace IOTracesCORE.handlers
 
         public void OnFileDelete(FileIONameTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "file_delete", d.ProcessID, d.ThreadID, d.ProcessName, Clean(d.FileName), 0);
         }
 
         public void OnClose(FileIOSimpleOpTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileKey, d.FileObject, d.FileName);
             if (!string.IsNullOrEmpty(name))
             {
@@ -455,7 +467,7 @@ namespace IOTracesCORE.handlers
                 nameByObj[d.FileObject] = name;
             }
 
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var resolvedName = Resolve(d.FileKey, d.FileObject, d.FileName);
             if (!string.IsNullOrEmpty(resolvedName))
             {
@@ -476,7 +488,7 @@ namespace IOTracesCORE.handlers
 
         public void OnCleanup(FileIOSimpleOpTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileKey, d.FileObject, d.FileName);
             if (!string.IsNullOrEmpty(name))
             {
@@ -497,7 +509,7 @@ namespace IOTracesCORE.handlers
 
         public void OnDirNotify(FileIODirEnumTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             // Same as dir_enum: d.FileName is a filter pattern, not the directory path.
             var name = Resolve(d.FileKey, d.FileObject, "");
             if (!string.IsNullOrEmpty(name))
@@ -527,13 +539,13 @@ namespace IOTracesCORE.handlers
                 DrainPending(d.FileKey, MarkDirectoryIfNoExtension(name));
             }
 
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "file_rundown", d.ProcessID, d.ThreadID, d.ProcessName, name, 0);
         }
 
         public void OnFSControl(FileIOInfoTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileKey, d.FileObject, d.FileName);
             if (!string.IsNullOrEmpty(name))
             {
@@ -554,21 +566,21 @@ namespace IOTracesCORE.handlers
 
         public void OnMapFile(MapFileTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             EmitMapFile(d.TimeStamp, "map_file", d.ProcessID, d.ThreadID, d.ProcessName,
                 Clean(d.FileName), d.ViewSize, d.FileKey);
         }
 
         public void OnMapFileDCStart(MapFileTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             EmitMapFile(d.TimeStamp, "map_file_dc_start", d.ProcessID, d.ThreadID, d.ProcessName,
                 Clean(d.FileName), d.ViewSize, d.FileKey);
         }
 
         public void OnMapFileDCStop(MapFileTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             EmitMapFile(d.TimeStamp, "map_file_dc_stop", d.ProcessID, d.ThreadID, d.ProcessName,
                 Clean(d.FileName), d.ViewSize, d.FileKey);
         }
@@ -583,13 +595,13 @@ namespace IOTracesCORE.handlers
                 DrainPending(d.FileKey, MarkDirectoryIfNoExtension(name));
             }
 
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             Emit(d.TimeStamp, "name", d.ProcessID, d.ThreadID, d.ProcessName, name, 0);
         }
 
         public void OnQueryInfo(FileIOInfoTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileKey, d.FileObject, d.FileName);
             if (!string.IsNullOrEmpty(name))
             {
@@ -610,7 +622,7 @@ namespace IOTracesCORE.handlers
 
         public void OnSetInfo(FileIOInfoTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             var name = Resolve(d.FileKey, d.FileObject, d.FileName);
             if (!string.IsNullOrEmpty(name))
             {
@@ -631,7 +643,7 @@ namespace IOTracesCORE.handlers
 
         public void OnUnmapFile(MapFileTraceData d)
         {
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             EmitMapFile(d.TimeStamp, "unmap_file", d.ProcessID, d.ThreadID, d.ProcessName,
                 Clean(d.FileName), d.ViewSize, d.FileKey);
         }
@@ -649,7 +661,7 @@ namespace IOTracesCORE.handlers
         public void OnOperationEnd(FileIOOpEndTraceData d)
         {
             if (lowOverheadLogging) return;   // low-overhead mode: skip per-operation completion events
-            if (!ProcessFilter.ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
             wm.Write(new FilesystemTrace(
                 d.TimeStamp, "op_end", d.ProcessID, d.ThreadID, d.ProcessName, "", 0,
                 null, null, null, null, null, null, null, d.IrpPtr, null, null, null,
