@@ -11,8 +11,15 @@ The Markdown sources also live in [`docs/`](docs/).
 ## Install (just one file)
 
 1. Download **[`IOTracer.exe`](https://github.com/cacheMon/io-tracer-win/releases/latest)** from the latest release.
-2. Double-click it. There's nothing to install or unzip.
-3. Windows prompts for **administrator** (ETW kernel tracing needs it) — click **Yes**.
+2. **If your browser says the file "isn't commonly downloaded" or "may be dangerous", keep it** — in the download bar/menu choose **⋯ → Keep** (Edge) or **Keep / Keep anyway** (Chrome).
+3. Double-click `IOTracer.exe`. There's nothing to install or unzip.
+4. **If "Windows protected your PC" appears**, click **More info → Run anyway**.
+5. Windows prompts for **administrator** (ETW kernel tracing needs it) — click **Yes**.
+
+> **Why the warnings?** `IOTracer.exe` is not code-signed yet, so Windows
+> SmartScreen and browsers flag any unsigned app from an unknown publisher by
+> default. The steps above are safe to dismiss. (Code signing is the permanent fix
+> and can be added later.)
 
 The app appears in the system tray. That's it. (`winiotracer.zip` on the release is
 the same app as separate files — a fallback if the single `.exe` won't run on your machine.)
