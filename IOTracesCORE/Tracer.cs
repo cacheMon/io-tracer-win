@@ -132,6 +132,26 @@ namespace IOTracesCORE
 
                 await wm.CompressAllAsync();
 
+                // Surface the zero-disk-event case explicitly. The ds/ stream is
+                // written lazily, so a short or cache-served run that produced no
+                // physical disk I/O leaves no ds/ folder at all — which looks like
+                // a broken stream. Saying so distinguishes "no block I/O happened"
+                // (expected) from "disk tracing failed".
+                long diskEvents = TraceStats.Snapshot().DiskEvents;
+                if (diskEvents == 0)
+                {
+                    Console.WriteLine(
+                        "Disk diagnostics: 0 disk I/O events captured, so no ds/ stream was " +
+                        "written. This is expected on short or cache-served runs — reads are " +
+                        "served from the cache and write-back may not have flushed, so no " +
+                        "physical disk I/O occurs. The ds/ stream only appears once real device " +
+                        "I/O happens (cache misses, flushes, write-back).");
+                }
+                else
+                {
+                    Console.WriteLine($"Disk diagnostics: {diskEvents} disk I/O events captured.");
+                }
+
                 Console.WriteLine("Cleanup completed successfully.");
             }
             catch (Exception ex)

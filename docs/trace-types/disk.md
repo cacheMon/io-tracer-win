@@ -2,6 +2,15 @@
 
 Captures low-level disk I/O operations.
 
+> **A missing or empty `ds/` stream is usually expected, not a bug.** Disk
+> events come only from *physical* device I/O (the `DiskIO` ETW events). On a
+> short or cache-served run — reads served from the system cache, write-back
+> not yet flushed — little or no I/O reaches the device, so the lazily-created
+> `ds/` folder may not appear at all. Disk I/O shows up once there is real
+> device activity: cache misses, flushes, or write-back. The tracer prints a
+> `Disk diagnostics: 0 disk I/O events captured …` line at shutdown when this
+> happens, to distinguish it from a failed stream.
+
 ## How Latency is Measured
 
 Disk latency is calculated by tracking the lifecycle of an I/O Request Packet (IRP) from its initiation to its completion using ETW (Event Tracing for Windows) events:
