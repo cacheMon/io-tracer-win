@@ -86,5 +86,10 @@ namespace IOTracesCORE.utils
         public static void IncFilesystemSnapshotDirInaccessible() => Interlocked.Increment(ref FilesystemSnapshotDirsInaccessible);
         public static void AddProcessSnapshotRows(long n) => Interlocked.Add(ref ProcessSnapshotRows, n);
         public static void AddEtwEventsLost(long n) => Interlocked.Add(ref EtwEventsLost, n);
+        // Overwrite with an authoritative running total. Used to publish the live
+        // ETW lost-event count mid-session (polled from source.EventsLost) so the
+        // periodically-refreshed manifest reports drops even when the session is
+        // killed before a clean shutdown.
+        public static void SetEtwEventsLost(long n) => Interlocked.Exchange(ref EtwEventsLost, n);
     }
 }
