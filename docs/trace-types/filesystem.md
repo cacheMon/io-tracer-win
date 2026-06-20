@@ -3,14 +3,16 @@
 Captures detailed file system I/O operations via Windows ETW kernel tracing.
 
 **CSV Header:**
-`timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line`
+`timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line`
 
 > Cross-OS aligned: files now begin with this header row; columns
 > 1–12 are the shared prefix identical to the Linux `fs/` stream. `operation` is
 > the lowercase canonical name (`create`→`open`, `flush`→`fsync`,
 > `query_info`→`getattr`, `set_info`→`setattr`, `dir_enum`→`readdir`,
-> `map_file`→`mmap`, `fs_control`→`fsctl`). `inode`/`device` are always empty on
-> Windows (kept for alignment); `bytes_completed` mirrors `size` for read/write.
+> `map_file`→`mmap`, `fs_control`→`fsctl`). The Linux prefix's `inode`/`device` are
+> omitted on Windows (ETW carries neither — file identity is `file_key`, the volume is
+> in `filename`), so the Windows fs layout intentionally diverges from Linux: read
+> columns by name, not position. `bytes_completed` mirrors `size` for read/write.
 
 **Fields:**
 
@@ -204,7 +206,7 @@ Any code not in the above list is emitted as `0xXXXXXXXX`. The full set of recog
 ## Example
 
 ```csv
-timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line
+timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line
 2026-02-08 23:23:45.123456,open,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,FILE_NON_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT,FILE_SHARE_READ,FILE_OPEN_IF,,,,0x24CBEEB5A40,18446744071562067968,FILE_ATTRIBUTE_NORMAL,notepad.exe C:\Users\User\Documents\test.txt
 2026-02-08 23:23:45.125789,read,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,4096,0,4096,,,IRP_PAGING_IO|IRP_NOCACHE,,,,,,,0x24CBEEB5A40,18446744071562067968,,notepad.exe C:\Users\User\Documents\test.txt
 2026-02-08 23:23:45.130012,write,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,512,4096,512,,,IRP_SYNCHRONOUS_API,,,,,,,0x24CBEEB5A40,18446744071562067968,,notepad.exe C:\Users\User\Documents\test.txt

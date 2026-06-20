@@ -80,12 +80,14 @@ Captures detailed file system operations.
 > with Linux (`create` → `open`, `flush` → `fsync`, `query_info` → `getattr`,
 > `set_info` → `setattr`, `dir_enum` → `readdir`, `map_file` → `mmap`,
 > `fs_control` → `fsctl`; `read`/`write`/`close`/`delete`/`rename` unchanged).
-> Fields that do not apply to an operation are left empty. `inode` and `device`
-> are always empty on Windows (kept for column-alignment with Linux).
+> Fields that do not apply to an operation are left empty. The Linux prefix's `inode`
+> and `device` are omitted on Windows (ETW carries neither — file identity is in
+> `file_key`, the volume is in `filename`), so the Windows fs column layout intentionally
+> diverges from Linux; read columns by name, not position.
 
 **CSV Header (column order):**
 ```
-timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line,nt_status
+timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line,nt_status
 ```
 
 **Fields:**
@@ -128,7 +130,7 @@ timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,d
 
 **Example:**
 ```csv
-timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,inode,device,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line,nt_status
+timestamp,operation,pid,tid,command,filename,size,offset,bytes_completed,flags,create_options,share_access,create_disposition,view_size,file_info_class,fsctl_code,irp,file_key,file_attributes,command_line,nt_status
 2026-02-08 23:23:45.123456,open,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,0,,,,,,FILE_FLAG_OVERLAPPED,FILE_SHARE_READ,OPEN_EXISTING,,,,0xFFFFAB12,0xFFFFCD34,FILE_ATTRIBUTE_NORMAL,"C:\Windows\System32\notepad.exe",
 2026-02-08 23:23:45.125789,read,1234,5678,notepad.exe,C:\Users\User\Documents\test.txt,4096,0,4096,,,IRP_PAGING_IO|IRP_NOCACHE,,,,,,,0xFFFFAB12,0xFFFFCD34,,"C:\Windows\System32\notepad.exe",
 2026-02-08 23:23:45.126102,op_end,1234,5678,notepad.exe,,0,,,,,,,,,,,,0xFFFFAB12,,,"C:\Windows\System32\notepad.exe",0x00000000

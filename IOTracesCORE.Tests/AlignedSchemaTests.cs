@@ -5,15 +5,18 @@ using Xunit;
 
 namespace IOTracesCORE.Tests
 {
-    // Locks the cross-OS aligned schema (v5): the shared column prefix and the
-    // FormatAsCsv field order must match the Linux tracer's fs/block streams.
+    // Locks the column schema: the manifest HeaderLine() must match the FormatAsCsv
+    // field order. The block stream keeps the Linux-aligned prefix; the fs stream
+    // intentionally OMITS the Linux prefix's inode/device (Windows ETW carries neither —
+    // file identity is file_key, the volume is in filename), so the fs prefix below
+    // diverges from Linux by design.
     public class AlignedSchemaTests
     {
-        // Shared prefixes — identical names/order to the Linux tracer.
+        // Windows fs prefix — Linux's inode/device dropped (always empty on Windows).
         private static readonly string[] FsPrefix =
         {
             "timestamp", "operation", "pid", "tid", "command", "filename",
-            "size", "offset", "bytes_completed", "inode", "device", "flags",
+            "size", "offset", "bytes_completed", "flags",
         };
         private static readonly string[] BlockPrefix =
         {
