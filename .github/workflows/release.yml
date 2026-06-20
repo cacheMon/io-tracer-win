@@ -9,20 +9,43 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    
+
     permissions:
       contents: write
-      
+
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-      
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
-        
-    - name: Build
+
+    # Single self-contained .exe: every native dependency (WPF *_cor3.dll,
+    # TraceEvent's amd64/KernelTraceControl.dll + msdia140.dll) is embedded and
+    # self-extracted at first run, so the user just downloads ONE file and runs it
+    # (the app.manifest requests administrator, so Windows prompts for UAC).
+    - name: Build single-file exe
+      run: |
+        dotnet publish IOTracesCORE/IOTracesCORE.csproj `
+          -c Release `
+          -r win-x64 `
+          --self-contained `
+          -o ./single `
+          /p:PublishSingleFile=true `
+          /p:IncludeNativeLibrariesForSelfExtract=true `
+          /p:IncludeAllContentForSelfExtract=true `
+          /p:EnableCompressionInSingleFile=true `
+          /p:DebugType=none `
+          /p:DebugSymbols=false
+        Copy-Item ./single/IOTracesCORE.exe ./IOTracer.exe
+        Write-Host "=== ./single contents (should be ONLY IOTracesCORE.exe for a true single file) ==="
+        Get-ChildItem -Recurse ./single | Select-Object FullName, Length | Format-Table -AutoSize
+
+    # Fallback: the same app as loose files, zipped. Kept while the single-file
+    # build is validated on real machines; remove once the .exe is confirmed.
+    - name: Build fallback zip (multi-file)
       run: |
         dotnet publish IOTracesCORE/IOTracesCORE.csproj `
           -c Release `
@@ -30,14 +53,21 @@ jobs:
           --self-contained `
           -o ./publish `
           /p:PublishSingleFile=true
-          
-    - name: Package
-      run: |
-        Compress-Archive -Path ./publish/* -DestinationPath ./winiotracer.zip
-        
+        Compress-Archive -Path ./publish/* -DestinationPath ./winiotracer.zip -Force
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       if: startsWith(github.ref, 'refs/tags/')
       with:
-        files: winiotracer.zip
+        files: |
+          IOTracer.exe
+          winiotracer.zip
         generate_release_notes: true
+        body: |
+          ## Install — just one file
+
+          **Download `IOTracer.exe` below and run it.** No installer, no extracting.
+          Windows will prompt for administrator (required for ETW kernel tracing) — click **Yes**.
+
+          `winiotracer.zip` is the same app as separate files (a fallback if the single
+          `.exe` has trouble on your machine).
