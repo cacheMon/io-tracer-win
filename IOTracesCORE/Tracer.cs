@@ -322,20 +322,35 @@ namespace IOTracesCORE
                 {
                     session.StopOnDispose = true;
 
+                    // FileIOInit yields the per-operation file events we actually consume
+                    // (read/write/create/cleanup/name/...); the FileIO keyword ADDS the
+                    // FileIOOperationEnd (op_end) completion events, which roughly DOUBLE FileIO
+                    // volume (measured 50-52% of fs rows). op_end is therefore the single biggest
+                    // contributor to the kernel-side buffer pressure that drops fs events.
                     var keywords =
-                        KernelTraceEventParser.Keywords.FileIO |
                         KernelTraceEventParser.Keywords.FileIOInit |
                         KernelTraceEventParser.Keywords.Process |
                         KernelTraceEventParser.Keywords.DiskIO |
                         KernelTraceEventParser.Keywords.DiskIOInit |
                         KernelTraceEventParser.Keywords.NetworkTCPIP;
 
-                    // Lightweight mode drops the memory/virtual-alloc keywords. These are by
-                    // far the chattiest kernel events, so not enabling them means the kernel
-                    // never generates them — a real CPU/buffer saving, not just smaller files.
+                    // Full mode adds:
+                    //  - FileIO: the op_end completions (latency + nt_status pairing). The existing
+                    //    consumer-side `if (lowOverheadLogging) return` in OnOperationEnd only
+                    //    discarded op_end AFTER the kernel had already spent buffer space delivering
+                    //    it, so it gave NO relief on the kernel-side drops. Dropping the keyword in
+                    //    lightweight mode stops the kernel generating op_end at all — the real
+                    //    ~halving of FileIO volume.
+                    //  - Memory/VirtualAlloc: by far the chattiest kernel events; not enabling them
+                    //    means the kernel never generates them (a real CPU/buffer saving).
+                    // HYPOTHESIS to validate on a Windows capture before trusting this: in
+                    // lightweight mode, read/write/create rows AND resolved filenames must still
+                    // appear (i.e. FileIOInit alone carries them). If either vanishes, the FileIO
+                    // keyword also gates them and this change must be reverted.
                     if (!lowOverheadLogging)
                     {
                         keywords |=
+                            KernelTraceEventParser.Keywords.FileIO |
                             KernelTraceEventParser.Keywords.Memory |
                             KernelTraceEventParser.Keywords.MemoryHardFaults |
                             KernelTraceEventParser.Keywords.VirtualAlloc;
@@ -427,7 +442,11 @@ namespace IOTracesCORE
                     kernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
                     kernel.FileIOSetInfo += fsHandler.OnSetInfo;
                     kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
-                    kernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
+                    // Only wire op_end in full mode: lightweight no longer enables the FileIO
+                    // keyword, so the kernel never raises FileIOOperationEnd there anyway. The
+                    // OnOperationEnd consumer-side guard stays as belt-and-suspenders.
+                    if (!lowOverheadLogging)
+                        kernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
                     kernel.ProcessStart += data => processCache.RefreshFromProcess(data.ProcessID);
                     kernel.ProcessStop += data => processCache.Remove(data.ProcessID);
 
