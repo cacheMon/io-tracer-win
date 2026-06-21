@@ -29,6 +29,14 @@ namespace IOTracesCORE
         [STAThread]
         static void Main(string[] args)
         {
+            // Headless CLI for automated validation (e.g. over SSH, no interactive desktop).
+            // Bypasses ALL of the tray/WinForms setup below. See RunHeadless for the flags.
+            if (args != null && Array.IndexOf(args, "--headless") >= 0)
+            {
+                RunHeadless(args);
+                return;
+            }
+
             var handle = GetConsoleWindow();
             ShowWindow(handle, SW_HIDE);
 
@@ -90,6 +98,52 @@ namespace IOTracesCORE
             var form = TracerConfigForm.Run(cancellationTokenSource.Token);
             form.FormClosed += (_, __) => { cancellationTokenSource?.Cancel(); };
             Application.Run(form);
+        }
+
+        // Headless command-line runner for automated/CI/SSH validation. No tray, no windows.
+        //   IOTracer.exe --headless [--lightweight] [--minutes N] [--output DIR] [--anonymous]
+        //     --lightweight : low-overhead mode (drops op_end + memory keywords at the kernel)
+        //     --minutes N   : stop cleanly after N minutes (0 / omitted = run until Ctrl+C)
+        //     --output DIR  : trace output directory (default .\output)
+        //     --anonymous   : hash user/host identifiers
+        // Always runs local-only (upload disabled, dev mode) so it never needs cloud creds.
+        private static void RunHeadless(string[] args)
+        {
+            bool lightweight = Array.IndexOf(args, "--lightweight") >= 0;
+            bool anonymous = Array.IndexOf(args, "--anonymous") >= 0;
+            int minutes = GetArgInt(args, "--minutes", 0);
+            string output = GetArgStr(args, "--output", ".\\output");
+
+            Console.WriteLine($"[headless] lightweight={lightweight} minutes={minutes} " +
+                              $"output={output} anonymous={anonymous} commit={VersionManager.Instance.GetCommitId()}");
+
+            ConfigClasses.LoadTracemetaConfiguration();
+
+            var cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+            if (minutes > 0)
+            {
+                cts.CancelAfter(TimeSpan.FromMinutes(minutes));
+                Console.WriteLine($"[headless] will stop automatically after {minutes} minute(s).");
+            }
+
+            var obj = new ObjectStorageHandler();
+            // upload:false + devMode:true => purely local; headless:true => no WinForms UI.
+            var tracer = new Tracer(anonymous, upload: false, obj, output,
+                                    devMode: true, lowOverheadLogging: lightweight, headless: true);
+            tracer.Trace(cts.Token);
+        }
+
+        private static int GetArgInt(string[] args, string name, int dflt)
+        {
+            int i = Array.IndexOf(args, name);
+            return (i >= 0 && i + 1 < args.Length && int.TryParse(args[i + 1], out int v)) ? v : dflt;
+        }
+
+        private static string GetArgStr(string[] args, string name, string dflt)
+        {
+            int i = Array.IndexOf(args, name);
+            return (i >= 0 && i + 1 < args.Length) ? args[i + 1] : dflt;
         }
 
         private static void ShowStatus()
