@@ -385,10 +385,19 @@ namespace IOTracesCORE
                             KernelTraceEventParser.Keywords.VirtualAlloc;
                     }
 
+                    // FileIOInit carries the per-operation file events we consume (read/write/
+                    // create/cleanup/name/...); the FileIO keyword ADDS the op_end completions,
+                    // which roughly DOUBLE FileIO volume (validated on Windows Server 2025 via a
+                    // keyword probe: op_end was ~64% of FileIO events) and are the single biggest
+                    // contributor to kernel-side fs drops. The probe confirmed FileIOInit ALONE
+                    // still yields read/write/create + filename mapping and op_end disappears, so
+                    // lightweight drops the FileIO keyword (op_end off AT THE KERNEL — real volume
+                    // relief); full mode keeps it for the latency/nt_status pairing.
                     var fileKeywords =
-                        KernelTraceEventParser.Keywords.FileIO |
                         KernelTraceEventParser.Keywords.FileIOInit |
                         KernelTraceEventParser.Keywords.Process;
+                    if (!lowOverheadLogging)
+                        fileKeywords |= KernelTraceEventParser.Keywords.FileIO;
 
                     // Size + enable both pools (step-down + 1MB buffers, see helper). The FILE
                     // session's pool is the truncation-relevant one, so its granted size is what we
@@ -437,7 +446,11 @@ namespace IOTracesCORE
                     fileKernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
                     fileKernel.FileIOSetInfo += fsHandler.OnSetInfo;
                     fileKernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
-                    fileKernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
+                    // Only wire op_end in full mode: lightweight no longer enables the FileIO
+                    // keyword, so the kernel never raises FileIOOperationEnd there anyway. The
+                    // OnOperationEnd consumer-side guard stays as belt-and-suspenders.
+                    if (!lowOverheadLogging)
+                        fileKernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
 
                     kernel.ProcessStart += data => processCache.RefreshFromProcess(data.ProcessID);
                     kernel.ProcessStop += data => processCache.Remove(data.ProcessID);
