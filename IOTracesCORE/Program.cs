@@ -53,15 +53,17 @@ namespace IOTracesCORE
             ObjectStorageHandler.OnConnectionStateChanged += OnConnectionStateChanged;
 
             string currentVersion = VersionManager.Instance.GetCurrentVersion();
+            string commitId = VersionManager.Instance.GetCommitId();
+            string versionLabel = $"{currentVersion} ({commitId})";
             trayIcon = new NotifyIcon
             {
                 Icon = icon,
                 Visible = true,
-                Text = $"IO Traces Core v{currentVersion} - Running"
+                Text = $"IO Traces Core v{versionLabel} - Running"
             };
 
             var contextMenu = new ContextMenuStrip();
-            contextMenu.Items.Add($"IO Traces Core v{currentVersion}", null, null).Enabled = false;
+            contextMenu.Items.Add($"IO Traces Core v{versionLabel}", null, null).Enabled = false;
             contextMenu.Items.Add("-");
 
             // Add Reward button

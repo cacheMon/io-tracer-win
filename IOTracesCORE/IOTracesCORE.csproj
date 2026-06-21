@@ -15,6 +15,24 @@
     <EmbeddedResource Include="Opera_Glasses_icon-icons.com_54155.ico" />
   </ItemGroup>
 
+  <!-- Stamp the git commit into the assembly's informational version (as "...+<sha>")
+       so every trace can be traced back to the exact tracer build that produced it.
+       The SDK appends $(SourceRevisionId) to AssemblyInformationalVersion automatically.
+       Falls back gracefully (no +sha) when git is unavailable, e.g. a source-only build. -->
+  <Target Name="SetSourceRevisionId" BeforeTargets="GetAssemblyVersion" Condition="'$(SourceRevisionId)' == ''">
+    <Exec Command="git rev-parse --short=12 HEAD"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          ConsoleToMSBuild="true"
+          ContinueOnError="true"
+          StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitCommitId" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitExitCode" />
+    </Exec>
+    <PropertyGroup Condition="'$(_GitExitCode)' == '0' and '$(_GitCommitId)' != ''">
+      <SourceRevisionId>$(_GitCommitId)</SourceRevisionId>
+    </PropertyGroup>
+  </Target>
+
   <ItemGroup>
     <!-- Allow the unit-test assembly to reach internal helper types. -->
     <InternalsVisibleTo Include="IOTracesCORE.Tests" />
