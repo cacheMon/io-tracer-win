@@ -354,11 +354,18 @@ namespace IOTracesCORE
                     // fall back to a conservative size rather than losing the whole session.
                     long ramBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
                     int ramMb = ramBytes > 0 ? (int)(ramBytes / (1024L * 1024L)) : 0;
-                    // Enlarge the kernel buffer reservation for more burst absorption. TraceEvent
-                    // exposes no public buffer-COUNT setter (only BufferSizeMB), so this is the
-                    // only headroom knob via the wrapper; an over-large request is rejected and
-                    // falls back below. (The real remaining truncation is kernel-side under a mega
-                    // FileIO burst — see the authoritative session.EventsLost diagnostic.)
+                    // Buffer COUNT matters as much as total size. TraceEvent derives the count as
+                    // BufferSizeMB*1024 / BufferQuantumKB; with the default 64KB quantum a 1GB pool
+                    // needs ~16,384 buffers, which ETW refuses (too many) — so the step-down below
+                    // would silently shrink the pool even when the RAM is available. Use 1MB buffers
+                    // so the same pool maps to a sane count (1GB -> 1024 buffers): fewer, larger
+                    // buffers absorb a high-volume FileIO burst with far less per-buffer flush
+                    // overhead, AND the large pool actually gets granted. 1MB is ETW's practical
+                    // max buffer size; if a system rejects it, the last-resort fallback resets the
+                    // quantum to the library default. Must be set BEFORE EnableKernelProvider.
+                    const int largeQuantumKb = 1024;   // 1MB per buffer
+                    const int defaultQuantumKb = 64;   // library default, used in the fallback
+                    session.BufferQuantumKB = largeQuantumKb;
                     int maxBufferMb = lowOverheadLogging ? 256 : 1024;
                     int bufferMb = ramMb > 0 ? Math.Clamp(ramMb / 32, 128, maxBufferMb) : maxBufferMb;
                     // Step DOWN through decreasing pool sizes rather than collapsing straight to
@@ -387,8 +394,10 @@ namespace IOTracesCORE
                     }
                     if (appliedBufferMb == 0)
                     {
-                        // Every sized attempt was rejected — fall back to the library default so a
-                        // too-large request never takes down the whole session.
+                        // Every sized attempt was rejected — reset to library defaults (including
+                        // the 64KB quantum, in case 1MB buffers were what this system refused) and
+                        // let ETW choose, so a too-large request never takes down the whole session.
+                        session.BufferQuantumKB = defaultQuantumKb;
                         session.EnableKernelProvider(keywords);
                         appliedBufferMb = session.BufferSizeMB;
                     }
