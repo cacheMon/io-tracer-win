@@ -32,6 +32,9 @@ namespace IOTracesCORE
         // (consumer-side) / session.EventsLost (OS-authoritative) respectively.
         private long _etwLostBaseline = 0;
         private long _sessionLostBaseline = 0;
+        // Set once we've written the cross-run truncation marker this process, so the 2s
+        // lost-poller records it a single time rather than re-writing on every tick.
+        private bool _truncationMarkerWritten = false;
         private int cleanupStarted = 0;
         // Lightweight mode for resource-constrained machines: suppresses the highest-overhead
         // streams (per-operation op_end completions, and the memory/virtual-alloc keywords).
@@ -358,20 +361,38 @@ namespace IOTracesCORE
                     // FileIO burst — see the authoritative session.EventsLost diagnostic.)
                     int maxBufferMb = lowOverheadLogging ? 256 : 1024;
                     int bufferMb = ramMb > 0 ? Math.Clamp(ramMb / 32, 128, maxBufferMb) : maxBufferMb;
-                    try
+                    // Step DOWN through decreasing pool sizes rather than collapsing straight to
+                    // 64MB when the first request is rejected: a machine that won't grant 1024MB
+                    // may still grant 512/256MB, and every extra MB is burst-absorption headroom
+                    // against kernel-side FileIO drops. Record the size that actually took
+                    // (TraceStats -> manifest) so a capture never silently reports health while
+                    // running on a tiny pool. EnableKernelProvider must SUCCEED only once; the
+                    // first size that does wins and we stop.
+                    int appliedBufferMb = 0;
+                    foreach (int mb in new[] { bufferMb, 768, 512, 384, 256, 192, 128, 96, 64 })
                     {
-                        session.BufferSizeMB = bufferMb;
-                        session.EnableKernelProvider(keywords);
+                        if (mb > bufferMb) continue; // never exceed the RAM-scaled request
+                        try
+                        {
+                            session.BufferSizeMB = mb;
+                            session.EnableKernelProvider(keywords);
+                            appliedBufferMb = mb;
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[Tracer] EnableKernelProvider rejected {mb}MB buffers " +
+                                $"({ex.Message}); stepping down.");
+                        }
                     }
-                    catch (Exception ex)
+                    if (appliedBufferMb == 0)
                     {
-                        Debug.WriteLine($"[Tracer] EnableKernelProvider failed at {bufferMb}MB buffers " +
-                            $"({ex.Message}); retrying with default buffer size.");
-                        // Recreate provider enablement at the library default — a too-large
-                        // buffer request must not take down every stream.
-                        session.BufferSizeMB = 64;
+                        // Every sized attempt was rejected — fall back to the library default so a
+                        // too-large request never takes down the whole session.
                         session.EnableKernelProvider(keywords);
+                        appliedBufferMb = session.BufferSizeMB;
                     }
+                    utils.TraceStats.SetBufferSizeMb(appliedBufferMb);
 
                     if (!lowOverheadLogging)
                     {
@@ -463,7 +484,20 @@ namespace IOTracesCORE
                             {
                                 var s = session;
                                 if (s != null)
-                                    utils.TraceStats.SetSessionEventsLost(_sessionLostBaseline + s.EventsLost);
+                                {
+                                    long authoritativeLost = _sessionLostBaseline + s.EventsLost;
+                                    utils.TraceStats.SetSessionEventsLost(authoritativeLost);
+                                    // A run that has already lost this many events to kernel-side
+                                    // drops is truncating; drop a machine-local marker (once) so the
+                                    // NEXT launch defaults to lightweight, lowering the kernel event
+                                    // rate this single consumer thread must sustain. Best-effort.
+                                    if (!_truncationMarkerWritten
+                                        && authoritativeLost >= utils.TruncationState.LossThreshold)
+                                    {
+                                        utils.TruncationState.Record(authoritativeLost);
+                                        _truncationMarkerWritten = true;
+                                    }
+                                }
                             }
                             catch { /* OS query failed / session stopping — retry next tick */ }
                             Thread.Sleep(2000);

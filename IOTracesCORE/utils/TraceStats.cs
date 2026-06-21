@@ -46,6 +46,11 @@ namespace IOTracesCORE.utils
         // reads a false 0. A gap (SessionEventsLost > EtwEventsLost) means the kernel
         // dropped events that the consumer-side counter never saw.
         public static long SessionEventsLost;
+        // The ETW kernel buffer pool size (MB) actually granted for this session, after the
+        // step-down in Tracer. A small value here (e.g. 64) next to a large SessionEventsLost
+        // means the OS refused the requested pool and the capture ran with little burst
+        // headroom — i.e. insufficient buffering, not a slow consumer.
+        public static long BufferSizeMb;
         // Filesystem events the off-thread formatter could not keep up with: the bounded
         // _fsFormatQueue rejected them (TryAdd failed). Distinct from EtwEventsLost (which
         // is kernel->consumer loss): this is loss DOWNSTREAM of the consumer, invisible to
@@ -70,6 +75,7 @@ namespace IOTracesCORE.utils
             Interlocked.Exchange(ref FilesystemSnapshotDirsInaccessible, 0);
             Interlocked.Exchange(ref EtwEventsLost, 0);
             Interlocked.Exchange(ref SessionEventsLost, 0);
+            Interlocked.Exchange(ref BufferSizeMb, 0);
             Interlocked.Exchange(ref FsFormatDropped, 0);
             Interlocked.Exchange(ref FsFormatQueueDepth, 0);
             Interlocked.Exchange(ref FsFormatQueueHighWater, 0);
@@ -91,6 +97,7 @@ namespace IOTracesCORE.utils
             public long FilesystemSnapshotDirsInaccessible { get; init; }
             public long EtwEventsLost { get; init; }
             public long SessionEventsLost { get; init; }
+            public long BufferSizeMb { get; init; }
             public long FsFormatDropped { get; init; }
             public long FsFormatQueueDepth { get; init; }
             public long FsFormatQueueHighWater { get; init; }
@@ -115,6 +122,7 @@ namespace IOTracesCORE.utils
             FilesystemSnapshotDirsInaccessible = Interlocked.Read(ref FilesystemSnapshotDirsInaccessible),
             EtwEventsLost = Interlocked.Read(ref EtwEventsLost),
             SessionEventsLost = Interlocked.Read(ref SessionEventsLost),
+            BufferSizeMb = Interlocked.Read(ref BufferSizeMb),
             FsFormatDropped = Interlocked.Read(ref FsFormatDropped),
             FsFormatQueueDepth = Interlocked.Read(ref FsFormatQueueDepth),
             FsFormatQueueHighWater = Interlocked.Read(ref FsFormatQueueHighWater),
@@ -141,6 +149,8 @@ namespace IOTracesCORE.utils
         // same poll as SetEtwEventsLost so the manifest carries both the consumer-side and
         // the authoritative view, and their gap exposes the consumer-side false negative.
         public static void SetSessionEventsLost(long n) => Interlocked.Exchange(ref SessionEventsLost, n);
+        // The kernel buffer pool size (MB) granted for the live session (see Tracer's step-down).
+        public static void SetBufferSizeMb(long n) => Interlocked.Exchange(ref BufferSizeMb, n);
 
         public static void IncFsFormatDropped() => Interlocked.Increment(ref FsFormatDropped);
         // Publish the current fs-format queue depth and track its peak. Called on each

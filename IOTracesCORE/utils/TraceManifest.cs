@@ -200,6 +200,11 @@ namespace IOTracesCORE.utils
                 // session_events_lost > etw_events_lost, the kernel dropped events that the
                 // consumer-side counter could not see — the actual fs-truncation signal.
                 ["session_events_lost"] = snapshot.SessionEventsLost,
+                // The kernel buffer pool (MB) actually granted this session, after Tracer's
+                // step-down. Read WITH session_events_lost: a small pool here alongside heavy
+                // authoritative loss points at insufficient burst headroom (the OS refused the
+                // requested pool) rather than a slow consumer.
+                ["etw_buffer_size_mb"] = snapshot.BufferSizeMb,
                 // Loss/back-pressure DOWNSTREAM of the ETW consumer: filesystem events the
                 // off-thread formatter could not keep up with (bounded queue rejected them),
                 // plus the queue's last/peak depth. etw_events_lost covers kernel->consumer
@@ -239,6 +244,7 @@ namespace IOTracesCORE.utils
             {
                 ["schema_version"] = SchemaVersion,
                 ["tracer_version"] = VersionManager.Instance.GetVersionString(),
+                ["tracer_commit"] = VersionManager.Instance.GetCommitId(),
                 ["platform"] = "windows",
                 ["finalized"] = final,
                 ["device_id"] = deviceId,

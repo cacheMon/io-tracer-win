@@ -108,7 +108,21 @@ namespace IOTracesCORE
                 AutoSize = true,
                 Margin = new Padding(0, 6, 0, 0)
             };
-            chkLowOverhead.CheckedChanged += (s, e) => SaveConfiguration();
+            // Sticky auto-lightweight: if a recent run on THIS machine truncated (heavy
+            // kernel-side ETW loss), default lightweight ON and say why, so a chronically
+            // truncating box self-heals. Set before wiring CheckedChanged so this initial
+            // default doesn't fire the handler. LoadConfiguration also ORs the marker in;
+            // unticking clears it so we respect an explicit opt-out until it truncates again.
+            if (utils.TruncationState.WasRecentlyTruncated(out _))
+            {
+                chkLowOverhead.Checked = true;
+                chkLowOverhead.Text += "  — auto-on: a recent run lost events";
+            }
+            chkLowOverhead.CheckedChanged += (s, e) =>
+            {
+                if (!chkLowOverhead.Checked) utils.TruncationState.Clear();
+                SaveConfiguration();
+            };
             root.Controls.Add(chkLowOverhead);
 
             lblStatus = new Label
@@ -432,7 +446,10 @@ namespace IOTracesCORE
 
                 chkAnonymous.Checked = cfg.Anonymous;
                 chkDevMode.Checked = cfg.DevMode;
-                chkLowOverhead.Checked = cfg.LowOverheadLogging;
+                // OR the truncation marker in so a machine that recently truncated defaults to
+                // lightweight even if the saved config had it off (see TruncationState).
+                chkLowOverhead.Checked = cfg.LowOverheadLogging
+                    || utils.TruncationState.WasRecentlyTruncated(out _);
                 chkEnableUpload.Checked = true;
             }
             catch (Exception ex)
