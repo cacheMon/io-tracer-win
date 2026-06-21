@@ -39,6 +39,9 @@ namespace IOTracesCORE
         // Lightweight mode for resource-constrained machines: suppresses the highest-overhead
         // streams (per-operation op_end completions, and the memory/virtual-alloc keywords).
         private readonly bool lowOverheadLogging;
+        // Headless/CLI mode: no WinForms UI (no please-wait form, no error MessageBox) so the
+        // tracer can run over SSH / in a non-interactive session for automated validation.
+        private readonly bool headless;
 
         [DllImport("kernel32.dll")]
         static extern bool SetConsoleCtrlHandler(ConsoleCtrlDelegate handler, bool add);
@@ -54,11 +57,12 @@ namespace IOTracesCORE
             CTRL_SHUTDOWN_EVENT = 6
         }
 
-        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output", bool devMode = false, bool lowOverheadLogging = false)
+        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output", bool devMode = false, bool lowOverheadLogging = false, bool headless = false)
         {
             objHandler = obj;
             isUploadAutomatically = upload;
             this.lowOverheadLogging = lowOverheadLogging;
+            this.headless = headless;
             wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode, lowOverheadLogging);
             processCache = new ProcessCommandLineCache();
             fsHandler = new FilesystemHandlers(wm, processCache, lowOverheadLogging);
@@ -169,7 +173,10 @@ namespace IOTracesCORE
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error! {ex.Message}", "Info", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // No MessageBox in headless mode — it would block forever with no desktop.
+                if (!headless)
+                    MessageBox.Show($"Error! {ex.Message}", "Info", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Console.WriteLine($"Error during cleanup: {ex.Message}");
                 Debug.WriteLine($"Error during cleanup: {ex.Message}");
             }
             finally
@@ -274,30 +281,39 @@ namespace IOTracesCORE
                 {
                     isShuttingDown = true;
                 }
-                Form pleaseWaitForm = new Form()
+                if (headless)
                 {
-                    Width = 400,
-                    Height = 100,
-                    FormBorderStyle = FormBorderStyle.None,
-                    StartPosition = FormStartPosition.CenterScreen,
-                    BackColor = Color.White,
-                    TopMost = true
-                };
-
-                Label label = new Label()
+                    // No interactive desktop in headless mode — skip the please-wait window and
+                    // clean up directly (CleanupAndExitAsync ends in Environment.Exit).
+                    CleanupAndExitAsync().GetAwaiter().GetResult();
+                }
+                else
                 {
-                    Text = "IO Tracing session has ended. The application performing cleaning operation. Please Wait....",
-                    Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    Font = new Font("Segoe UI", 10)
-                };
+                    Form pleaseWaitForm = new Form()
+                    {
+                        Width = 400,
+                        Height = 100,
+                        FormBorderStyle = FormBorderStyle.None,
+                        StartPosition = FormStartPosition.CenterScreen,
+                        BackColor = Color.White,
+                        TopMost = true
+                    };
 
-                pleaseWaitForm.Controls.Add(label);
-                pleaseWaitForm.Show();
-                Application.DoEvents();
-                CleanupAndExitAsync().GetAwaiter().GetResult();
-                pleaseWaitForm.Close();
-                pleaseWaitForm.Dispose();
+                    Label label = new Label()
+                    {
+                        Text = "IO Tracing session has ended. The application performing cleaning operation. Please Wait....",
+                        Dock = DockStyle.Fill,
+                        TextAlign = ContentAlignment.MiddleCenter,
+                        Font = new Font("Segoe UI", 10)
+                    };
+
+                    pleaseWaitForm.Controls.Add(label);
+                    pleaseWaitForm.Show();
+                    Application.DoEvents();
+                    CleanupAndExitAsync().GetAwaiter().GetResult();
+                    pleaseWaitForm.Close();
+                    pleaseWaitForm.Dispose();
+                }
             }
         }
 
