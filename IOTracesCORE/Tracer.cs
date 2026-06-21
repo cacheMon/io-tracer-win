@@ -23,6 +23,11 @@ namespace IOTracesCORE
         private readonly ProcessSnapper psHandler;
         private readonly FilesystemSnapper fsSnapper;
         private TraceEventSession? session;
+        // Lever 4: FileIO is the highest-volume kernel provider, so it runs in its OWN kernel
+        // session (Win8+ allows multiple) with its own buffer pool AND its own consumer thread.
+        // That stops a FileIO burst from starving — or being starved by — Process/Disk/Net/Memory
+        // on the main session, and gives FileIO a full thread to drain at line rate.
+        private TraceEventSession? fileSession;
         private ObjectStorageHandler objHandler;
         private bool isUploadAutomatically;
         private volatile bool isShuttingDown = false;
@@ -113,6 +118,15 @@ namespace IOTracesCORE
             {
                 Debug.WriteLine("Performing cleanup operations...");
 
+                // Dispose the FileIO session first (it depends on nothing else), then the main
+                // session. StopOnDispose stops each. Its consumer thread is a background thread and
+                // its Process() unblocks on Stop, so no explicit join is needed here.
+                if (fileSession != null)
+                {
+                    fileSession.Dispose();
+                    fileSession = null;
+                }
+
                 if (session != null)
                 {
                     session.Dispose();
@@ -183,6 +197,7 @@ namespace IOTracesCORE
         {
             string sessionName = "IOTracer";
             CleanupOrphanedSession(sessionName);
+            CleanupOrphanedSession(sessionName + "FileIO"); // dedicated FileIO session (Lever 4)
             SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
 
             // Registered once here (not per-session) so reconnect-driven session
@@ -212,6 +227,7 @@ namespace IOTracesCORE
                 {
                     Debug.WriteLine("[Tracer] Stop requested by upload worker — stopping ETW session.");
                     session?.Stop();
+                    fileSession?.Stop();
                 };
 
                 objHandler.UploadThread(cancellationToken);
@@ -231,6 +247,7 @@ namespace IOTracesCORE
                     {
                         session.Stop();
                     }
+                    fileSession?.Stop();
                 }
             });
 
@@ -308,7 +325,11 @@ namespace IOTracesCORE
         /// </summary>
         private void RunOneSession(string sessionName, CancellationToken cancellationToken)
         {
+            // The dedicated FileIO session (Lever 4) runs alongside the main one under a derived
+            // name; a non-NT-Kernel-Logger name is what lets Win8+ run a second kernel session.
+            string fileSessionName = sessionName + "FileIO";
             CleanupOrphanedSession(sessionName);
+            CleanupOrphanedSession(fileSessionName);
 
             // Drop cross-event correlation state from any previous session so kernel
             // pointers (IRPs, FileObject/FileKey) reused by the new session can't be
@@ -319,89 +340,46 @@ namespace IOTracesCORE
             try
             {
                 using (session = new TraceEventSession(sessionName))
+                using (fileSession = new TraceEventSession(fileSessionName))
                 {
                     session.StopOnDispose = true;
+                    fileSession.StopOnDispose = true;
 
-                    var keywords =
-                        KernelTraceEventParser.Keywords.FileIO |
-                        KernelTraceEventParser.Keywords.FileIOInit |
+                    // Split the kernel providers across two sessions. The MAIN session carries
+                    // everything EXCEPT FileIO; the dedicated FILE session carries only the
+                    // high-volume FileIO provider (+ Process, so FileIO events still resolve a
+                    // process name). Each gets its own buffer pool and — further below — its own
+                    // consumer thread, so a FileIO burst can neither starve nor be starved by the
+                    // other providers (the "fs/ stream truncated to a startup burst" pathology was
+                    // FileIO overflowing a pool/consumer it shared with everything else). Win8+
+                    // permits multiple kernel sessions as long as the session name is not the
+                    // NT-Kernel-Logger name (both names here are custom).
+                    var mainKeywords =
                         KernelTraceEventParser.Keywords.Process |
                         KernelTraceEventParser.Keywords.DiskIO |
                         KernelTraceEventParser.Keywords.DiskIOInit |
                         KernelTraceEventParser.Keywords.NetworkTCPIP;
-
-                    // Lightweight mode drops the memory/virtual-alloc keywords. These are by
-                    // far the chattiest kernel events, so not enabling them means the kernel
-                    // never generates them — a real CPU/buffer saving, not just smaller files.
+                    // Memory/virtual-alloc are the chattiest events; lightweight mode omits them so
+                    // the kernel never generates them (a real CPU/buffer saving).
                     if (!lowOverheadLogging)
                     {
-                        keywords |=
+                        mainKeywords |=
                             KernelTraceEventParser.Keywords.Memory |
                             KernelTraceEventParser.Keywords.MemoryHardFaults |
                             KernelTraceEventParser.Keywords.VirtualAlloc;
                     }
 
-                    // FileIO is an extremely high-volume kernel provider. The default ETW
-                    // buffer pool is only a few MB, so during a launch/boot burst the kernel
-                    // real-time buffers overflow within seconds; once the consumer is behind,
-                    // the kernel drops the highest-volume provider (FileIO) wholesale for the
-                    // rest of the session while low-rate providers (TcpIp) still find slots.
-                    // This is the cause of the observed "fs/ stream truncated to a startup
-                    // burst" pathology. Size the buffer pool generously so bursts are absorbed,
-                    // but scale to physical RAM and cap it so we never lock an unreasonable
-                    // share of non-paged pool on a small machine. Must be set BEFORE
-                    // EnableKernelProvider. An over-large request can be rejected by ETW, so
-                    // fall back to a conservative size rather than losing the whole session.
-                    long ramBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
-                    int ramMb = ramBytes > 0 ? (int)(ramBytes / (1024L * 1024L)) : 0;
-                    // Buffer COUNT matters as much as total size. TraceEvent derives the count as
-                    // BufferSizeMB*1024 / BufferQuantumKB; with the default 64KB quantum a 1GB pool
-                    // needs ~16,384 buffers, which ETW refuses (too many) — so the step-down below
-                    // would silently shrink the pool even when the RAM is available. Use 1MB buffers
-                    // so the same pool maps to a sane count (1GB -> 1024 buffers): fewer, larger
-                    // buffers absorb a high-volume FileIO burst with far less per-buffer flush
-                    // overhead, AND the large pool actually gets granted. 1MB is ETW's practical
-                    // max buffer size; if a system rejects it, the last-resort fallback resets the
-                    // quantum to the library default. Must be set BEFORE EnableKernelProvider.
-                    const int largeQuantumKb = 1024;   // 1MB per buffer
-                    const int defaultQuantumKb = 64;   // library default, used in the fallback
-                    session.BufferQuantumKB = largeQuantumKb;
-                    int maxBufferMb = lowOverheadLogging ? 256 : 1024;
-                    int bufferMb = ramMb > 0 ? Math.Clamp(ramMb / 32, 128, maxBufferMb) : maxBufferMb;
-                    // Step DOWN through decreasing pool sizes rather than collapsing straight to
-                    // 64MB when the first request is rejected: a machine that won't grant 1024MB
-                    // may still grant 512/256MB, and every extra MB is burst-absorption headroom
-                    // against kernel-side FileIO drops. Record the size that actually took
-                    // (TraceStats -> manifest) so a capture never silently reports health while
-                    // running on a tiny pool. EnableKernelProvider must SUCCEED only once; the
-                    // first size that does wins and we stop.
-                    int appliedBufferMb = 0;
-                    foreach (int mb in new[] { bufferMb, 768, 512, 384, 256, 192, 128, 96, 64 })
-                    {
-                        if (mb > bufferMb) continue; // never exceed the RAM-scaled request
-                        try
-                        {
-                            session.BufferSizeMB = mb;
-                            session.EnableKernelProvider(keywords);
-                            appliedBufferMb = mb;
-                            break;
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"[Tracer] EnableKernelProvider rejected {mb}MB buffers " +
-                                $"({ex.Message}); stepping down.");
-                        }
-                    }
-                    if (appliedBufferMb == 0)
-                    {
-                        // Every sized attempt was rejected — reset to library defaults (including
-                        // the 64KB quantum, in case 1MB buffers were what this system refused) and
-                        // let ETW choose, so a too-large request never takes down the whole session.
-                        session.BufferQuantumKB = defaultQuantumKb;
-                        session.EnableKernelProvider(keywords);
-                        appliedBufferMb = session.BufferSizeMB;
-                    }
-                    utils.TraceStats.SetBufferSizeMb(appliedBufferMb);
+                    var fileKeywords =
+                        KernelTraceEventParser.Keywords.FileIO |
+                        KernelTraceEventParser.Keywords.FileIOInit |
+                        KernelTraceEventParser.Keywords.Process;
+
+                    // Size + enable both pools (step-down + 1MB buffers, see helper). The FILE
+                    // session's pool is the truncation-relevant one, so its granted size is what we
+                    // publish to the manifest (etw_buffer_size_mb).
+                    EnableSizedKernelProvider(session, mainKeywords);
+                    int fileBufferMb = EnableSizedKernelProvider(fileSession, fileKeywords);
+                    utils.TraceStats.SetBufferSizeMb(fileBufferMb);
 
                     if (!lowOverheadLogging)
                     {
@@ -415,28 +393,36 @@ namespace IOTracesCORE
                     var source = session.Source;
                     var kernel = source.Kernel;
 
-                    kernel.FileIORead += fsHandler.OnRead;
-                    kernel.FileIOWrite += fsHandler.OnWrite;
-                    kernel.FileIOClose += fsHandler.OnClose;
-                    kernel.FileIOCreate += fsHandler.OnCreate;
-                    kernel.FileIODelete += fsHandler.OnDelete;
-                    kernel.FileIOFlush += fsHandler.OnFlush;
-                    kernel.FileIODirEnum += fsHandler.OnDirEnum;
-                    kernel.FileIORename += fsHandler.OnRename;
-                    kernel.FileIOCleanup += fsHandler.OnCleanup;
-                    kernel.FileIODirNotify += fsHandler.OnDirNotify;
-                    kernel.FileIOFileCreate += fsHandler.OnFileCreate;
-                    kernel.FileIOFileDelete += fsHandler.OnFileDelete;
-                    kernel.FileIOFileRundown += fsHandler.OnFileRundown;
-                    kernel.FileIOFSControl += fsHandler.OnFSControl;
-                    kernel.FileIOMapFile += fsHandler.OnMapFile;
-                    kernel.FileIOMapFileDCStart += fsHandler.OnMapFileDCStart;
-                    kernel.FileIOMapFileDCStop += fsHandler.OnMapFileDCStop;
-                    kernel.FileIOName += fsHandler.OnName;
-                    kernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
-                    kernel.FileIOSetInfo += fsHandler.OnSetInfo;
-                    kernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
-                    kernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
+                    // The FileIO handlers wire onto the DEDICATED file session's source, so they
+                    // are dispatched by that session's own consumer thread (started below). All
+                    // FileIO* events (incl. the Name/Rundown filename-mapping events) are on this
+                    // one session, so fsHandler's cross-event correlation stays self-contained.
+                    var fileSource = fileSession.Source;
+                    var fileKernel = fileSource.Kernel;
+
+                    fileKernel.FileIORead += fsHandler.OnRead;
+                    fileKernel.FileIOWrite += fsHandler.OnWrite;
+                    fileKernel.FileIOClose += fsHandler.OnClose;
+                    fileKernel.FileIOCreate += fsHandler.OnCreate;
+                    fileKernel.FileIODelete += fsHandler.OnDelete;
+                    fileKernel.FileIOFlush += fsHandler.OnFlush;
+                    fileKernel.FileIODirEnum += fsHandler.OnDirEnum;
+                    fileKernel.FileIORename += fsHandler.OnRename;
+                    fileKernel.FileIOCleanup += fsHandler.OnCleanup;
+                    fileKernel.FileIODirNotify += fsHandler.OnDirNotify;
+                    fileKernel.FileIOFileCreate += fsHandler.OnFileCreate;
+                    fileKernel.FileIOFileDelete += fsHandler.OnFileDelete;
+                    fileKernel.FileIOFileRundown += fsHandler.OnFileRundown;
+                    fileKernel.FileIOFSControl += fsHandler.OnFSControl;
+                    fileKernel.FileIOMapFile += fsHandler.OnMapFile;
+                    fileKernel.FileIOMapFileDCStart += fsHandler.OnMapFileDCStart;
+                    fileKernel.FileIOMapFileDCStop += fsHandler.OnMapFileDCStop;
+                    fileKernel.FileIOName += fsHandler.OnName;
+                    fileKernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
+                    fileKernel.FileIOSetInfo += fsHandler.OnSetInfo;
+                    fileKernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
+                    fileKernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
+
                     kernel.ProcessStart += data => processCache.RefreshFromProcess(data.ProcessID);
                     kernel.ProcessStop += data => processCache.Remove(data.ProcessID);
 
@@ -477,6 +463,13 @@ namespace IOTracesCORE
                     // running total is baseline (from any prior, restarted sessions) plus
                     // this session's source.EventsLost. The flag stops THIS session's poller
                     // when Process() returns (a session restart creates a fresh source/poller).
+                    // Poll the FILE session's dropped-event count live (it rises as the FileIO
+                    // consumer/buffers overrun) and publish it to TraceStats every couple of
+                    // seconds, so the periodically-refreshed manifest reports fs capture loss even
+                    // when the session is killed before clean shutdown. fs truncation is the
+                    // concern, so the authoritative count we track + the sticky-lightweight marker
+                    // both key off the FILE session. The flag stops THIS poller when Process()
+                    // returns (a restart creates a fresh source/poller).
                     bool sessionEnded = false;
                     var lostPoller = new Thread(() =>
                     {
@@ -484,22 +477,21 @@ namespace IOTracesCORE
                         {
                             // Consumer-side count — often a false 0 for real-time kernel
                             // sessions even when the kernel dropped (e.g. fs truncation).
-                            try { utils.TraceStats.SetEtwEventsLost(_etwLostBaseline + source.EventsLost); }
+                            try { utils.TraceStats.SetEtwEventsLost(_etwLostBaseline + fileSource.EventsLost); }
                             catch { /* source not ready / torn read — try again next tick */ }
                             // AUTHORITATIVE count: session.EventsLost queries the OS
                             // (ControlTrace -> EVENT_TRACE_PROPERTIES). This is the one that
                             // actually reveals kernel drops when the consumer-side reads 0.
                             try
                             {
-                                var s = session;
-                                if (s != null)
+                                var fs = fileSession;
+                                if (fs != null)
                                 {
-                                    long authoritativeLost = _sessionLostBaseline + s.EventsLost;
+                                    long authoritativeLost = _sessionLostBaseline + fs.EventsLost;
                                     utils.TraceStats.SetSessionEventsLost(authoritativeLost);
-                                    // A run that has already lost this many events to kernel-side
-                                    // drops is truncating; drop a machine-local marker (once) so the
-                                    // NEXT launch defaults to lightweight, lowering the kernel event
-                                    // rate this single consumer thread must sustain. Best-effort.
+                                    // A run that has already lost this many FileIO events to kernel-
+                                    // side drops is truncating; drop a machine-local marker (once) so
+                                    // the NEXT launch defaults to lightweight. Best-effort.
                                     if (!_truncationMarkerWritten
                                         && authoritativeLost >= utils.TruncationState.LossThreshold)
                                     {
@@ -515,20 +507,39 @@ namespace IOTracesCORE
                     { IsBackground = true, Name = "etw-lost-poller" };
                     lostPoller.Start();
 
+                    // Run the dedicated FileIO consumer on its own thread, then run the main
+                    // consumer on this thread. Both block in Process() until their session is
+                    // Stop()ed. The MAIN session is the lifecycle anchor: when it ends (user
+                    // shutdown or upload-driven restart), we stop the file session too and wait for
+                    // its consumer to drain out BEFORE the `using` blocks dispose either session —
+                    // disposing a session whose Process() is still running would crash.
+                    var fileConsumer = new Thread(() =>
+                    {
+                        try { fileSource.Process(); }
+                        catch (Exception ex) { Debug.WriteLine($"[Tracer] FileIO consumer ended: {ex.Message}"); }
+                    })
+                    { IsBackground = true, Name = "etw-fileio-consumer" };
+                    fileConsumer.Start();
+
                     source.Process(); // blocks until session.Stop() is called
 
-                    // Session ended: stop the poller and fold this session's dropped-event
-                    // counts into the baselines so a subsequent restarted session accumulates
-                    // rather than overwrites.
+                    // Main session ended: stop the file session + poller, and join the FileIO
+                    // consumer so nothing is touching fileSession when it is disposed.
                     Volatile.Write(ref sessionEnded, true);
-                    _etwLostBaseline += source.EventsLost;
+                    try { fileSession?.Stop(); } catch { /* already stopping */ }
+                    fileConsumer.Join(TimeSpan.FromSeconds(10));
+
+                    // Fold this run's dropped-event counts (FILE session = the fs-truncation
+                    // signal) into the baselines so a subsequent restarted session accumulates
+                    // rather than overwrites.
+                    _etwLostBaseline += fileSource.EventsLost;
                     utils.TraceStats.SetEtwEventsLost(_etwLostBaseline);
                     try
                     {
-                        var s = session;
-                        if (s != null)
+                        var fs = fileSession;
+                        if (fs != null)
                         {
-                            _sessionLostBaseline += s.EventsLost;
+                            _sessionLostBaseline += fs.EventsLost;
                             utils.TraceStats.SetSessionEventsLost(_sessionLostBaseline);
                         }
                     }
@@ -542,7 +553,51 @@ namespace IOTracesCORE
             finally
             {
                 session = null;
+                fileSession = null;
             }
+        }
+
+        /// <summary>
+        /// Sizes a kernel session's buffer pool and enables <paramref name="keywords"/>, stepping
+        /// the TOTAL pool down until ETW accepts it rather than silently collapsing to a tiny pool.
+        /// Uses 1MB buffers so a large pool maps to a sane buffer count. Returns the pool size (MB)
+        /// actually granted. Must be called before any handler is wired.
+        /// </summary>
+        private int EnableSizedKernelProvider(TraceEventSession s, KernelTraceEventParser.Keywords keywords)
+        {
+            long ramBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+            int ramMb = ramBytes > 0 ? (int)(ramBytes / (1024L * 1024L)) : 0;
+            const int largeQuantumKb = 1024;   // 1MB per buffer (ETW's practical max)
+            const int defaultQuantumKb = 64;   // library default, used in the fallback
+            s.BufferQuantumKB = largeQuantumKb;
+            int maxBufferMb = lowOverheadLogging ? 256 : 1024;
+            int bufferMb = ramMb > 0 ? Math.Clamp(ramMb / 32, 128, maxBufferMb) : maxBufferMb;
+            int applied = 0;
+            foreach (int mb in new[] { bufferMb, 768, 512, 384, 256, 192, 128, 96, 64 })
+            {
+                if (mb > bufferMb) continue; // never exceed the RAM-scaled request
+                try
+                {
+                    s.BufferSizeMB = mb;
+                    s.EnableKernelProvider(keywords);
+                    applied = mb;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[Tracer] {s.SessionName}: EnableKernelProvider rejected {mb}MB " +
+                        $"buffers ({ex.Message}); stepping down.");
+                }
+            }
+            if (applied == 0)
+            {
+                // Every sized attempt was rejected — reset to library defaults (including the 64KB
+                // quantum, in case 1MB buffers were what this system refused) and let ETW choose.
+                s.BufferQuantumKB = defaultQuantumKb;
+                s.EnableKernelProvider(keywords);
+                applied = s.BufferSizeMB;
+            }
+            return applied;
         }
 
         private void CleanupOrphanedSession(string sessionName)
