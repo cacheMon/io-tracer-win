@@ -4,7 +4,7 @@ using System.Threading;
 namespace IOTracesCORE.utils
 {
     /// <summary>Analytic priority of a filesystem event, used for load shedding.</summary>
-    internal enum FsPriority { High, Med, Low }
+    public enum FsPriority { High, Med, Low }
 
     /// <summary>
     /// Decides, under sustained backpressure, which low-value filesystem events to SHED
