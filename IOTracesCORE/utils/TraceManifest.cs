@@ -85,6 +85,22 @@ namespace IOTracesCORE.utils
                     Col("ConnId", "int"), Col("BytesSent", "int", "bytes"), Col("BytesReceived", "int", "bytes"),
                 }
             },
+            // Lossless aggregation of metadata events SHED from fs/ under sustained load:
+            // when the consumer falls behind (see LoadShedder), low-value ops (getattr/
+            // close/op_end/dir_enum/...) are folded into per-(process,file,op) counts here
+            // instead of being emitted (or kernel-dropped). read/write/create keep full
+            // per-event detail in fs/. A file's metadata may therefore appear in fs/ (when
+            // not overloaded) and/or here (when overloaded) — merge both for full coverage.
+            ["fs_summary"] = new Dictionary<string, object?>
+            {
+                ["path_glob"] = "fs_summary/*.csv.zst",
+                ["aggregation"] = "per-(process,file,operation), per-minute event counts (shed under load)",
+                ["columns"] = new object[]
+                {
+                    Col("Ts", "timestamp"), Col("Pid", "int"), Col("Comm", "string"),
+                    Col("Filename", "string"), Col("Operation", "string"), Col("Count", "int"),
+                }
+            },
             ["process"] = new Dictionary<string, object?>
             {
                 ["path_glob"] = "process/*.csv.zst",
@@ -214,6 +230,16 @@ namespace IOTracesCORE.utils
                 ["fs_format_dropped"] = snapshot.FsFormatDropped,
                 ["fs_format_queue_depth"] = snapshot.FsFormatQueueDepth,
                 ["fs_format_queue_high_water"] = snapshot.FsFormatQueueHighWater,
+                // Load-shedding (LoadShedder): under sustained backpressure the consumer sheds
+                // low-value metadata ops into the fs_summary stream (lossless per-(process,file,op)
+                // counts) instead of emitting full rows / letting the kernel drop them.
+                // fs_summary_events = raw events shed+aggregated; fs_summary_rows = summary rows
+                // written; fs_shed_peak_lag_ms = peak consumer event-time lag (the shed trigger).
+                // High fs_summary_events alongside low session_events_lost = shedding absorbed the
+                // overload losslessly (the intended behavior).
+                ["fs_summary_events"] = snapshot.FsSummaryEvents,
+                ["fs_summary_rows"] = snapshot.FsSummaryRows,
+                ["fs_shed_peak_lag_ms"] = snapshot.FsShedPeakLagMs,
             };
 
             return (counters, dead);
