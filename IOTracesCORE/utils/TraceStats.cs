@@ -59,6 +59,13 @@ namespace IOTracesCORE.utils
         public static long FsFormatDropped;
         public static long FsFormatQueueDepth;
         public static long FsFormatQueueHighWater;
+        // Filesystem events SHED under sustained backpressure and aggregated into the
+        // fs_summary stream instead of emitted as full rows. FsSummaryEvents = raw shed
+        // events folded in; FsSummaryRows = summary rows emitted; FsShedPeakLagMs = peak
+        // consumer event-time lag observed (the shed trigger). See LoadShedder.
+        public static long FsSummaryEvents;
+        public static long FsSummaryRows;
+        public static long FsShedPeakLagMs;
 
         public static void Reset()
         {
@@ -79,6 +86,9 @@ namespace IOTracesCORE.utils
             Interlocked.Exchange(ref FsFormatDropped, 0);
             Interlocked.Exchange(ref FsFormatQueueDepth, 0);
             Interlocked.Exchange(ref FsFormatQueueHighWater, 0);
+            Interlocked.Exchange(ref FsSummaryEvents, 0);
+            Interlocked.Exchange(ref FsSummaryRows, 0);
+            Interlocked.Exchange(ref FsShedPeakLagMs, 0);
         }
 
         /// <summary>Immutable snapshot of all counters, each read atomically.</summary>
@@ -101,6 +111,9 @@ namespace IOTracesCORE.utils
             public long FsFormatDropped { get; init; }
             public long FsFormatQueueDepth { get; init; }
             public long FsFormatQueueHighWater { get; init; }
+            public long FsSummaryEvents { get; init; }
+            public long FsSummaryRows { get; init; }
+            public long FsShedPeakLagMs { get; init; }
         }
 
         /// <summary>
@@ -126,6 +139,9 @@ namespace IOTracesCORE.utils
             FsFormatDropped = Interlocked.Read(ref FsFormatDropped),
             FsFormatQueueDepth = Interlocked.Read(ref FsFormatQueueDepth),
             FsFormatQueueHighWater = Interlocked.Read(ref FsFormatQueueHighWater),
+            FsSummaryEvents = Interlocked.Read(ref FsSummaryEvents),
+            FsSummaryRows = Interlocked.Read(ref FsSummaryRows),
+            FsShedPeakLagMs = Interlocked.Read(ref FsShedPeakLagMs),
         };
 
         public static void IncFilesystem() => Interlocked.Increment(ref FilesystemEvents);
@@ -163,6 +179,18 @@ namespace IOTracesCORE.utils
             while (depth > (hw = Interlocked.Read(ref FsFormatQueueHighWater)))
             {
                 if (Interlocked.CompareExchange(ref FsFormatQueueHighWater, depth, hw) == hw) break;
+            }
+        }
+
+        public static void IncFsSummaryEvent() => Interlocked.Increment(ref FsSummaryEvents);
+        public static void IncFsSummaryRow() => Interlocked.Increment(ref FsSummaryRows);
+        // Peak consumer event-time lag (ms) seen by the load-shedder; lock-free CAS-max.
+        public static void NoteFsShedPeakLagMs(long ms)
+        {
+            long hw;
+            while (ms > (hw = Interlocked.Read(ref FsShedPeakLagMs)))
+            {
+                if (Interlocked.CompareExchange(ref FsShedPeakLagMs, ms, hw) == hw) break;
             }
         }
     }

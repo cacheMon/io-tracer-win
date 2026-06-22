@@ -5,6 +5,7 @@ using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Xml.Linq;
@@ -29,6 +30,20 @@ namespace IOTracesCORE.handlers
         private readonly System.Threading.Timer _flushTimer;
         private static readonly TimeSpan MaxPendingAge = TimeSpan.FromMilliseconds(100);
 
+        // ── Load-shed aggregation (fs_summary stream) ──────────────────────────────────
+        // Under sustained backpressure (see LoadShedder), low-value metadata ops are shed
+        // from the full fs/ stream and instead accumulated here per (pid, filename, op),
+        // flushed once a minute. Mirrors the nw stream's aggregate-then-flush pattern:
+        // _summaryLock is held briefly on the ETW hot path (AggregateShed); _summaryWriteLock
+        // serializes the per-minute row-write phase so wm.Write (which can block on the upload
+        // ResumeGate) never stalls the hot path.
+        private sealed class FsAgg { public string Comm = ""; public long Count; public int IdleWindows; }
+        private readonly ConcurrentDictionary<(int Pid, string Name, string Op), FsAgg> _summary = new();
+        private readonly object _summaryLock = new();
+        private readonly object _summaryWriteLock = new();
+        private readonly System.Threading.Timer _summaryTimer;
+        private static readonly TimeSpan SummaryFlushInterval = TimeSpan.FromMinutes(1);
+
         public FilesystemHandlers(WriterManager wm, ProcessCommandLineCache processCache,
             bool lowOverheadLogging = false)
         {
@@ -37,9 +52,80 @@ namespace IOTracesCORE.handlers
             this.lowOverheadLogging = lowOverheadLogging;
             _flushTimer = new System.Threading.Timer(FlushStalePending, null,
                 TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50));
+            _summaryTimer = new System.Threading.Timer(_ => FlushSummaryWindow(), null,
+                SummaryFlushInterval, SummaryFlushInterval);
         }
 
-        public void Dispose() => _flushTimer?.Dispose();
+        public void Dispose()
+        {
+            _flushTimer?.Dispose();
+            // Stop the summary timer (waiting out any in-flight callback) then flush the final
+            // partial window so the last minute of aggregated counts is not lost on shutdown.
+            using (var done = new System.Threading.ManualResetEvent(false))
+            {
+                if (_summaryTimer != null && _summaryTimer.Dispose(done)) done.WaitOne();
+            }
+            FlushSummaryWindow();
+        }
+
+        // Analytic priority for load shedding. HIGH is never shed; MED (close/cleanup) and LOW
+        // (getattr/op_end/dir_enum/...) are aggregated into fs_summary under backpressure.
+        private static FsPriority PriorityOf(string op) => op switch
+        {
+            "read" or "write" or "create" or "delete" or "rename" or "flush"
+                or "name" or "file_create" or "file_delete" or "file_rundown" => FsPriority.High,
+            "close" or "cleanup" => FsPriority.Med,
+            _ => FsPriority.Low,
+        };
+
+        // Fold a shed event into the per-(pid,file,op) aggregate instead of emitting a full
+        // FilesystemTrace row (which allocates a CsvWriter — the dominant per-event cost). The
+        // filename is captured HERE, at aggregation time, because OnClose evicts nameByObj so a
+        // flush-time lookup would miss a since-closed file.
+        private void AggregateShed(int pid, string proc, string name, string op)
+        {
+            TraceStats.IncFsSummaryEvent();
+            lock (_summaryLock)
+            {
+                var agg = _summary.GetOrAdd((pid, name ?? "", op), _ => new FsAgg { Comm = proc ?? "" });
+                if (string.IsNullOrEmpty(agg.Comm) && !string.IsNullOrEmpty(proc)) agg.Comm = proc;
+                agg.Count++;
+                agg.IdleWindows = 0;
+            }
+        }
+
+        // Emit one fs_summary row per (pid,file,op) that saw events this window; reset counts;
+        // evict entries idle for several windows to bound memory. Build rows under _summaryLock,
+        // then write under _summaryWriteLock (NOT _summaryLock) so wm.Write can't stall AggregateShed.
+        private void FlushSummaryWindow()
+        {
+            List<FsSummaryTrace>? rows = null;
+            lock (_summaryLock)
+            {
+                var now = DateTime.Now;
+                foreach (var kvp in _summary)
+                {
+                    var agg = kvp.Value;
+                    if (agg.Count == 0)
+                    {
+                        if (++agg.IdleWindows >= 5) _summary.TryRemove(kvp.Key, out _);
+                        continue;
+                    }
+                    long c = agg.Count;
+                    agg.Count = 0;
+                    agg.IdleWindows = 0;
+                    (rows ??= new List<FsSummaryTrace>()).Add(
+                        new FsSummaryTrace(now, kvp.Key.Pid, agg.Comm, kvp.Key.Name, kvp.Key.Op, c));
+                }
+            }
+            if (rows != null)
+            {
+                lock (_summaryWriteLock)
+                {
+                    foreach (var row in rows) wm.Write(row);
+                }
+            }
+        }
 
         /// <summary>
         /// Drops all cross-event correlation state (filename cache, pending emit
@@ -55,6 +141,10 @@ namespace IOTracesCORE.handlers
             nameByObj.Clear();
             _pending.Clear();
             _keyAliases.Clear();
+            // Clear the load-shed lag/level so a new session doesn't start in a shed state
+            // inherited from a stale lag. The fs_summary aggregate is keyed by name (restart-safe)
+            // and its idle-eviction bounds it, so it is intentionally left to keep accumulating.
+            LoadShedder.Reset();
         }
 
         // Single chokepoint for every FileIO handler's "should I trace this?" gate. Counts
@@ -230,6 +320,9 @@ namespace IOTracesCORE.handlers
             ulong? irp = null, ulong? fileKey = null)
         {
             if (IsIgnored(name)) return;
+            // Under backpressure, shed low/med-value ops into the fs_summary aggregate instead of
+            // emitting a full row (HIGH ops never shed; all ops feed the lag signal). See LoadShedder.
+            if (LoadShedder.ShouldShed(PriorityOf(op), ts)) { AggregateShed(pid, proc, name, op); return; }
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
                 null, null, null, null, null, null, null, irp, fileKey, null, null, processCache.Get(pid)));
         }
@@ -245,6 +338,9 @@ namespace IOTracesCORE.handlers
             int fileAttributes)
         {
             if (IsIgnored(name)) return;
+            // Under backpressure, shed low/med-value ops into the fs_summary aggregate instead of
+            // emitting a full row (HIGH ops never shed; all ops feed the lag signal). See LoadShedder.
+            if (LoadShedder.ShouldShed(PriorityOf(op), ts)) { AggregateShed(pid, proc, name, op); return; }
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
                 FileIOFlags.FormatCreateOptions(createOptions),
                 FileIOFlags.FormatShareAccess(shareAccess),
@@ -259,6 +355,9 @@ namespace IOTracesCORE.handlers
             long offset, ulong irp, ulong fileKey, int ioFlags)
         {
             if (IsIgnored(name)) return;
+            // Under backpressure, shed low/med-value ops into the fs_summary aggregate instead of
+            // emitting a full row (HIGH ops never shed; all ops feed the lag signal). See LoadShedder.
+            if (LoadShedder.ShouldShed(PriorityOf(op), ts)) { AggregateShed(pid, proc, name, op); return; }
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, size,
                 null, null, null, offset, null, null, null, irp, fileKey, null,
                 FileIOFlags.FormatIoFlags(ioFlags), processCache.Get(pid)));
@@ -269,6 +368,9 @@ namespace IOTracesCORE.handlers
             ulong? fileKey = null)
         {
             if (IsIgnored(name)) return;
+            // Under backpressure, shed low/med-value ops into the fs_summary aggregate instead of
+            // emitting a full row (HIGH ops never shed; all ops feed the lag signal). See LoadShedder.
+            if (LoadShedder.ShouldShed(PriorityOf(op), ts)) { AggregateShed(pid, proc, name, op); return; }
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
                 null, null, null, null, (long)viewSize, null, null, null, fileKey, null, null, processCache.Get(pid)));
         }
@@ -278,6 +380,9 @@ namespace IOTracesCORE.handlers
             int infoClass, ulong? irp = null, ulong? fileKey = null)
         {
             if (IsIgnored(name)) return;
+            // Under backpressure, shed low/med-value ops into the fs_summary aggregate instead of
+            // emitting a full row (HIGH ops never shed; all ops feed the lag signal). See LoadShedder.
+            if (LoadShedder.ShouldShed(PriorityOf(op), ts)) { AggregateShed(pid, proc, name, op); return; }
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
                 null, null, null, null, null, FileIOFlags.FormatInfoClass(infoClass), null,
                 irp, fileKey, null, null, processCache.Get(pid)));
@@ -288,6 +393,9 @@ namespace IOTracesCORE.handlers
             int fsctlCode, ulong? irp = null, ulong? fileKey = null)
         {
             if (IsIgnored(name)) return;
+            // Under backpressure, shed low/med-value ops into the fs_summary aggregate instead of
+            // emitting a full row (HIGH ops never shed; all ops feed the lag signal). See LoadShedder.
+            if (LoadShedder.ShouldShed(PriorityOf(op), ts)) { AggregateShed(pid, proc, name, op); return; }
             wm.Write(new FilesystemTrace(ts, op, pid, tid, proc, name, 0,
                 null, null, null, null, null, null, FileIOFlags.FormatFsctlCode(fsctlCode),
                 irp, fileKey, null, null, processCache.Get(pid)));
@@ -662,6 +770,13 @@ namespace IOTracesCORE.handlers
         {
             if (lowOverheadLogging) return;   // low-overhead mode: skip per-operation completion events
             if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
+            // op_end is LOW priority and the single highest-volume FileIO row; shed it (aggregate
+            // by pid, no filename) first under backpressure. See LoadShedder.
+            if (LoadShedder.ShouldShed(FsPriority.Low, d.TimeStamp))
+            {
+                AggregateShed(d.ProcessID, d.ProcessName, "", "op_end");
+                return;
+            }
             wm.Write(new FilesystemTrace(
                 d.TimeStamp, "op_end", d.ProcessID, d.ThreadID, d.ProcessName, "", 0,
                 null, null, null, null, null, null, null, d.IrpPtr, null, null, null,

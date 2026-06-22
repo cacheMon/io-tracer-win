@@ -22,6 +22,7 @@ namespace IOTracesCORE
         private string block_filepath;
         private string mr_filepath;
         private string nw_filepath;
+        private string fs_summary_filepath;
         private string fs_snap_filepath;
         private string process_snap_filepath;
 
@@ -29,6 +30,7 @@ namespace IOTracesCORE
         private readonly StringBuilder block_sb;
         private readonly StringBuilder mr_sb;
         private readonly StringBuilder nw_sb;
+        private readonly StringBuilder fs_summary_sb;
         private readonly StringBuilder fs_snap_sb;
         private readonly StringBuilder process_snap_sb;
 
@@ -43,6 +45,7 @@ namespace IOTracesCORE
         private readonly object block_lock = new();
         private readonly object mr_lock = new();
         private readonly object nw_lock = new();
+        private readonly object fs_summary_lock = new();
         private readonly object fs_snap_lock = new();
         private readonly object process_snap_lock = new();
 
@@ -51,6 +54,7 @@ namespace IOTracesCORE
             "disk" => block_lock,
             "memory" => mr_lock,
             "network" => nw_lock,
+            "fs_summary" => fs_summary_lock,
             "process" => process_snap_lock,
             "filesystem_snapshot" => fs_snap_lock,
             _ => fs_lock, // "filesystem" and any fallback
@@ -161,6 +165,7 @@ namespace IOTracesCORE
             block_sb = new StringBuilder();
             mr_sb = new StringBuilder();
             nw_sb = new StringBuilder();
+            fs_summary_sb = new StringBuilder();
             fs_snap_sb = new StringBuilder();
             process_snap_sb = new StringBuilder();
 
@@ -175,6 +180,7 @@ namespace IOTracesCORE
             block_filepath = GenerateFilePath("block");
             mr_filepath = GenerateFilePath("mr");
             nw_filepath = GenerateFilePath("nw");
+            fs_summary_filepath = GenerateFilePath("fs_summary");
             process_snap_filepath = GenerateFilePath("process");
             fs_snap_filepath = GenerateFilePathWithPart("filesystem_snapshot", fs_snap_part_counter);
 
@@ -270,6 +276,7 @@ namespace IOTracesCORE
             string? block_folder = Path.GetDirectoryName(block_filepath) ?? throw new Exception("Invalid directory path.");
             string? mr_folder = Path.GetDirectoryName(mr_filepath) ?? throw new Exception("Invalid directory path.");
             string? nw_folder = Path.GetDirectoryName(nw_filepath) ?? throw new Exception("Invalid directory path.");
+            string? fs_summary_folder = Path.GetDirectoryName(fs_summary_filepath) ?? throw new Exception("Invalid directory path.");
             string? proc_snap_folder = Path.GetDirectoryName(process_snap_filepath) ?? throw new Exception("Invalid directory path.");
             string? fs_snap_folder = Path.GetDirectoryName(fs_snap_filepath) ?? throw new Exception("Invalid directory path.");
 
@@ -280,6 +287,7 @@ namespace IOTracesCORE
             EnsureDirectoryExists(proc_snap_folder);
             EnsureDirectoryExists(fs_snap_folder);
             EnsureDirectoryExists(nw_folder);
+            EnsureDirectoryExists(fs_summary_folder);
 
             Console.WriteLine("File output: {0}", this.dir_path);
 
@@ -402,6 +410,7 @@ namespace IOTracesCORE
             FlushIfBuffered(block_sb, block_filepath, "disk");
             FlushIfBuffered(mr_sb, mr_filepath, "memory");
             FlushIfBuffered(nw_sb, nw_filepath, "network");
+            FlushIfBuffered(fs_summary_sb, fs_summary_filepath, "fs_summary");
         }
 
         // Flush one continuous-stream buffer iff it holds data. The length is re-checked
@@ -568,6 +577,23 @@ namespace IOTracesCORE
             }
         }
 
+        // Per-(process,file,op) aggregated summary rows for events shed from fs/ under load
+        // (see FilesystemHandlers / LoadShedder). Source events are already ProcessFilter-gated
+        // upstream, so no self-filter is needed here. Anonymized like the fs/ filenames.
+        public void Write(FsSummaryTrace data)
+        {
+            ObjectStorageHandler.ResumeGate.Wait();
+            lock (fs_summary_lock)
+            {
+                utils.TraceStats.IncFsSummaryRow();
+                fs_summary_sb.Append(data.FormatAsCsv(is_anonymous));
+                if (IsTimeToFlush(fs_summary_sb, lowThreshold: true))
+                {
+                    FlushWriteLocked(fs_summary_sb, fs_summary_filepath, "fs_summary");
+                }
+            }
+        }
+
         public void Write(MemoryTrace data)
         {
             if (data.Comm.Equals("IOTracesCORE"))
@@ -676,6 +702,11 @@ namespace IOTracesCORE
             {
                 old_fp = nw_filepath;
                 nw_filepath = GenerateFilePath("nw");
+            }
+            else if (tracetype.Equals("fs_summary"))
+            {
+                old_fp = fs_summary_filepath;
+                fs_summary_filepath = GenerateFilePath("fs_summary");
             }
             else
             {
@@ -786,6 +817,7 @@ namespace IOTracesCORE
                 "disk" => true,
                 "memory" => true,
                 "network" => true,
+                "fs_summary" => true,
                 _ => false,
             };
         }
@@ -943,6 +975,7 @@ namespace IOTracesCORE
             if (process_snap_sb.Length > 0) FlushWrite(process_snap_sb, process_snap_filepath, "process");
             if (fs_snap_sb.Length > 0) FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
             if (nw_sb.Length > 0) FlushWrite(nw_sb, nw_filepath, "network");
+            if (fs_summary_sb.Length > 0) FlushWrite(fs_summary_sb, fs_summary_filepath, "fs_summary");
             Debug.WriteLine("Flushed all StringBuilders.");
 
             // Wait for the background compressor to finish every queued chunk before we
