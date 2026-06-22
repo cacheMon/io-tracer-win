@@ -38,7 +38,10 @@ namespace IOTracesCORE.utils
         private const double ExitMedLagSec = 6.0;
 
         // Process-lifetime: cheap (a single timer tick/sec) and idle-safe (Update no-ops with no events).
-        private static readonly Timer _timer = new Timer(_ => Update(), null, 1000, 1000);
+        // Fully qualified: this is a WinForms (net8.0-windows) project, so bare Timer is ambiguous
+        // with System.Windows.Forms.Timer.
+        private static readonly System.Threading.Timer _timer =
+            new System.Threading.Timer(_ => Update(), null, 1000, 1000);
 
         /// <summary>
         /// Records this event's timestamp (feeds the lag signal) and returns true if an event
