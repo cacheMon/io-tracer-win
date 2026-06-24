@@ -1058,6 +1058,10 @@ namespace IOTracesCORE
                     Debug.WriteLine($"Error cleaning up incomplete snapshot files: {ex.Message}");
                 }
 
+                // The snapshot shipped zero files, so the manifest must not advertise rows
+                // for it (otherwise filesystem_snapshot_rows>0 with an empty stream on disk).
+                utils.TraceStats.ResetFilesystemSnapshotCounters();
+
                 return;
             }
 
@@ -1098,6 +1102,9 @@ namespace IOTracesCORE
                 {
                     Debug.WriteLine($"Error cleaning up incomplete process snapshot files: {ex.Message}");
                 }
+
+                // Discarded all process-snapshot files, so the manifest must not report rows.
+                utils.TraceStats.ResetProcessSnapshotCounter();
             }
             else
             {
