@@ -386,15 +386,24 @@ namespace IOTracesCORE
                     }
 
                     // FileIOInit carries the per-operation file events we consume (read/write/
-                    // create/cleanup/name/...); the FileIO keyword ADDS the op_end completions,
-                    // which roughly DOUBLE FileIO volume (validated on Windows Server 2025 via a
-                    // keyword probe: op_end was ~64% of FileIO events) and are the single biggest
-                    // contributor to kernel-side fs drops. The probe confirmed FileIOInit ALONE
-                    // still yields read/write/create + filename mapping and op_end disappears, so
-                    // lightweight drops the FileIO keyword (op_end off AT THE KERNEL — real volume
-                    // relief); full mode keeps it for the latency/nt_status pairing.
+                    // create/cleanup/...); the FileIO keyword ADDS the op_end completions, which
+                    // roughly DOUBLE FileIO volume (validated on Windows Server 2025 via a keyword
+                    // probe: op_end was ~64% of FileIO events) and are the single biggest contributor
+                    // to kernel-side fs drops. So lightweight drops FileIO (op_end off AT THE KERNEL
+                    // — real volume relief); full mode keeps it for the latency/nt_status pairing.
+                    //
+                    // DiskFileIO is the FileKey->path rundown keyword (FileIo/Name + FileIo/Rundown).
+                    // read/write events are keyed by FileKey, and their name is resolved from the
+                    // nameByObj cache that OnName (FileIo/Name) populates — NOT from the create event
+                    // (which only stores FileObject). Without DiskFileIO that cache is starved:
+                    // a controlled A/B on Win Server 2025 measured **55% of lightweight read/write
+                    // rows with an empty filename vs 0% once DiskFileIO is enabled**, at negligible
+                    // added volume (the rundown is one-shot at start + on create, not per-op). So it
+                    // belongs in BOTH modes — full mode already gets the same name events via FileIO,
+                    // but enabling DiskFileIO explicitly keeps lightweight's filenames intact.
                     var fileKeywords =
                         KernelTraceEventParser.Keywords.FileIOInit |
+                        KernelTraceEventParser.Keywords.DiskFileIO |
                         KernelTraceEventParser.Keywords.Process;
                     if (!lowOverheadLogging)
                         fileKeywords |= KernelTraceEventParser.Keywords.FileIO;
