@@ -962,6 +962,16 @@ namespace IOTracesCORE
             // manifest written below cannot be overwritten by a racing periodic one.
             _finalizing = true;
 
+            // Write + queue the FINAL manifest (finalized=true, stop_utc) UP FRONT, before
+            // the potentially-slow flush/compress/upload drain below. A shutdown that is
+            // truncated — the GUI's 15s exit timer firing, or a hard kill mid-upload — would
+            // otherwise never reach the finalize step, which is why every field capture had
+            // finalized=false/stop_utc=null. Counts come from TraceStats (already complete:
+            // ETW is stopped by now) and the ETW lost-event count is current to the last
+            // poll, so this early write is authoritative; queuing it first also puts it at
+            // the head of the upload queue so it reaches R2 before the data batches.
+            WriteManifest(final: true);
+
             // Drain the fs formatter first: it is what fills fs_sb, so flushing fs_sb
             // before the formatter is idle would drop every still-queued event. By now
             // the ETW session and the handlers' flush timer are stopped (see Tracer), so
@@ -988,8 +998,10 @@ namespace IOTracesCORE
 
             WriteStatus();
 
-            // Finalize the manifest (stop time, per-stream counts, ETW lost events,
-            // dead probes) and queue it before the buffers/queue are drained.
+            // Re-write the final manifest now that every buffer is flushed and the
+            // compressor has drained, so the authoritative copy reflects the very last
+            // counts. (The crash-safe early copy was already written + queued at the top
+            // of this method.)
             WriteManifest(final: true);
 
             // Push any partially-filled local buffers into the upload queue so the

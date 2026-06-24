@@ -53,6 +53,13 @@ namespace IOTracesCORE
 
         delegate bool ConsoleCtrlDelegate(CtrlTypes ctrlType);
 
+        // Rooted reference to the console-control callback. Without this field the delegate
+        // created from the ConsoleCtrlHandler method group is unreferenced managed memory and
+        // can be garbage-collected while the native console subsystem still holds its function
+        // pointer — a later Ctrl+C / console-close / logoff would then call freed memory and
+        // crash the process (taking the clean-shutdown + manifest-finalize path down with it).
+        private ConsoleCtrlDelegate? _consoleCtrlHandler;
+
         enum CtrlTypes : uint
         {
             CTRL_C_EVENT = 0,
@@ -205,7 +212,9 @@ namespace IOTracesCORE
             string sessionName = "IOTracer";
             CleanupOrphanedSession(sessionName);
             CleanupOrphanedSession(sessionName + "FileIO"); // dedicated FileIO session (Lever 4)
-            SetConsoleCtrlHandler(ConsoleCtrlHandler, true);
+            // Keep the delegate rooted for the process lifetime (see _consoleCtrlHandler).
+            _consoleCtrlHandler = ConsoleCtrlHandler;
+            SetConsoleCtrlHandler(_consoleCtrlHandler, true);
 
             // Registered once here (not per-session) so reconnect-driven session
             // restarts in RunOneSession don't accumulate duplicate handlers.
