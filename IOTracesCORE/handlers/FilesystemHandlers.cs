@@ -171,13 +171,19 @@ namespace IOTracesCORE.handlers
             return false;
         }
 
-        private static string MarkDirectoryIfNoExtension(string s)
+        // Marks a path as a directory with a trailing '\' when it has no extension. Applied ONLY
+        // to dir_enum / dir_notify, whose target genuinely IS a directory being listed/watched —
+        // NOT to the general resolution path. The extension test is just a guess, so applying it to
+        // every op mislabels extensionless FILES (README, LICENSE, Makefile, a downloaded blob) as
+        // directories; for those the operation already tells you it's file I/O. The directory-listing
+        // ops carry no such per-row signal, so the marker stays useful there.
+        internal static string MarkDirectoryIfNoExtension(string s)
         {
             var n = Clean(s);
             if (string.IsNullOrEmpty(n)) return n;
             if (n.EndsWith("\\", StringComparison.Ordinal) || n.EndsWith("/", StringComparison.Ordinal)) return n;
 
-            // Heuristic requested: if there's no extension, treat as directory and mark with a trailing '\'.
+            // No extension => treat as directory and mark with a trailing '\'.
             // Avoid changing drive letters and alternate data streams (":" after the last path separator).
             if (Path.GetExtension(n).Length != 0) return n;
             var lastSep = Math.Max(n.LastIndexOf('\\'), n.LastIndexOf('/'));
@@ -198,8 +204,8 @@ namespace IOTracesCORE.handlers
         private string Resolve(ulong key, string eventName)
         {
             var n = Clean(eventName);
-            if (!string.IsNullOrEmpty(n)) return MarkDirectoryIfNoExtension(n);
-            return nameByObj.TryGetValue(key, out var cached) ? MarkDirectoryIfNoExtension(cached) : "";
+            if (!string.IsNullOrEmpty(n)) return n;
+            return nameByObj.TryGetValue(key, out var cached) ? cached : "";
         }
 
         // Tries key1 first, then key2 as fallback — handles events where ETW FileKey vs
@@ -208,18 +214,18 @@ namespace IOTracesCORE.handlers
         private string Resolve(ulong key1, ulong key2, string eventName)
         {
             var n = Clean(eventName);
-            if (!string.IsNullOrEmpty(n)) return MarkDirectoryIfNoExtension(n);
+            if (!string.IsNullOrEmpty(n)) return n;
 
             if (nameByObj.TryGetValue(key1, out var cached))
             {
                 if (key2 != 0 && key2 != key1) nameByObj.TryAdd(key2, cached);
-                return MarkDirectoryIfNoExtension(cached);
+                return cached;
             }
 
             if (nameByObj.TryGetValue(key2, out cached))
             {
                 if (key1 != 0 && key1 != key2) nameByObj.TryAdd(key1, cached);
-                return MarkDirectoryIfNoExtension(cached);
+                return cached;
             }
 
             return "";
@@ -245,8 +251,10 @@ namespace IOTracesCORE.handlers
         {
             if (fileKey == 0) return;
 
-            // Cache the cleaned name once
-            var cleanedName = MarkDirectoryIfNoExtension(resolvedName);
+            // Emit the resolved name as-is. Directory marking (trailing '\') is applied by the
+            // dir_enum / dir_notify deferred closures themselves, not here, so file ops keep their
+            // real (possibly extensionless) names.
+            var cleanedName = resolvedName;
 
             // Primary drain: the exact key from the name event
             if (_pending.TryRemove(fileKey, out var queue))
@@ -307,7 +315,7 @@ namespace IOTracesCORE.handlers
                 if (!_pending.TryRemove(kvp.Key, out var queue)) continue;
                 RemoveAliases(kvp.Key);
                 nameByObj.TryGetValue(kvp.Key, out var cachedName);
-                var finalName = string.IsNullOrEmpty(cachedName) ? "" : MarkDirectoryIfNoExtension(cachedName);
+                var finalName = cachedName ?? "";
                 while (queue.TryDequeue(out var item))
                 {
                     item.emit(finalName);
@@ -474,7 +482,7 @@ namespace IOTracesCORE.handlers
             if (!string.IsNullOrEmpty(name))
             {
                 Emit(d.TimeStamp, "dir_enum", d.ProcessID, d.ThreadID, d.ProcessName,
-                    name, 0, d.IrpPtr, d.FileKey);
+                    MarkDirectoryIfNoExtension(name), 0, d.IrpPtr, d.FileKey);
                 return;
             }
 
@@ -484,7 +492,7 @@ namespace IOTracesCORE.handlers
             EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
             {
                 LogEmptyFilenameIfNeeded(resolvedName, ts, "dir_enum", pid, tid, proc);
-                Emit(ts, "dir_enum", pid, tid, proc, resolvedName, 0, irp, fk);
+                Emit(ts, "dir_enum", pid, tid, proc, MarkDirectoryIfNoExtension(resolvedName), 0, irp, fk);
             });
         }
 
@@ -623,7 +631,7 @@ namespace IOTracesCORE.handlers
             if (!string.IsNullOrEmpty(name))
             {
                 Emit(d.TimeStamp, "dir_notify", d.ProcessID, d.ThreadID, d.ProcessName,
-                    name, 0, d.IrpPtr, d.FileKey);
+                    MarkDirectoryIfNoExtension(name), 0, d.IrpPtr, d.FileKey);
                 return;
             }
 
@@ -633,7 +641,7 @@ namespace IOTracesCORE.handlers
             EnqueuePending(d.FileKey, d.FileObject, resolvedName =>
             {
                 LogEmptyFilenameIfNeeded(resolvedName, ts, "dir_notify", pid, tid, proc);
-                Emit(ts, "dir_notify", pid, tid, proc, resolvedName, 0, irp, fk);
+                Emit(ts, "dir_notify", pid, tid, proc, MarkDirectoryIfNoExtension(resolvedName), 0, irp, fk);
             });
         }
 
@@ -644,7 +652,7 @@ namespace IOTracesCORE.handlers
             if (!string.IsNullOrEmpty(name))
             {
                 nameByObj[d.FileKey] = name;
-                DrainPending(d.FileKey, MarkDirectoryIfNoExtension(name));
+                DrainPending(d.FileKey, name);
             }
 
             if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
@@ -700,7 +708,7 @@ namespace IOTracesCORE.handlers
             if (!string.IsNullOrEmpty(name))
             {
                 nameByObj[d.FileKey] = name;
-                DrainPending(d.FileKey, MarkDirectoryIfNoExtension(name));
+                DrainPending(d.FileKey, name);
             }
 
             if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
