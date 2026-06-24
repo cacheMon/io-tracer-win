@@ -91,6 +91,27 @@ namespace IOTracesCORE.utils
             Interlocked.Exchange(ref FsShedPeakLagMs, 0);
         }
 
+        /// <summary>
+        /// Zeroes the filesystem-snapshot counters. Called when an INCOMPLETE snapshot's
+        /// part files are discarded on shutdown, so the manifest never reports rows/dirs
+        /// for a snapshot that shipped zero files (which would mismatch the on-disk stream).
+        /// </summary>
+        public static void ResetFilesystemSnapshotCounters()
+        {
+            Interlocked.Exchange(ref FilesystemSnapshotRows, 0);
+            Interlocked.Exchange(ref FilesystemSnapshotDirsScanned, 0);
+            Interlocked.Exchange(ref FilesystemSnapshotDirsInaccessible, 0);
+        }
+
+        /// <summary>
+        /// Zeroes the process-snapshot row counter. Called when an incomplete process
+        /// snapshot's files are discarded, for the same manifest==disk consistency reason.
+        /// </summary>
+        public static void ResetProcessSnapshotCounter()
+        {
+            Interlocked.Exchange(ref ProcessSnapshotRows, 0);
+        }
+
         /// <summary>Immutable snapshot of all counters, each read atomically.</summary>
         public readonly struct Counts
         {
