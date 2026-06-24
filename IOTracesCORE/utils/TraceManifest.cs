@@ -252,9 +252,11 @@ namespace IOTracesCORE.utils
             // Dead-probe detection is only meaningful once the session has run; an
             // initial (non-final) manifest hasn't seen any events yet.
             if (!final) dead = new List<string>();
-            // In lightweight mode the memory stream is intentionally disabled (its keywords
-            // are never enabled), so an empty `mr` stream is expected — not a dead probe.
-            if (lowOverheadLogging) dead.Remove("mr");
+            // The memory stream is no longer collected in ANY mode: its keywords were dropped
+            // because nothing ever consumed them. An empty `mr` stream is therefore always
+            // expected, never a dead probe. (lowOverheadLogging is retained for the parameter's
+            // other uses below.)
+            dead.Remove("mr");
 
             // Per-row timestamps are machine-local wall-clock with no embedded offset
             // (see clock_source below). Record the capture machine's UTC offset and
