@@ -118,6 +118,13 @@ namespace IOTracesCORE
                 chkLowOverhead.Checked = true;
                 chkLowOverhead.Text += "  — auto-on: a recent run lost events";
             }
+            else if (utils.MachineProfile.RecommendLightweight())
+            {
+                // Small machine: default to lightweight (the reduced modern fs provider, ~3x fewer
+                // kernel events). A saved config below still wins; the user can untick.
+                chkLowOverhead.Checked = true;
+                chkLowOverhead.Text += "  — auto-on: small machine (reduced fs events)";
+            }
             chkLowOverhead.CheckedChanged += (s, e) =>
             {
                 if (!chkLowOverhead.Checked) utils.TruncationState.Clear();

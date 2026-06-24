@@ -324,6 +324,99 @@ namespace IOTracesCORE.handlers
         }
 
         // Emit for simple operations with basic enhanced fields
+        // ── Lightweight mode: modern Microsoft-Windows-Kernel-File adapter ──────────────
+        // In lightweight mode the FILE session enables the modern manifest provider with a REDUCED
+        // keyword set (read/write/create/name/delete/rename only), so the kernel never generates
+        // the metadata-op mass — ~3x fewer FileIO events at the source. The events differ from the
+        // legacy NT-Kernel-Logger FileIO, so this single dispatcher adapts them (fields read by
+        // name, robustly) into the SAME FilesystemTrace output via the existing Resolve / pending /
+        // shed / Emit path. Filename resolution mirrors the legacy model: NameCreate gives
+        // FileKey->path, Create gives FileObject->path, and Read/Write (keyed on FileKey) resolve
+        // from that cache or defer. Metadata ops (getattr/close/cleanup/dir_enum/fsctl) and
+        // map_file are intentionally absent in lightweight (recorded as logging_mode="lightweight").
+        public void OnModernFileEvent(TraceEvent d)
+        {
+            string ev = d.EventName ?? "";
+            int slash = ev.LastIndexOf('/');
+            string op = (slash >= 0 ? ev.Substring(slash + 1) : ev).ToLowerInvariant();
+
+            switch (op)
+            {
+                case "create":
+                {
+                    string name = Clean(MStr(d, "FileName"));
+                    ulong fobj = MUlong(d, "FileObject");
+                    if (!string.IsNullOrEmpty(name) && fobj != 0) nameByObj[fobj] = name;
+                    if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
+                    EmitCreate(d.TimeStamp, "create", d.ProcessID, d.ThreadID, d.ProcessName,
+                        Resolve(fobj, name), 0,
+                        MInt(d, "CreateOptions"), MInt(d, "ShareAccess"), 0,
+                        MUlong(d, "Irp"), fobj, MInt(d, "CreateAttributes"));
+                    return;
+                }
+                case "namecreate":
+                {
+                    // FileKey->path mapping (regardless of process filter, so all files index).
+                    string name = Clean(MStr(d, "FileName"));
+                    ulong key = MUlong(d, "FileKey");
+                    if (!string.IsNullOrEmpty(name) && key != 0)
+                    {
+                        nameByObj[key] = name;
+                        DrainPending(key, name);
+                    }
+                    return;
+                }
+                case "namedelete":
+                    return; // mapping teardown; cache is bounded/cleared on session reset
+                case "read":
+                case "write":
+                {
+                    if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
+                    ulong key = MUlong(d, "FileKey"); ulong fobj = MUlong(d, "FileObject");
+                    int size = (int)MLong(d, "IOSize");
+                    long offset = MLong(d, "ByteOffset");
+                    ulong irp = MUlong(d, "Irp"); int ioflags = MInt(d, "IOFlags");
+                    var name = Resolve(key, fobj, "");
+                    if (!string.IsNullOrEmpty(name))
+                    {
+                        EmitReadWrite(d.TimeStamp, op, d.ProcessID, d.ThreadID, d.ProcessName, name, size, offset, irp, key, ioflags);
+                        return;
+                    }
+                    var ts = d.TimeStamp; var pid = d.ProcessID; var tid = d.ThreadID; var proc = d.ProcessName;
+                    EnqueuePending(key, fobj, resolvedName =>
+                    {
+                        LogEmptyFilenameIfNeeded(resolvedName, ts, op, pid, tid, proc);
+                        EmitReadWrite(ts, op, pid, tid, proc, resolvedName, size, offset, irp, key, ioflags);
+                    });
+                    return;
+                }
+                case "deletepath":
+                {
+                    if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
+                    string name = Clean(MStr(d, "FilePath"));            // self-resolving inline path
+                    Emit(d.TimeStamp, "delete", d.ProcessID, d.ThreadID, d.ProcessName, name, 0, MUlong(d, "Irp"), MUlong(d, "FileKey"));
+                    return;
+                }
+                case "renamepath":
+                case "setlinkpath":
+                {
+                    if (!ShouldTrace(d.ProcessID, d.ProcessName)) return;
+                    string name = Clean(MStr(d, "FilePath"));            // self-resolving inline path
+                    Emit(d.TimeStamp, "rename", d.ProcessID, d.ThreadID, d.ProcessName, name, 0, MUlong(d, "Irp"), MUlong(d, "FileKey"));
+                    return;
+                }
+                // create-new-file / op_end / anything else: not enabled in the reduced keyword set
+            }
+        }
+
+        // Payload accessors for the modern provider (field names per its manifest). Each is
+        // best-effort: a missing/odd field yields a benign default rather than throwing on the
+        // hot path, so a manifest-version field rename degrades gracefully (validated on the VM).
+        private static string MStr(TraceEvent d, string f) { try { return d.PayloadByName(f) as string; } catch { return null; } }
+        private static long MLong(TraceEvent d, string f) { try { var v = d.PayloadByName(f); return v == null ? 0 : Convert.ToInt64(v); } catch { return 0; } }
+        private static int MInt(TraceEvent d, string f) { try { var v = d.PayloadByName(f); return v == null ? 0 : Convert.ToInt32(v); } catch { return 0; } }
+        private static ulong MUlong(TraceEvent d, string f) { try { var v = d.PayloadByName(f); return v == null ? 0 : Convert.ToUInt64(v); } catch { return 0; } }
+
         private void Emit(DateTime ts, string op, int pid, int tid, string proc, string name, int size,
             ulong? irp = null, ulong? fileKey = null)
         {

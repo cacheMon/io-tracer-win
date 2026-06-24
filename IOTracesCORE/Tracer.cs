@@ -41,9 +41,21 @@ namespace IOTracesCORE
         // lost-poller records it a single time rather than re-writing on every tick.
         private bool _truncationMarkerWritten = false;
         private int cleanupStarted = 0;
-        // Lightweight mode for resource-constrained machines: suppresses the highest-overhead
-        // streams (per-operation op_end completions, and the memory/virtual-alloc keywords).
+        // Lightweight mode for resource-constrained / high-load machines. Two reductions:
+        //   (1) the main session drops op_end completions + the memory/virtual-alloc keywords; and
+        //   (2) fs capture switches from the legacy NT-Kernel-Logger FileIO keywords to the modern
+        //       Microsoft-Windows-Kernel-File provider with a REDUCED keyword set (read/write/create/
+        //       name/delete/rename only), so the kernel never GENERATES the metadata-op mass
+        //       (getattr/close/cleanup/dir_enum/fsctl) — ~3x fewer FileIO events at the source
+        //       (A/B-measured 4779->1597 ev/s on Win Server 2025), pushing the single-consumer
+        //       ceiling (#68) ~3x further out while keeping read/write/create + filenames at full
+        //       fidelity (modern filename resolution measured 100% vs the legacy path's 57%).
+        // The default is chosen by machine spec (see MachineProfile); --lightweight/--full override,
+        // and a recent truncation escalates to lightweight. map_file + metadata ops are intentionally
+        // absent in lightweight. (net8.0 requires Win10+, where the modern provider always exists.)
         private readonly bool lowOverheadLogging;
+        // The modern Microsoft-Windows-Kernel-File manifest provider GUID.
+        private static readonly Guid KernelFileProviderGuid = new Guid("EDD08927-9CC4-4E65-B970-C2560FB5C289");
         // Headless/CLI mode: no WinForms UI (no please-wait form, no error MessageBox) so the
         // tracer can run over SSH / in a non-interactive session for automated validation.
         private readonly bool headless;
@@ -401,18 +413,42 @@ namespace IOTracesCORE
                     // added volume (the rundown is one-shot at start + on create, not per-op). So it
                     // belongs in BOTH modes — full mode already gets the same name events via FileIO,
                     // but enabling DiskFileIO explicitly keeps lightweight's filenames intact.
-                    var fileKeywords =
-                        KernelTraceEventParser.Keywords.FileIOInit |
-                        KernelTraceEventParser.Keywords.DiskFileIO |
-                        KernelTraceEventParser.Keywords.Process;
-                    if (!lowOverheadLogging)
-                        fileKeywords |= KernelTraceEventParser.Keywords.FileIO;
-
-                    // Size + enable both pools (step-down + 1MB buffers, see helper). The FILE
-                    // session's pool is the truncation-relevant one, so its granted size is what we
-                    // publish to the manifest (etw_buffer_size_mb).
+                    // Size + enable the MAIN pool (step-down + 1MB buffers, see helper).
                     EnableSizedKernelProvider(session, mainKeywords);
-                    int fileBufferMb = EnableSizedKernelProvider(fileSession, fileKeywords);
+
+                    // The FILE session carries fs capture. In HIGH-LOAD mode it runs the modern
+                    // Microsoft-Windows-Kernel-File manifest provider with a REDUCED keyword set, so
+                    // the kernel never generates the metadata-op mass (getattr/close/cleanup/dir_enum/
+                    // fsctl) — ~3x fewer FileIO events at the source. Otherwise it runs the legacy
+                    // NT-Kernel-Logger FileIO keywords. EITHER WAY we also enable the kernel Process
+                    // keyword on this session so fs events resolve a ProcessName (a single session can
+                    // host both a kernel provider and a manifest provider, as the main session does).
+                    // The FILE pool is the truncation-relevant one, so its granted size is published.
+                    int fileBufferMb;
+                    if (lowOverheadLogging)
+                    {
+                        // Lightweight: modern reduced-keyword provider. Enable the kernel Process
+                        // keyword (for ProcessName resolution) + the Kernel-File manifest provider.
+                        fileBufferMb = EnableSizedKernelProvider(fileSession, KernelTraceEventParser.Keywords.Process);
+                        // Filename(0x10)|Create(0x80)|Read(0x100)|Write(0x200)|Deletepath(0x400)|
+                        // Renamesetlinkpath(0x800) = 0xF90. OMITS Fileio(0x20) (the metadata firehose:
+                        // close/cleanup/getattr/setattr/fsctl/dir_enum/flush) and Opend(0x40), so they
+                        // are never generated. Validated on Win Server 2025: 4779->1597 ev/s, read/
+                        // write/create kept 100%, filenames resolved 100%, ProcessName resolved 100%.
+                        const ulong kernelFileDataKeywords = 0x10UL | 0x80UL | 0x100UL | 0x200UL | 0x400UL | 0x800UL;
+                        fileSession.EnableProvider(KernelFileProviderGuid, TraceEventLevel.Informational, kernelFileDataKeywords);
+                    }
+                    else
+                    {
+                        // Full: legacy NT-Kernel-Logger FileIO with op_end (FileIO keyword) + the
+                        // DiskFileIO name rundown + Process.
+                        var fileKeywords =
+                            KernelTraceEventParser.Keywords.FileIOInit |
+                            KernelTraceEventParser.Keywords.FileIO |
+                            KernelTraceEventParser.Keywords.DiskFileIO |
+                            KernelTraceEventParser.Keywords.Process;
+                        fileBufferMb = EnableSizedKernelProvider(fileSession, fileKeywords);
+                    }
                     utils.TraceStats.SetBufferSizeMb(fileBufferMb);
 
                     if (!lowOverheadLogging)
@@ -432,34 +468,50 @@ namespace IOTracesCORE
                     // FileIO* events (incl. the Name/Rundown filename-mapping events) are on this
                     // one session, so fsHandler's cross-event correlation stays self-contained.
                     var fileSource = fileSession.Source;
-                    var fileKernel = fileSource.Kernel;
 
-                    fileKernel.FileIORead += fsHandler.OnRead;
-                    fileKernel.FileIOWrite += fsHandler.OnWrite;
-                    fileKernel.FileIOClose += fsHandler.OnClose;
-                    fileKernel.FileIOCreate += fsHandler.OnCreate;
-                    fileKernel.FileIODelete += fsHandler.OnDelete;
-                    fileKernel.FileIOFlush += fsHandler.OnFlush;
-                    fileKernel.FileIODirEnum += fsHandler.OnDirEnum;
-                    fileKernel.FileIORename += fsHandler.OnRename;
-                    fileKernel.FileIOCleanup += fsHandler.OnCleanup;
-                    fileKernel.FileIODirNotify += fsHandler.OnDirNotify;
-                    fileKernel.FileIOFileCreate += fsHandler.OnFileCreate;
-                    fileKernel.FileIOFileDelete += fsHandler.OnFileDelete;
-                    fileKernel.FileIOFileRundown += fsHandler.OnFileRundown;
-                    fileKernel.FileIOFSControl += fsHandler.OnFSControl;
-                    fileKernel.FileIOMapFile += fsHandler.OnMapFile;
-                    fileKernel.FileIOMapFileDCStart += fsHandler.OnMapFileDCStart;
-                    fileKernel.FileIOMapFileDCStop += fsHandler.OnMapFileDCStop;
-                    fileKernel.FileIOName += fsHandler.OnName;
-                    fileKernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
-                    fileKernel.FileIOSetInfo += fsHandler.OnSetInfo;
-                    fileKernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
-                    // Only wire op_end in full mode: lightweight no longer enables the FileIO
-                    // keyword, so the kernel never raises FileIOOperationEnd there anyway. The
-                    // OnOperationEnd consumer-side guard stays as belt-and-suspenders.
-                    if (!lowOverheadLogging)
+                    if (lowOverheadLogging)
+                    {
+                        // Lightweight: the modern provider's events are MANIFEST events (not the typed
+                        // kernel FileIO* callbacks), so they arrive via Dynamic. A single dispatcher
+                        // adapts read/write/create/namecreate/deletepath/renamepath into the SAME
+                        // output via the existing resolve/pending/shed/Emit path. This session enables
+                        // ONLY the Process kernel provider + the Kernel-File manifest provider, so
+                        // Dynamic.All here sees only Kernel-File events.
+                        fileSource.Dynamic.All += fsHandler.OnModernFileEvent;
+                    }
+                    else
+                    {
+                        // Legacy NT-Kernel-Logger FileIO. The FileIO handlers wire onto the DEDICATED
+                        // file session's source, dispatched by its own consumer thread (started below).
+                        // All FileIO* events (incl. the Name/Rundown filename-mapping events) are on
+                        // this one session, so fsHandler's cross-event correlation stays self-contained.
+                        var fileKernel = fileSource.Kernel;
+
+                        fileKernel.FileIORead += fsHandler.OnRead;
+                        fileKernel.FileIOWrite += fsHandler.OnWrite;
+                        fileKernel.FileIOClose += fsHandler.OnClose;
+                        fileKernel.FileIOCreate += fsHandler.OnCreate;
+                        fileKernel.FileIODelete += fsHandler.OnDelete;
+                        fileKernel.FileIOFlush += fsHandler.OnFlush;
+                        fileKernel.FileIODirEnum += fsHandler.OnDirEnum;
+                        fileKernel.FileIORename += fsHandler.OnRename;
+                        fileKernel.FileIOCleanup += fsHandler.OnCleanup;
+                        fileKernel.FileIODirNotify += fsHandler.OnDirNotify;
+                        fileKernel.FileIOFileCreate += fsHandler.OnFileCreate;
+                        fileKernel.FileIOFileDelete += fsHandler.OnFileDelete;
+                        fileKernel.FileIOFileRundown += fsHandler.OnFileRundown;
+                        fileKernel.FileIOFSControl += fsHandler.OnFSControl;
+                        fileKernel.FileIOMapFile += fsHandler.OnMapFile;
+                        fileKernel.FileIOMapFileDCStart += fsHandler.OnMapFileDCStart;
+                        fileKernel.FileIOMapFileDCStop += fsHandler.OnMapFileDCStop;
+                        fileKernel.FileIOName += fsHandler.OnName;
+                        fileKernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
+                        fileKernel.FileIOSetInfo += fsHandler.OnSetInfo;
+                        fileKernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
+                        // This branch is full mode only (lightweight uses the modern provider above),
+                        // so op_end is always wired here.
                         fileKernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
+                    }
 
                     kernel.ProcessStart += data => processCache.RefreshFromProcess(data.ProcessID);
                     kernel.ProcessStop += data => processCache.Remove(data.ProcessID);

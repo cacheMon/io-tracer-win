@@ -293,9 +293,13 @@ namespace IOTracesCORE.utils
                 ["device_id"] = deviceId,
                 ["anonymous"] = anonymous,
                 ["upload_enabled"] = uploadEnabled,
-                // "full" logs everything; "lightweight" suppresses op_end rows and the
-                // memory keywords. Recorded so a consumer knows that missing op_end /
-                // memory data is intentional (the mode), not an absence of activity.
+                // "full" logs everything via the legacy NT-Kernel-Logger FileIO. "lightweight"
+                // suppresses op_end + the memory keywords AND switches fs capture to the modern
+                // Microsoft-Windows-Kernel-File provider with a reduced keyword set, so the kernel
+                // never generates the metadata-op mass (getattr/close/cleanup/dir_enum/fsctl) or
+                // map_file — ~3x fewer FileIO events (read/write/create + filenames kept). The mode
+                // is chosen by machine spec unless overridden. Recorded so a consumer knows missing
+                // op_end / memory / metadata-op / map_file data is intentional (the mode), not inactivity.
                 ["logging_mode"] = lowOverheadLogging ? "lightweight" : "full",
                 ["clock_source"] = new Dictionary<string, object?>
                 {
