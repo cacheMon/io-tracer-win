@@ -18,6 +18,12 @@ namespace IOTracesCORE.utils
         // operation names, header row on every file) is unchanged.
         public const string SchemaVersion = "1";
 
+        // Consumer lag (ms) at session stop above which the fs stream is considered to have a
+        // silently-dropped tail (the consumer never drained the kernel-buffered backlog before
+        // stop). 5s is well clear of normal end-of-run drain (sub-second) yet flags the
+        // multi-minute freezes seen under sustained FileIO overload. See fs_consumer_lag_ms.
+        private const long TailIncompleteLagMs = 5000;
+
         private static Dictionary<string, object?> Col(string name, string type, string? unit = null)
         {
             var d = new Dictionary<string, object?> { ["name"] = name, ["type"] = type };
@@ -232,14 +238,25 @@ namespace IOTracesCORE.utils
                 ["fs_format_queue_high_water"] = snapshot.FsFormatQueueHighWater,
                 // Load-shedding (LoadShedder): under sustained backpressure the consumer sheds
                 // low-value metadata ops into the fs_summary stream (lossless per-(process,file,op)
-                // counts) instead of emitting full rows / letting the kernel drop them.
-                // fs_summary_events = raw events shed+aggregated; fs_summary_rows = summary rows
-                // written; fs_shed_peak_lag_ms = peak consumer event-time lag (the shed trigger).
-                // High fs_summary_events alongside low session_events_lost = shedding absorbed the
-                // overload losslessly (the intended behavior).
+                // counts) instead of emitting full rows. fs_summary_events = raw events shed+
+                // aggregated; fs_summary_rows = summary rows written; fs_shed_peak_lag_ms = peak
+                // consumer event-time lag (the shed trigger).
                 ["fs_summary_events"] = snapshot.FsSummaryEvents,
                 ["fs_summary_rows"] = snapshot.FsSummaryRows,
                 ["fs_shed_peak_lag_ms"] = snapshot.FsShedPeakLagMs,
+                // CONSUMER LAG / SILENT TAIL LOSS. session_events_lost only counts kernel buffer
+                // OVERFLOW; it does NOT count events the kernel buffered fine but the single FileIO
+                // consumer never drained before the session stopped. When the consumer can't keep
+                // up (issue #68), it replays the backlog at a fraction of real time and the fs
+                // stream FREEZES at its drain point — everything generated after that is abandoned
+                // at stop, uncounted. fs_consumer_lag_ms is the lag at finalize = the span of fs
+                // events that were buffered but never consumed (~the amount of tail missing).
+                // fs_capture_tail_incomplete flags this so session_events_lost == 0 is not misread
+                // as "complete": a 0 here with a large fs_consumer_lag_ms means the tail is gone.
+                // Do NOT read "high fs_summary_events + low session_events_lost" as "absorbed
+                // losslessly" — under a freeze it instead means the tail was silently dropped.
+                ["fs_consumer_lag_ms"] = snapshot.FsConsumerLagMs,
+                ["fs_capture_tail_incomplete"] = snapshot.FsConsumerLagMs >= TailIncompleteLagMs,
             };
 
             return (counters, dead);
