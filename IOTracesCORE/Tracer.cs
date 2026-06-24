@@ -17,8 +17,6 @@ namespace IOTracesCORE
         private readonly SystemSnapper systemSnapper;
         private readonly DiskHandlers dsHandler;
         private readonly NetworkHandlers nwHandler;
-        private readonly MemoryHandlers memHandler;
-        private readonly CacheHandlers cacheHandler;
         private readonly ProcessCommandLineCache processCache;
         private readonly ProcessSnapper psHandler;
         private readonly FilesystemSnapper fsSnapper;
@@ -79,8 +77,6 @@ namespace IOTracesCORE
             processCache = new ProcessCommandLineCache();
             fsHandler = new FilesystemHandlers(wm, processCache, lowOverheadLogging);
             dsHandler = new DiskHandlers(wm);
-            memHandler = new MemoryHandlers(wm);
-            cacheHandler = new CacheHandlers(wm);
             psHandler = new ProcessSnapper(wm, anonymouse, processCache);
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
             systemSnapper = new SystemSnapper(wm, anonymouse);
@@ -384,15 +380,14 @@ namespace IOTracesCORE
                         KernelTraceEventParser.Keywords.DiskIO |
                         KernelTraceEventParser.Keywords.DiskIOInit |
                         KernelTraceEventParser.Keywords.NetworkTCPIP;
-                    // Memory/virtual-alloc are the chattiest events; lightweight mode omits them so
-                    // the kernel never generates them (a real CPU/buffer saving).
-                    if (!lowOverheadLogging)
-                    {
-                        mainKeywords |=
-                            KernelTraceEventParser.Keywords.Memory |
-                            KernelTraceEventParser.Keywords.MemoryHardFaults |
-                            KernelTraceEventParser.Keywords.VirtualAlloc;
-                    }
+                    // Memory/virtual-alloc keywords are intentionally NOT enabled. No handler ever
+                    // consumed these events (MemoryHandlers/CacheHandlers were built but never
+                    // subscribed, so the mr/ stream was always empty), yet they are the chattiest
+                    // kernel events and competed for the very ETW buffers that drop FileIO — a dead
+                    // stream that actively worsened fs-truncation. The collection path (these
+                    // keywords, the memory-manager provider, and the MemoryHandlers/CacheHandlers
+                    // wiring) is removed; the dormant mr/ schema entry remains (always empty, and
+                    // no longer mis-flagged as a dead probe — see TraceManifest).
 
                     // FileIOInit carries the per-operation file events we consume (read/write/
                     // create/cleanup/...); the FileIO keyword ADDS the op_end completions, which
@@ -424,11 +419,8 @@ namespace IOTracesCORE
                     int fileBufferMb = EnableSizedKernelProvider(fileSession, fileKeywords);
                     utils.TraceStats.SetBufferSizeMb(fileBufferMb);
 
-                    if (!lowOverheadLogging)
-                    {
-                        var memoryManagerGuid = new Guid("d1d93ef7-e1f2-4f45-9943-03d245fe6c00");
-                        session.EnableProvider(memoryManagerGuid);
-                    }
+                    // (memory-manager provider removed — see the memory-keyword note above; it fed
+                    // the same never-consumed mr/ stream.)
 
                     var tcpIpProviderGuid = new Guid("2F07E2EE-15DB-40F1-90EF-9D7BA282188A");
                     session.EnableProvider(tcpIpProviderGuid);
