@@ -314,6 +314,14 @@ namespace IOTracesCORE.utils
                 },
                 ["start_utc"] = startUtc.ToString("yyyy-MM-dd HH:mm:ss.ffffff"),
                 ["stop_utc"] = stopUtc?.ToString("yyyy-MM-dd HH:mm:ss.ffffff"),
+                // The high-volume buffered streams (filesystem, block, nw, fs_summary) are
+                // uploaded as 20MB/5min batches built by byte-concatenating independently
+                // zstd-compressed chunks. zstd frames concatenate transparently, but EACH
+                // chunk re-emits the CSV header, so a decompressed buffered file contains the
+                // header row once per chunk (not just at the top). Consumers MUST treat any
+                // line equal to the header as a frame boundary to skip, not as a data row.
+                // (Snapshot streams — process, filesystem_snapshot — are single-header.)
+                ["buffered_stream_framing"] = "concatenated zstd frames; each frame repeats the CSV header row — skip header-equal lines when parsing fs/block/nw/fs_summary",
                 ["streams"] = Streams(),
                 ["counters"] = counters,
                 ["dead_probes"] = dead,
