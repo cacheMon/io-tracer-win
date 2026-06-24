@@ -100,5 +100,22 @@ namespace IOTracesCORE.Tests
             Assert.DoesNotContain("Documents", result);
             Assert.DoesNotContain("Project", result);
         }
+
+        [Fact]
+        public void HashFilePath_Anonymous_KeepLevels1_DoesNotLeakUsername()
+        {
+            // Regression: the fs stream anonymized paths with keepLevels:2, which kept
+            // BOTH "Users" and the <username> segment of C:\Users\<name>\..., leaking the
+            // Windows username. The fix passes keepLevels:1 — keep only "Users", hash the
+            // username and everything below.
+            string result = PathHasher.HashFilePath(
+                @"C:\Users\alice\Secret\report.txt", @"C:\",
+                anonymous: true, hashLen: 16, keepLevels: 1);
+
+            Assert.StartsWith(@"C:\Users\", result);
+            Assert.DoesNotContain("alice", result);
+            Assert.DoesNotContain("Secret", result);
+            Assert.DoesNotContain("report", result);
+        }
     }
 }
