@@ -228,9 +228,30 @@ namespace IOTracesCORE
             wm.InitiateDirectory();
             Console.WriteLine("Starting IOTracer...");
             Console.WriteLine("IOTracer started, Press CTRL + C to exit, or close the console window!");
-            _ = Task.Run(() => fsSnapper.Run());
-            Task __ = Task.Run(() => psHandler.Run());
-            systemSnapper.CaptureSpecSnapshot();
+            // Fire-and-forget background tasks. Guard each Run() body: an unobserved
+            // exception would silently end the census (fsSnapper.Run lacks a top-level
+            // catch) and — on some GC configs — resurface later as an UnobservedTask
+            // exception. At minimum it must be logged, not vanish.
+            _ = Task.Run(() =>
+            {
+                try { fsSnapper.Run(); }
+                catch (Exception ex) { Debug.WriteLine($"[fsSnapper] filesystem census aborted: {ex}"); }
+            });
+            Task __ = Task.Run(() =>
+            {
+                try { psHandler.Run(); }
+                catch (Exception ex) { Debug.WriteLine($"[psHandler] process snapshot loop aborted: {ex}"); }
+            });
+            // system_spec capture does WMI + DNS + a geolocation HTTP call. Run synchronously
+            // here it (a) blocked ETW session start for up to ~13s on a slow/offline network —
+            // a pure lost-event window — and (b) let a WMI/DNS failure throw straight out of
+            // Trace(), crashing the (headless) tracer before it captured anything. Run it
+            // guarded and OFF the start path so neither can happen.
+            _ = Task.Run(() =>
+            {
+                try { systemSnapper.CaptureSpecSnapshot(); }
+                catch (Exception ex) { Debug.WriteLine($"[systemSnapper] spec capture failed: {ex}"); }
+            });
 
             if (isUploadAutomatically)
             {
