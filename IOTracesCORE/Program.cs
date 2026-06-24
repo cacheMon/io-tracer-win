@@ -101,21 +101,36 @@ namespace IOTracesCORE
         }
 
         // Headless command-line runner for automated/CI/SSH validation. No tray, no windows.
-        //   IOTracer.exe --headless [--lightweight] [--minutes N] [--output DIR] [--anonymous]
-        //     --lightweight : low-overhead mode (drops op_end + memory keywords at the kernel)
+        //   IOTracer.exe --headless [--lightweight|--full] [--minutes N] [--output DIR] [--anonymous]
+        //   Mode defaults to machine spec (see MachineProfile): small machines -> lightweight.
+        //     --lightweight : force low-overhead mode — drops op_end + memory keywords AND captures
+        //                     fs via the modern Microsoft-Windows-Kernel-File provider with a reduced
+        //                     keyword set (the kernel never generates the metadata-op mass / map_file,
+        //                     ~3x fewer FileIO events; read/write/create + filenames kept).
+        //     --full        : force full fidelity (legacy NT-Kernel-Logger FileIO, all ops + op_end).
         //     --minutes N   : stop cleanly after N minutes (0 / omitted = run until Ctrl+C)
         //     --output DIR  : trace output directory (default .\output)
         //     --anonymous   : hash user/host identifiers
         // Always runs local-only (upload disabled, dev mode) so it never needs cloud creds.
         private static void RunHeadless(string[] args)
         {
-            bool lightweight = Array.IndexOf(args, "--lightweight") >= 0;
+            bool forceLight = Array.IndexOf(args, "--lightweight") >= 0;
+            bool forceFull = Array.IndexOf(args, "--full") >= 0;
             bool anonymous = Array.IndexOf(args, "--anonymous") >= 0;
             int minutes = GetArgInt(args, "--minutes", 0);
             string output = GetArgStr(args, "--output", ".\\output");
 
-            Console.WriteLine($"[headless] lightweight={lightweight} minutes={minutes} " +
-                              $"output={output} anonymous={anonymous} commit={VersionManager.Instance.GetCommitId()}");
+            // Mode selection: explicit flag wins; else a recent truncation forces lightweight; else
+            // choose by machine spec (small machines -> lightweight, the reduced modern provider).
+            bool lightweight;
+            string why;
+            if (forceLight) { lightweight = true; why = "--lightweight"; }
+            else if (forceFull) { lightweight = false; why = "--full"; }
+            else if (TruncationState.WasRecentlyTruncated(out _)) { lightweight = true; why = "recent-truncation"; }
+            else { lightweight = MachineProfile.RecommendLightweight(); why = "machine-spec"; }
+
+            Console.WriteLine($"[headless] mode={(lightweight ? "lightweight" : "full")} ({why}; {MachineProfile.Describe()}) " +
+                              $"minutes={minutes} output={output} anonymous={anonymous} commit={VersionManager.Instance.GetCommitId()}");
 
             ConfigClasses.LoadTracemetaConfiguration();
 
