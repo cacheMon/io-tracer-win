@@ -169,6 +169,7 @@ namespace IOTracesCORE.snapper
     internal class SystemSnapper
     {
         private readonly WriterManager wm;
+        private readonly bool is_anonymous;
         private static readonly HttpClient httpClient = new HttpClient() { Timeout = TimeSpan.FromSeconds(10) };
         private static readonly JsonSerializerOptions jsonOptions = new JsonSerializerOptions
         {
@@ -176,9 +177,19 @@ namespace IOTracesCORE.snapper
             DefaultIgnoreCondition = JsonIgnoreCondition.Never
         };
 
-        public SystemSnapper(WriterManager wm)
+        public SystemSnapper(WriterManager wm, bool is_anonymous = false)
         {
             this.wm = wm;
+            this.is_anonymous = is_anonymous;
+        }
+
+        // Stable, non-reversible redaction of an identifying value in anonymous mode.
+        // Empty/blank values are passed through unchanged.
+        private string Anon(string value)
+        {
+            if (!is_anonymous || string.IsNullOrEmpty(value))
+                return value;
+            return utils.PathHasher.Hash(value, 16);
         }
 
         public void CaptureSpecSnapshot()
@@ -286,7 +297,7 @@ namespace IOTracesCORE.snapper
         {
             var networkInfo = new NetworkInfo
             {
-                Hostname = Dns.GetHostName()
+                Hostname = Anon(Dns.GetHostName())
             };
 
             var interfaces = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces();
@@ -309,7 +320,7 @@ namespace IOTracesCORE.snapper
                         netInterface.Addresses.Add(new NetworkAddress
                         {
                             Family = "AF_INET",
-                            Address = addr.Address.ToString(),
+                            Address = Anon(addr.Address.ToString()),
                             Netmask = addr.IPv4Mask?.ToString(),
                             Broadcast = null
                         });
@@ -319,7 +330,7 @@ namespace IOTracesCORE.snapper
                         netInterface.Addresses.Add(new NetworkAddress
                         {
                             Family = "AF_INET6",
-                            Address = addr.Address.ToString(),
+                            Address = Anon(addr.Address.ToString()),
                             Netmask = null,
                             Broadcast = null
                         });
@@ -334,7 +345,7 @@ namespace IOTracesCORE.snapper
                     netInterface.Addresses.Add(new NetworkAddress
                     {
                         Family = "AF_PACKET",
-                        Address = macStr,
+                        Address = Anon(macStr),
                         Netmask = null,
                         Broadcast = null
                     });
@@ -356,7 +367,7 @@ namespace IOTracesCORE.snapper
                 Release = osVersion,
                 Version = $"{osCaption} (Build {osBuild})",
                 Machine = Environment.Is64BitOperatingSystem ? "x64" : "x86",
-                Hostname = Dns.GetHostName(),
+                Hostname = Anon(Dns.GetHostName()),
                 Country = countryCode
             };
         }

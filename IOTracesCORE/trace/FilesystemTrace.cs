@@ -84,7 +84,10 @@ namespace IOTracesCORE.trace
                 try
                 {
                     string root = Path.GetPathRoot(Filename) ?? "/";
-                    csv.WriteField(PathHasher.HashFilePath(Filename, root, true, 16));
+                    // keepLevels:1 — keep only the first segment below the volume root
+                    // (e.g. "Users", "Windows"). keepLevels:2 leaked the *username*
+                    // segment for C:\Users\<name>\... in anonymous mode.
+                    csv.WriteField(PathHasher.HashFilePath(Filename, root, true, 16, 1));
                 }
                 catch (Exception)
                 {
@@ -112,7 +115,13 @@ namespace IOTracesCORE.trace
             // and empty when absent rather than "0".
             csv.WriteField(FileKey.HasValue && FileKey.Value != 0 ? string.Format("0x{0:X}", FileKey.Value) : "");
             csv.WriteField(FileAttributes ?? "");
-            csv.WriteField(CommandLine);
+            // Command lines routinely embed usernames, paths, URLs and secrets. In
+            // anonymous mode the filename is hashed above, so the raw command line must
+            // not leak through this column. Hash it stably (empty stays empty) so
+            // identical command lines still group while the content is non-reversible.
+            csv.WriteField(is_anonymous && !string.IsNullOrEmpty(CommandLine)
+                ? PathHasher.Hash(CommandLine, 16)
+                : CommandLine);
             // NTSTATUS of the completed IRP (op_end rows only; empty otherwise).
             // Hex so it lines up with the documented NTSTATUS constants (e.g. 0xC0000034).
             csv.WriteField(NtStatus.HasValue ? string.Format("0x{0:X8}", (uint)NtStatus.Value) : "");

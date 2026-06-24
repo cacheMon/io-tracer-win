@@ -76,7 +76,7 @@ namespace IOTracesCORE
             cacheHandler = new CacheHandlers(wm);
             psHandler = new ProcessSnapper(wm, anonymouse, processCache);
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
-            systemSnapper = new SystemSnapper(wm);
+            systemSnapper = new SystemSnapper(wm, anonymouse);
             nwHandler = new NetworkHandlers(wm);
         }
 
