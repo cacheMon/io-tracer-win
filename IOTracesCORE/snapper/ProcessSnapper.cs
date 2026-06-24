@@ -98,7 +98,9 @@ FROM Win32_Process";
                     bool sampled = false;
                     try
                     {
-                        var p = Process.GetProcessById(pid);
+                        // `using`: Process wraps a native OS handle; without disposal each
+                        // snapshot leaked one handle per live process (every 5 minutes).
+                        using var p = Process.GetProcessById(pid);
                         totalCpu = p.TotalProcessorTime;
                         sampled = true;
                     }
