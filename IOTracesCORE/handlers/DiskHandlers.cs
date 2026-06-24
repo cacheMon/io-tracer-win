@@ -18,6 +18,13 @@ namespace IOTracesCORE.handlers
         // stale Init timestamp from a previous session must not be matched against
         // a reused IRP pointer (TimeStampRelativeMSec resets per session).
         private readonly Dictionary<ulong, double> _activeRequests = new Dictionary<ulong, double>();
+        // A DiskIOInit whose matching read/write completion is dropped or never arrives is
+        // never removed from _activeRequests, so over a long capture the map grows without
+        // bound (a slow leak). When it crosses this cap, prune entries older than the age
+        // window — any real in-flight request completes in well under a second, so an Init
+        // still around after this long has lost its completion and will never be matched.
+        private const int ActiveRequestsCap = 100_000;
+        private const double ActiveRequestMaxAgeMs = 60_000.0;
 
         public DiskHandlers(WriterManager old_wm)
         {
@@ -39,6 +46,16 @@ namespace IOTracesCORE.handlers
                 if (!_activeRequests.ContainsKey(irp))
                 {
                     _activeRequests[irp] = data.TimeStampRelativeMSec;
+                }
+
+                // Bound the map: if it has grown past the cap, drop start-times old enough
+                // that their completion was clearly lost. O(n) but only on the rare overflow.
+                if (_activeRequests.Count > ActiveRequestsCap)
+                {
+                    double cutoff = data.TimeStampRelativeMSec - ActiveRequestMaxAgeMs;
+                    var stale = _activeRequests.Where(kv => kv.Value < cutoff)
+                                               .Select(kv => kv.Key).ToList();
+                    foreach (var k in stale) _activeRequests.Remove(k);
                 }
             }
         }
