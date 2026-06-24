@@ -81,6 +81,26 @@ namespace IOTracesCORE.utils
             _shedLevel = 0;
         }
 
+        /// <summary>
+        /// Current consumer event-time lag in milliseconds: wall-clock now minus the newest event
+        /// timestamp the single FileIO consumer has processed. 0 if no events have been seen yet.
+        ///
+        /// Read AT SESSION STOP this is the load-bearing honesty signal: it is the span of
+        /// wall-clock time whose FileIO events were successfully BUFFERED by the kernel but never
+        /// drained by the consumer (it was still replaying an earlier backlog when the session
+        /// stopped). Those events are silently abandoned — they are NOT counted by
+        /// session_events_lost, which only sees kernel buffer OVERFLOW, not consumer-abandoned
+        /// backlog. A large value here next to session_events_lost == 0 means the fs stream is
+        /// truncated to the consumer's freeze point, i.e. roughly its last ~lag ms are missing.
+        /// </summary>
+        public static long ConsumerLagMsNow()
+        {
+            long last = Interlocked.Read(ref _lastEventTicks);
+            if (last == 0) return 0;
+            long ms = (DateTime.Now.Ticks - last) / TimeSpan.TicksPerMillisecond;
+            return ms > 0 ? ms : 0;
+        }
+
         private static void Update()
         {
             long last = Interlocked.Read(ref _lastEventTicks);

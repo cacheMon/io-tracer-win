@@ -114,6 +114,11 @@ namespace IOTracesCORE.utils
             public long FsSummaryEvents { get; init; }
             public long FsSummaryRows { get; init; }
             public long FsShedPeakLagMs { get; init; }
+            // Consumer event-time lag at the moment of the snapshot (computed, not stored): in the
+            // FINAL manifest this is the lag at session stop = the span of fs events the kernel
+            // buffered but the consumer never drained (silent tail loss, invisible to
+            // session_events_lost). See LoadShedder.ConsumerLagMsNow.
+            public long FsConsumerLagMs { get; init; }
         }
 
         /// <summary>
@@ -142,6 +147,7 @@ namespace IOTracesCORE.utils
             FsSummaryEvents = Interlocked.Read(ref FsSummaryEvents),
             FsSummaryRows = Interlocked.Read(ref FsSummaryRows),
             FsShedPeakLagMs = Interlocked.Read(ref FsShedPeakLagMs),
+            FsConsumerLagMs = LoadShedder.ConsumerLagMsNow(),
         };
 
         public static void IncFilesystem() => Interlocked.Increment(ref FilesystemEvents);
