@@ -205,6 +205,10 @@ namespace IOTracesCORE
                 _fsFormatThreads[i] = new Thread(FsFormatLoop)
                 {
                     IsBackground = true,
+                    // AboveNormal to match the ETW consumer that feeds it: if the consumer is
+                    // boosted but the formatters are not, the format queue would back up under the
+                    // same CPU contention. They drain the bounded _fsFormatQueue, so they self-limit.
+                    Priority = ThreadPriority.AboveNormal,
                     Name = $"fs-formatter-{i}"
                 };
                 _fsFormatThreads[i].Start();
