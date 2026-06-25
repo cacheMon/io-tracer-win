@@ -429,8 +429,13 @@ namespace IOTracesCORE
                     // create/cleanup/...); the FileIO keyword ADDS the op_end completions, which
                     // roughly DOUBLE FileIO volume (validated on Windows Server 2025 via a keyword
                     // probe: op_end was ~64% of FileIO events) and are the single biggest contributor
-                    // to kernel-side fs drops. So lightweight drops FileIO (op_end off AT THE KERNEL
-                    // — real volume relief); full mode keeps it for the latency/nt_status pairing.
+                    // to kernel-side fs drops. op_end is now dropped in BOTH modes (op_end off AT THE
+                    // KERNEL = real volume relief, ~halving the FileIO rate the single consumer must
+                    // sustain, which directly reduces the truncation seen on heavy-I/O machines). The
+                    // trade is acceptable: op_end's per-op latency was already unreliable (irp pointers
+                    // are recycled, so the begin/end join mis-pairs and yields absurd tails), and the
+                    // block/ stream carries a real MEASURED disk latency; the only genuine loss is the
+                    // fs nt_status completion code.
                     //
                     // DiskFileIO is the FileKey->path rundown keyword (FileIo/Name + FileIo/Rundown).
                     // read/write events are keyed by FileKey, and their name is resolved from the
@@ -439,8 +444,8 @@ namespace IOTracesCORE
                     // a controlled A/B on Win Server 2025 measured **55% of lightweight read/write
                     // rows with an empty filename vs 0% once DiskFileIO is enabled**, at negligible
                     // added volume (the rundown is one-shot at start + on create, not per-op). So it
-                    // belongs in BOTH modes — full mode already gets the same name events via FileIO,
-                    // but enabling DiskFileIO explicitly keeps lightweight's filenames intact.
+                    // belongs in BOTH modes and is now the sole FileKey->path source for full mode too
+                    // (which no longer enables the FileIO keyword), keeping filenames resolved.
                     // Size + enable the MAIN pool (step-down + 1MB buffers, see helper).
                     EnableSizedKernelProvider(session, mainKeywords);
 
@@ -468,11 +473,12 @@ namespace IOTracesCORE
                     }
                     else
                     {
-                        // Full: legacy NT-Kernel-Logger FileIO with op_end (FileIO keyword) + the
-                        // DiskFileIO name rundown + Process.
+                        // Full: legacy NT-Kernel-Logger FileIO, op_end DROPPED (no FileIO keyword) to
+                        // halve the kernel FileIO rate. FileIOInit carries the per-op events we emit
+                        // (read/write/create/cleanup/...); DiskFileIO is the FileKey->path name rundown;
+                        // Process gives ProcessName. (op_end = the FileIO keyword, intentionally absent.)
                         var fileKeywords =
                             KernelTraceEventParser.Keywords.FileIOInit |
-                            KernelTraceEventParser.Keywords.FileIO |
                             KernelTraceEventParser.Keywords.DiskFileIO |
                             KernelTraceEventParser.Keywords.Process;
                         fileBufferMb = EnableSizedKernelProvider(fileSession, fileKeywords);
@@ -538,9 +544,10 @@ namespace IOTracesCORE
                         fileKernel.FileIOQueryInfo += fsHandler.OnQueryInfo;
                         fileKernel.FileIOSetInfo += fsHandler.OnSetInfo;
                         fileKernel.FileIOUnmapFile += fsHandler.OnUnmapFile;
-                        // This branch is full mode only (lightweight uses the modern provider above),
-                        // so op_end is always wired here.
-                        fileKernel.FileIOOperationEnd += fsHandler.OnOperationEnd;
+                        // op_end (FileIOOperationEnd) is intentionally NOT wired: the FileIO keyword
+                        // that generates it is no longer enabled (op_end dropped at the kernel for
+                        // volume relief). OnOperationEnd is retained for the unit tests / a possible
+                        // future opt-in, but no op_end events are delivered in this configuration.
                     }
 
                     kernel.ProcessStart += data => processCache.RefreshFromProcess(data.ProcessID);
