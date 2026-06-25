@@ -550,7 +550,12 @@ namespace IOTracesCORE
                 Interlocked.Increment(ref disk_event_counter);
                 utils.TraceStats.IncDisk();
                 block_sb.Append(data.FormatAsCsv());
-                if (IsTimeToFlush(block_sb))
+                // block/ is a low-volume continuous stream like nw/ and fs_summary/: a whole
+                // capture's disk rows often total well under the size-based flush threshold, so
+                // without lowThreshold the buffer would only flush at the 15s idle timer and an
+                // unclean kill could strand most of the stream in memory. lowThreshold flushes
+                // any buffered rows once MIN_FLUSH_INTERVAL has elapsed, matching nw/fs_summary.
+                if (IsTimeToFlush(block_sb, lowThreshold: true))
                 {
                     FlushWriteLocked(block_sb, block_filepath, "disk");
                 }
@@ -972,20 +977,28 @@ namespace IOTracesCORE
             // the head of the upload queue so it reaches R2 before the data batches.
             WriteManifest(final: true);
 
-            // Drain the fs formatter first: it is what fills fs_sb, so flushing fs_sb
-            // before the formatter is idle would drop every still-queued event. By now
-            // the ETW session and the handlers' flush timer are stopped (see Tracer), so
-            // no new events are arriving; CompleteAdding + Join formats the remainder.
-            _fsFormatQueue.CompleteAdding();
-            foreach (var t in _fsFormatThreads) t.Join();
-
-            if (fs_sb.Length > 0) FlushWrite(fs_sb, fs_filepath, "filesystem");
+            // Flush the already-materialized buffers FIRST, before the potentially-slow fs
+            // formatter drain below. These streams (disk/network/fs_summary/snapshots/memory)
+            // do not depend on the fs formatter, and their rows are already sitting in their
+            // StringBuilders. Flushing them up front means a shutdown truncated during the
+            // formatter Join — the GUI's 15s exit timer firing — still persists the complete
+            // low-volume streams instead of stranding them. (fs_sb is the only buffer the
+            // formatter feeds, so it must wait for the Join.)
             if (block_sb.Length > 0) FlushWrite(block_sb, block_filepath, "disk");
             if (mr_sb.Length > 0) FlushWrite(mr_sb, mr_filepath, "memory");
             if (process_snap_sb.Length > 0) FlushWrite(process_snap_sb, process_snap_filepath, "process");
             if (fs_snap_sb.Length > 0) FlushWrite(fs_snap_sb, fs_snap_filepath, "filesystem_snapshot");
             if (nw_sb.Length > 0) FlushWrite(nw_sb, nw_filepath, "network");
             if (fs_summary_sb.Length > 0) FlushWrite(fs_summary_sb, fs_summary_filepath, "fs_summary");
+
+            // Drain the fs formatter: it is what fills fs_sb, so flushing fs_sb before the
+            // formatter is idle would drop every still-queued event. By now the ETW session
+            // and the handlers' flush timer are stopped (see Tracer), so no new events are
+            // arriving; CompleteAdding + Join formats the remainder.
+            _fsFormatQueue.CompleteAdding();
+            foreach (var t in _fsFormatThreads) t.Join();
+
+            if (fs_sb.Length > 0) FlushWrite(fs_sb, fs_filepath, "filesystem");
             Debug.WriteLine("Flushed all StringBuilders.");
 
             // Wait for the background compressor to finish every queued chunk before we
