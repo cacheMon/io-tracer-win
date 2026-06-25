@@ -6,7 +6,7 @@ namespace IOTracesCORE.Tests
     public class LoadShedderTests
     {
         [Theory]
-        // HIGH is never shed, at any level.
+        // HIGH is not shed at levels 0-2.
         [InlineData(FsPriority.High, 0, false)]
         [InlineData(FsPriority.High, 1, false)]
         [InlineData(FsPriority.High, 2, false)]
@@ -19,6 +19,10 @@ namespace IOTracesCORE.Tests
         // Level 2: shed LOW + MED.
         [InlineData(FsPriority.Low, 2, true)]
         [InlineData(FsPriority.Med, 2, true)]
+        // Level 3 (summary-all): shed EVERYTHING, including HIGH read/write/create.
+        [InlineData(FsPriority.High, 3, true)]
+        [InlineData(FsPriority.Med, 3, true)]
+        [InlineData(FsPriority.Low, 3, true)]
         public void ShedDecision_RespectsPriorityAndLevel(FsPriority pri, int level, bool expected)
         {
             Assert.Equal(expected, LoadShedder.ShedDecision(pri, level));
@@ -40,6 +44,13 @@ namespace IOTracesCORE.Tests
         [InlineData(2, 5.9, 1)]
         [InlineData(2, 6.1, 2)]
         [InlineData(2, 0.0, 1)]
+        // From 2: rise to 3 (summary-all) only above the deep-backlog enter threshold (30s).
+        [InlineData(2, 29.9, 2)]
+        [InlineData(2, 30.1, 3)]
+        // From 3: fall to 2 below the recover-HIGH threshold (15s); else hold at 3.
+        [InlineData(3, 40.0, 3)]
+        [InlineData(3, 15.1, 3)]
+        [InlineData(3, 14.9, 2)]
         public void NextLevel_HysteresisBoundaries(int current, double lagSec, int expected)
         {
             Assert.Equal(expected, LoadShedder.NextLevel(current, lagSec));
