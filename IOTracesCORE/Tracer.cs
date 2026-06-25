@@ -35,6 +35,9 @@ namespace IOTracesCORE
         // (consumer-side) / session.EventsLost (OS-authoritative) respectively.
         private long _etwLostBaseline = 0;
         private long _sessionLostBaseline = 0;
+        // Same baseline accumulation for the MAIN session's authoritative lost count (DiskIO/
+        // Process/byte-network), reported separately from the FILE session above.
+        private long _mainSessionLostBaseline = 0;
         // Set once we've written the cross-run truncation marker this process, so the 2s
         // lost-poller records it a single time rather than re-writing on every tick.
         private bool _truncationMarkerWritten = false;
@@ -479,8 +482,13 @@ namespace IOTracesCORE
                     // (memory-manager provider removed — see the memory-keyword note above; it fed
                     // the same never-consumed mr/ stream.)
 
-                    var tcpIpProviderGuid = new Guid("2F07E2EE-15DB-40F1-90EF-9D7BA282188A");
-                    session.EnableProvider(tcpIpProviderGuid);
+                    // (Microsoft-Windows-TCPIP manifest provider removed: it was enabled UNFILTERED
+                    // — EnableProvider(Guid) defaults to Verbose level + matchAnyKeywords=ulong.MaxValue,
+                    // i.e. the full per-segment/ack/retransmit firehose — yet its ONLY sink was the
+                    // empty no-op OnTcpHandshake. It produced ZERO output rows while the main-session
+                    // consumer decoded every event and ran a per-event ProviderName compare, stealing
+                    // buffers/CPU from DiskIO + the kernel byte-network events under load. The real nw/
+                    // rows come from the kernel NetworkTCPIP keyword via kernel.TcpIp*/UdpIp* below.)
 
                     var source = session.Source;
                     var kernel = source.Kernel;
@@ -560,13 +568,8 @@ namespace IOTracesCORE
                     kernel.TcpIpRetransmit += nwHandler.OnRetransmit;
                     kernel.TcpIpFail += nwHandler.OnFail;
 
-                    source.Dynamic.All += (TraceEvent data) =>
-                    {
-                        if (data.ProviderName == "Microsoft-Windows-TCPIP")
-                        {
-                            nwHandler.OnTcpHandshake(data);
-                        }
-                    };
+                    // (the dead Microsoft-Windows-TCPIP Dynamic.All sink was removed with the
+                    // provider above — it routed the unfiltered firehose into an empty handler.)
 
                     // Poll the kernel's dropped-event count live (it rises as consumer
                     // buffers overrun) and publish it to TraceStats every couple of seconds,
@@ -601,16 +604,38 @@ namespace IOTracesCORE
                                 {
                                     long authoritativeLost = _sessionLostBaseline + fs.EventsLost;
                                     utils.TraceStats.SetSessionEventsLost(authoritativeLost);
-                                    // A run that has already lost this many FileIO events to kernel-
-                                    // side drops is truncating; drop a machine-local marker (once) so
+                                    // A run is truncating either by kernel OVERFLOW (authoritativeLost
+                                    // crosses the threshold) OR by consumer FREEZE — the FileIO consumer
+                                    // falls so far behind that the fs stream stops while the kernel keeps
+                                    // a low/zero EventsLost (issue #68; observed: session_events_lost can
+                                    // be < threshold yet the fs stream is dead for hours). The freeze is
+                                    // visible as the LoadShedder pinned at its top level with a large
+                                    // event-time lag. Either way, drop the machine-local marker ONCE so
                                     // the NEXT launch defaults to lightweight. Best-effort.
                                     if (!_truncationMarkerWritten
-                                        && authoritativeLost >= utils.TruncationState.LossThreshold)
+                                        && utils.TruncationState.ShouldArm(
+                                               authoritativeLost,
+                                               utils.LoadShedder.ShedLevelNow(),
+                                               utils.LoadShedder.ConsumerLagMsNow()))
                                     {
-                                        utils.TruncationState.Record(authoritativeLost);
+                                        // Record the real overflow count, or the threshold as a freeze
+                                        // sentinel when the freeze (not overflow) is what tripped it.
+                                        utils.TruncationState.Record(
+                                            authoritativeLost >= utils.TruncationState.LossThreshold
+                                                ? authoritativeLost
+                                                : utils.TruncationState.LossThreshold);
                                         _truncationMarkerWritten = true;
                                     }
                                 }
+                            }
+                            catch { /* OS query failed / session stopping — retry next tick */ }
+                            // MAIN session authoritative lost count (DiskIO/Process/byte-network),
+                            // reported separately — NOT folded into the fs-truncation signal above.
+                            try
+                            {
+                                var ms = session;
+                                if (ms != null)
+                                    utils.TraceStats.SetMainSessionEventsLost(_mainSessionLostBaseline + ms.EventsLost);
                             }
                             catch { /* OS query failed / session stopping — retry next tick */ }
                             Thread.Sleep(2000);
@@ -641,6 +666,13 @@ namespace IOTracesCORE
                     try { fileSession?.Stop(); } catch { /* already stopping */ }
                     fileConsumer.Join(TimeSpan.FromSeconds(10));
 
+                    // Freeze the consumer-lag clock at the stop point: the FILE consumer has now
+                    // drained everything it will (or been cut off at the Join timeout), so the
+                    // lag at this instant IS the silent-tail-loss span. Without this, the FINAL
+                    // manifest (written later, after the compress/upload drain) would compute lag
+                    // against a live DateTime.Now and inflate it past the capture span.
+                    utils.LoadShedder.MarkStopped();
+
                     // Fold this run's dropped-event counts (FILE session = the fs-truncation
                     // signal) into the baselines so a subsequent restarted session accumulates
                     // rather than overwrites.
@@ -653,6 +685,16 @@ namespace IOTracesCORE
                         {
                             _sessionLostBaseline += fs.EventsLost;
                             utils.TraceStats.SetSessionEventsLost(_sessionLostBaseline);
+                        }
+                    }
+                    catch { /* session already stopped; the last polled value stands */ }
+                    try
+                    {
+                        var ms = session;
+                        if (ms != null)
+                        {
+                            _mainSessionLostBaseline += ms.EventsLost;
+                            utils.TraceStats.SetMainSessionEventsLost(_mainSessionLostBaseline);
                         }
                     }
                     catch { /* session already stopped; the last polled value stands */ }

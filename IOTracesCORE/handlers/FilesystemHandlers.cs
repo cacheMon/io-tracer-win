@@ -356,6 +356,10 @@ namespace IOTracesCORE.handlers
                 }
                 case "namecreate":
                 {
+                    // Count as received (these bypass the ShouldTrace gate below since they map
+                    // names for ALL processes), so filesystem_events_received reflects the full
+                    // modern FileIO volume rather than undercounting by the name-mapping events.
+                    TraceStats.IncFilesystemReceived();
                     // FileKey->path mapping (regardless of process filter, so all files index).
                     string name = Clean(MStr(d, "FileName"));
                     ulong key = MUlong(d, "FileKey");
@@ -367,6 +371,7 @@ namespace IOTracesCORE.handlers
                     return;
                 }
                 case "namedelete":
+                    TraceStats.IncFilesystemReceived(); // counted as received (bypasses ShouldTrace)
                     return; // mapping teardown; cache is bounded/cleared on session reset
                 case "read":
                 case "write":
