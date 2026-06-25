@@ -79,15 +79,28 @@ namespace IOTracesCORE
             CTRL_SHUTDOWN_EVENT = 6
         }
 
-        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output", bool devMode = false, bool lowOverheadLogging = false, bool headless = false)
+        // Focused capture: when non-empty, the modern Kernel-File provider is enabled with an
+        // INCLUDE process-name filter so the KERNEL only generates fs events for these processes
+        // (e.g. just "sqlservr.exe" on a busy DB box) and never for the hundreds of others — the
+        // largest possible kernel-event reduction for a TARGETED capture. ETW process filtering is
+        // include-only (there is no exclude), and it only applies to the manifest provider, so this
+        // requires (and forces) lightweight/modern mode. Empty => trace all processes (the default).
+        private readonly string[] processIncludeFilter;
+
+        public Tracer(bool anonymouse, bool upload, ObjectStorageHandler obj, string outputPath = ".\\output", bool devMode = false, bool lowOverheadLogging = false, bool headless = false, string[] processIncludeFilter = null)
         {
             objHandler = obj;
             isUploadAutomatically = upload;
-            this.lowOverheadLogging = lowOverheadLogging;
+            this.processIncludeFilter = processIncludeFilter;
+            utils.TraceStats.ProcessIncludeFilter = processIncludeFilter;
+            // Process-name filtering only works on the modern manifest provider (lightweight path),
+            // so a focused capture forces lightweight.
+            bool effectiveLight = lowOverheadLogging || (processIncludeFilter != null && processIncludeFilter.Length > 0);
+            this.lowOverheadLogging = effectiveLight;
             this.headless = headless;
-            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode, lowOverheadLogging);
+            wm = new WriterManager($"{outputPath}\\windows_trace\\{PathHasher.deviceId}", anonymouse, upload, objHandler, devMode, effectiveLight);
             processCache = new ProcessCommandLineCache();
-            fsHandler = new FilesystemHandlers(wm, processCache, lowOverheadLogging);
+            fsHandler = new FilesystemHandlers(wm, processCache, effectiveLight);
             dsHandler = new DiskHandlers(wm);
             psHandler = new ProcessSnapper(wm, anonymouse, processCache);
             fsSnapper = new FilesystemSnapper(wm, anonymouse);
@@ -461,7 +474,17 @@ namespace IOTracesCORE
                         // are never generated. Validated on Win Server 2025: 4779->1597 ev/s, read/
                         // write/create kept 100%, filenames resolved 100%, ProcessName resolved 100%.
                         const ulong kernelFileDataKeywords = 0x10UL | 0x80UL | 0x100UL | 0x200UL | 0x400UL | 0x800UL;
-                        fileSession.EnableProvider(KernelFileProviderGuid, TraceEventLevel.Informational, kernelFileDataKeywords);
+                        // Focused capture: an INCLUDE process-name filter so the kernel generates fs
+                        // events ONLY for the named processes (everything else is never generated) —
+                        // the biggest possible kernel-event cut for a targeted capture. ETW filtering
+                        // is include-only and applies to manifest providers via EnableProvider only.
+                        TraceEventProviderOptions options = null;
+                        if (processIncludeFilter != null && processIncludeFilter.Length > 0
+                            && TraceEventProviderOptions.FilteringSupported)
+                        {
+                            options = new TraceEventProviderOptions { ProcessNameFilter = processIncludeFilter };
+                        }
+                        fileSession.EnableProvider(KernelFileProviderGuid, TraceEventLevel.Informational, kernelFileDataKeywords, options);
                     }
                     else
                     {

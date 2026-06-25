@@ -303,6 +303,10 @@ namespace IOTracesCORE.utils
                 // is chosen by machine spec unless overridden. Recorded so a consumer knows missing
                 // op_end / memory / metadata-op / map_file data is intentional (the mode), not inactivity.
                 ["logging_mode"] = lowOverheadLogging ? "lightweight" : "full",
+                // Focused capture: if set, the kernel generated fs events ONLY for these process
+                // names (ETW include-only filter). A sparse fs/ stream is then BY DESIGN, not loss.
+                // null/absent => all processes were traced.
+                ["process_include_filter"] = TraceStats.ProcessIncludeFilter,
                 ["clock_source"] = new Dictionary<string, object?>
                 {
                     // ETW DateTime timestamps are machine-local wall-clock (QPC-derived).

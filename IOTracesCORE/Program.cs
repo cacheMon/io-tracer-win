@@ -111,6 +111,10 @@ namespace IOTracesCORE
         //     --minutes N   : stop cleanly after N minutes (0 / omitted = run until Ctrl+C)
         //     --output DIR  : trace output directory (default .\output)
         //     --anonymous   : hash user/host identifiers
+        //     --only-process a.exe,b.exe : FOCUSED capture — the kernel generates fs events ONLY for
+        //                     these process names (everything else is never generated; biggest cut
+        //                     for a targeted capture). ETW filtering is include-only and needs the
+        //                     modern provider, so this forces lightweight mode.
         // Always runs local-only (upload disabled, dev mode) so it never needs cloud creds.
         private static void RunHeadless(string[] args)
         {
@@ -119,17 +123,23 @@ namespace IOTracesCORE
             bool anonymous = Array.IndexOf(args, "--anonymous") >= 0;
             int minutes = GetArgInt(args, "--minutes", 0);
             string output = GetArgStr(args, "--output", ".\\output");
+            // Comma-separated process names (with extension), e.g. "sqlservr.exe,node.exe".
+            string[] onlyProcess = GetArgStr(args, "--only-process", "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            bool focused = onlyProcess.Length > 0;
 
-            // Mode selection: explicit flag wins; else a recent truncation forces lightweight; else
-            // choose by machine spec (small machines -> lightweight, the reduced modern provider).
+            // Mode selection: a focused capture or explicit flag wins; else a recent truncation forces
+            // lightweight; else choose by machine spec (small machines -> the reduced modern provider).
             bool lightweight;
             string why;
-            if (forceLight) { lightweight = true; why = "--lightweight"; }
+            if (focused) { lightweight = true; why = "focused-capture(--only-process)"; }
+            else if (forceLight) { lightweight = true; why = "--lightweight"; }
             else if (forceFull) { lightweight = false; why = "--full"; }
             else if (TruncationState.WasRecentlyTruncated(out _)) { lightweight = true; why = "recent-truncation"; }
             else { lightweight = MachineProfile.RecommendLightweight(); why = "machine-spec"; }
 
             Console.WriteLine($"[headless] mode={(lightweight ? "lightweight" : "full")} ({why}; {MachineProfile.Describe()}) " +
+                              (focused ? $"only-process=[{string.Join(",", onlyProcess)}] " : "") +
                               $"minutes={minutes} output={output} anonymous={anonymous} commit={VersionManager.Instance.GetCommitId()}");
 
             ConfigClasses.LoadTracemetaConfiguration();
@@ -145,7 +155,8 @@ namespace IOTracesCORE
             var obj = new ObjectStorageHandler();
             // upload:false + devMode:true => purely local; headless:true => no WinForms UI.
             var tracer = new Tracer(anonymous, upload: false, obj, output,
-                                    devMode: true, lowOverheadLogging: lightweight, headless: true);
+                                    devMode: true, lowOverheadLogging: lightweight, headless: true,
+                                    processIncludeFilter: focused ? onlyProcess : null);
             tracer.Trace(cts.Token);
         }
 

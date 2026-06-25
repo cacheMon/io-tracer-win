@@ -67,6 +67,11 @@ namespace IOTracesCORE.utils
         public static long FsSummaryRows;
         public static long FsShedPeakLagMs;
 
+        // Focused-capture process-name include filter (null => all processes traced). Set once by
+        // Tracer; recorded in the manifest so a deliberately-scoped (sparse) capture is not misread
+        // as a broken/empty one. Not a per-session counter, so not cleared by Reset().
+        public static string[] ProcessIncludeFilter;
+
         public static void Reset()
         {
             Interlocked.Exchange(ref FilesystemEvents, 0);
