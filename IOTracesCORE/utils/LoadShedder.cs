@@ -16,13 +16,16 @@ namespace IOTracesCORE.utils
     /// leading indicator (unlike the format-queue depth, which stays low precisely because
     /// the consumer is the bottleneck). A 1s timer maps lag -> shed level with hysteresis.
     ///
-    /// HIGH (read/write/create/delete/rename/...) is never shed. Because shedding routes
-    /// events to the lossless fs_summary stream rather than dropping them, occasional
-    /// false-positive shedding (e.g. just after an idle period) costs nothing.
+    /// HIGH (read/write/create/delete/rename/...) is not shed at levels 1-2 — only LOW/MED
+    /// metadata is. At level 3 ("summary-all"), reached only under a DEEP sustained backlog the
+    /// lower levels could not relieve, HIGH is shed too: the stream degrades to a continuous
+    /// per-(process,file,op) summary for the duration of the peak instead of truncating to its
+    /// startup burst, and returns to detail once the backlog drains. Because shedding routes to
+    /// the lossless fs_summary stream rather than dropping, no event count is ever lost.
     /// </summary>
     internal static class LoadShedder
     {
-        // 0 = keep everything; 1 = shed LOW; 2 = shed LOW + MED.
+        // 0 = keep everything; 1 = shed LOW; 2 = shed LOW + MED; 3 = shed ALL (summary-all).
         private static volatile int _shedLevel;
         // Newest event timestamp processed, in LOCAL DateTime ticks. ETW TraceData.TimeStamp
         // is machine-local wall-clock (manifest clock_source = local_wall_clock / windows_qpc),
@@ -42,6 +45,16 @@ namespace IOTracesCORE.utils
         private const double EnterMedLagSec = 12.0;
         private const double ExitLowLagSec = 1.5;
         private const double ExitMedLagSec = 6.0;
+        // Level 3 = "summary-all": a DEEP, sustained backlog (consumer ~this many seconds behind)
+        // that levels 1/2 did not relieve. Here even HIGH ops (read/write/create/delete) are
+        // aggregated into fs_summary instead of emitted as detailed rows, so the stream degrades
+        // to a continuous per-(process,file,op) summary for the duration of the peak rather than
+        // truncating to its startup burst. Drops back to level 2 (detail for HIGH) once the
+        // backlog drains below the exit threshold. Entry well above EnterMedLagSec so a normal
+        // burst that the shedder is already handling at level 2 does not needlessly lose read/write
+        // detail; exit well above ExitMedLagSec so it doesn't flap straight back up.
+        private const double EnterHighLagSec = 30.0;
+        private const double ExitHighLagSec = 15.0;
 
         // Process-lifetime: cheap (a single timer tick/sec) and idle-safe (Update no-ops with no events).
         // Fully qualified: this is a WinForms (net8.0-windows) project, so bare Timer is ambiguous
@@ -67,6 +80,7 @@ namespace IOTracesCORE.utils
         /// <summary>Pure shed decision for a priority at a given level (unit-testable).</summary>
         internal static bool ShedDecision(FsPriority pri, int level)
         {
+            if (level >= 3) return true;                 // summary-all: shed EVERYTHING incl. HIGH
             if (pri == FsPriority.High) return false;
             if (level >= 2) return true;                 // shed LOW + MED
             return level >= 1 && pri == FsPriority.Low;  // shed LOW only
@@ -77,7 +91,8 @@ namespace IOTracesCORE.utils
         {
             <= 0 => lagSec > EnterLowLagSec ? 1 : 0,
             1 => lagSec > EnterMedLagSec ? 2 : (lagSec < ExitLowLagSec ? 0 : 1),
-            _ => lagSec < ExitMedLagSec ? 1 : 2,
+            2 => lagSec > EnterHighLagSec ? 3 : (lagSec < ExitMedLagSec ? 1 : 2),
+            _ => lagSec < ExitHighLagSec ? 2 : 3,        // level 3: back to 2 once the backlog drains
         };
 
         /// <summary>Clear lag/level state on ETW session restart.</summary>
