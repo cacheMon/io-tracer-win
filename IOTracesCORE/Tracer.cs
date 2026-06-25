@@ -659,12 +659,23 @@ namespace IOTracesCORE
                     // disposing a session whose Process() is still running would crash.
                     var fileConsumer = new Thread(() =>
                     {
+                        // AboveNormal: the single FileIO consumer is the truncation-critical thread.
+                        // On a busy box it must out-compete CPU-heavy co-tenants (observed: a git
+                        // clone + Defender real-time scan pegging both cores starved this thread to
+                        // ~150 ev/s vs ~30k ev/s uncontended, truncating fs to the startup burst
+                        // while the kernel buffered — not dropped — the rest). A modest boost lets it
+                        // keep draining; it's I/O-bound (ETW dispatch + extract + enqueue), so it does
+                        // not monopolise a core. Not Highest, which could destabilise the box.
+                        try { Thread.CurrentThread.Priority = ThreadPriority.AboveNormal; } catch { }
                         try { fileSource.Process(); }
                         catch (Exception ex) { Debug.WriteLine($"[Tracer] FileIO consumer ended: {ex.Message}"); }
                     })
                     { IsBackground = true, Name = "etw-fileio-consumer" };
                     fileConsumer.Start();
 
+                    // The main-session consumer runs on this thread; give it the same boost so the
+                    // disk/process/network streams are not starved by the same co-tenant contention.
+                    try { Thread.CurrentThread.Priority = ThreadPriority.AboveNormal; } catch { }
                     source.Process(); // blocks until session.Stop() is called
 
                     // Main session ended: stop the file session + poller, and join the FileIO
