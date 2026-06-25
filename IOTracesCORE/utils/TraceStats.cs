@@ -46,6 +46,14 @@ namespace IOTracesCORE.utils
         // reads a false 0. A gap (SessionEventsLost > EtwEventsLost) means the kernel
         // dropped events that the consumer-side counter never saw.
         public static long SessionEventsLost;
+        // Authoritative OS-queried lost-event count for the MAIN kernel session (the one
+        // carrying DiskIO + Process + the byte-network keyword), kept SEPARATE from
+        // SessionEventsLost (which is the FILE session = the fs-truncation signal that drives
+        // TruncationState). Without this, kernel drops on the main session — which can lose the
+        // ~10M-event DiskIO stream under the same single-consumer-per-session pressure — were
+        // never observable in the manifest. Reported, but deliberately NOT folded into
+        // SessionEventsLost so the fs-truncation threshold / per-stream semantics stay intact.
+        public static long MainSessionEventsLost;
         // The ETW kernel buffer pool size (MB) actually granted for this session, after the
         // step-down in Tracer. A small value here (e.g. 64) next to a large SessionEventsLost
         // means the OS refused the requested pool and the capture ran with little burst
@@ -82,6 +90,7 @@ namespace IOTracesCORE.utils
             Interlocked.Exchange(ref FilesystemSnapshotDirsInaccessible, 0);
             Interlocked.Exchange(ref EtwEventsLost, 0);
             Interlocked.Exchange(ref SessionEventsLost, 0);
+            Interlocked.Exchange(ref MainSessionEventsLost, 0);
             Interlocked.Exchange(ref BufferSizeMb, 0);
             Interlocked.Exchange(ref FsFormatDropped, 0);
             Interlocked.Exchange(ref FsFormatQueueDepth, 0);
@@ -128,6 +137,7 @@ namespace IOTracesCORE.utils
             public long FilesystemSnapshotDirsInaccessible { get; init; }
             public long EtwEventsLost { get; init; }
             public long SessionEventsLost { get; init; }
+            public long MainSessionEventsLost { get; init; }
             public long BufferSizeMb { get; init; }
             public long FsFormatDropped { get; init; }
             public long FsFormatQueueDepth { get; init; }
@@ -161,6 +171,7 @@ namespace IOTracesCORE.utils
             FilesystemSnapshotDirsInaccessible = Interlocked.Read(ref FilesystemSnapshotDirsInaccessible),
             EtwEventsLost = Interlocked.Read(ref EtwEventsLost),
             SessionEventsLost = Interlocked.Read(ref SessionEventsLost),
+            MainSessionEventsLost = Interlocked.Read(ref MainSessionEventsLost),
             BufferSizeMb = Interlocked.Read(ref BufferSizeMb),
             FsFormatDropped = Interlocked.Read(ref FsFormatDropped),
             FsFormatQueueDepth = Interlocked.Read(ref FsFormatQueueDepth),
@@ -192,6 +203,9 @@ namespace IOTracesCORE.utils
         // same poll as SetEtwEventsLost so the manifest carries both the consumer-side and
         // the authoritative view, and their gap exposes the consumer-side false negative.
         public static void SetSessionEventsLost(long n) => Interlocked.Exchange(ref SessionEventsLost, n);
+        // Authoritative OS-queried lost count for the MAIN session (DiskIO/Process/byte-network).
+        // Separate from SetSessionEventsLost so the fs-truncation signal/threshold are unaffected.
+        public static void SetMainSessionEventsLost(long n) => Interlocked.Exchange(ref MainSessionEventsLost, n);
         // The kernel buffer pool size (MB) granted for the live session (see Tracer's step-down).
         public static void SetBufferSizeMb(long n) => Interlocked.Exchange(ref BufferSizeMb, n);
 

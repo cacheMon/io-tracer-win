@@ -240,7 +240,6 @@ namespace IOTracesCORE.handlers
         public void OnDisconnect(TcpIpTraceData data) { }
         public void OnFail(TcpIpFailTraceData data) { }
         public void OnRetransmit(TcpIpTraceData data) { }
-        public void OnTcpHandshake(TraceEvent data) { }
 
         private ulong GetConnId(TraceEvent data)
         {

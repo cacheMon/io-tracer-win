@@ -222,6 +222,12 @@ namespace IOTracesCORE.utils
                 // session_events_lost > etw_events_lost, the kernel dropped events that the
                 // consumer-side counter could not see — the actual fs-truncation signal.
                 ["session_events_lost"] = snapshot.SessionEventsLost,
+                // AUTHORITATIVE kernel-side lost count for the MAIN session (DiskIO/Process/
+                // byte-network), reported separately from the FILE session above. A large value
+                // here means the main consumer dropped DiskIO/network events the same way the
+                // FILE consumer drops FileIO; it does NOT arm the fs-truncation marker (that
+                // keys only off the FILE session) and is purely observability.
+                ["main_session_events_lost"] = snapshot.MainSessionEventsLost,
                 // The kernel buffer pool (MB) actually granted this session, after Tracer's
                 // step-down. Read WITH session_events_lost: a small pool here alongside heavy
                 // authoritative loss points at insufficient burst headroom (the OS refused the

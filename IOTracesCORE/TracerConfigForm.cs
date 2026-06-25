@@ -111,8 +111,11 @@ namespace IOTracesCORE
             // Sticky auto-lightweight: if a recent run on THIS machine truncated (heavy
             // kernel-side ETW loss), default lightweight ON and say why, so a chronically
             // truncating box self-heals. Set before wiring CheckedChanged so this initial
-            // default doesn't fire the handler. LoadConfiguration also ORs the marker in;
-            // unticking clears it so we respect an explicit opt-out until it truncates again.
+            // default doesn't fire the handler. LoadConfiguration also ORs the marker in.
+            // Unticking governs only THIS run's mode (plumbed via chkLowOverhead.Checked); it no
+            // longer deletes the marker, so a one-off "run full this time" can't permanently defeat
+            // the self-heal on a box that keeps truncating. The marker self-expires after 30 days
+            // (TruncationState.ExpiryDays) and re-arms automatically if truncation recurs.
             if (utils.TruncationState.WasRecentlyTruncated(out _))
             {
                 chkLowOverhead.Checked = true;
@@ -127,7 +130,6 @@ namespace IOTracesCORE
             }
             chkLowOverhead.CheckedChanged += (s, e) =>
             {
-                if (!chkLowOverhead.Checked) utils.TruncationState.Clear();
                 SaveConfiguration();
             };
             root.Controls.Add(chkLowOverhead);

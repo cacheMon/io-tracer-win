@@ -30,6 +30,12 @@ namespace IOTracesCORE.utils
         // would inject the machine's UTC offset and pin shedding at max (or never) forever.
         private static long _lastEventTicks;
 
+        // Wall-clock tick captured at ETW stop, or 0 while still running. ConsumerLagMsNow anchors
+        // on this once set, so the FINAL manifest's fs_consumer_lag_ms reflects the lag AT STOP (the
+        // true silent-tail-loss span) rather than (manifest-build-time now − last event), which would
+        // include the post-stop compress/upload drain and overstate the lag beyond the capture span.
+        private static long _stopTicks;
+
         // Lag thresholds (seconds). Recovery thresholds sit below entry thresholds (hysteresis)
         // so the level can't flap on every timer tick.
         private const double EnterLowLagSec = 3.0;
@@ -78,8 +84,20 @@ namespace IOTracesCORE.utils
         public static void Reset()
         {
             Interlocked.Exchange(ref _lastEventTicks, 0);
+            Volatile.Write(ref _stopTicks, 0);
             _shedLevel = 0;
         }
+
+        /// <summary>Freeze the lag clock at ETW stop so the final lag reflects the stop point,
+        /// not the later manifest-build time. Idempotent; the first call wins.</summary>
+        public static void MarkStopped()
+        {
+            Interlocked.CompareExchange(ref _stopTicks, DateTime.Now.Ticks, 0);
+        }
+
+        /// <summary>Current shed level (0/1/2) — exposed so the truncation detector can recognise a
+        /// consumer FREEZE (top level + large lag) even when kernel-overflow loss stays low.</summary>
+        public static int ShedLevelNow() => _shedLevel;
 
         /// <summary>
         /// Current consumer event-time lag in milliseconds: wall-clock now minus the newest event
@@ -97,7 +115,9 @@ namespace IOTracesCORE.utils
         {
             long last = Interlocked.Read(ref _lastEventTicks);
             if (last == 0) return 0;
-            long ms = (DateTime.Now.Ticks - last) / TimeSpan.TicksPerMillisecond;
+            long stop = Volatile.Read(ref _stopTicks);
+            long anchor = stop != 0 ? stop : DateTime.Now.Ticks;
+            long ms = (anchor - last) / TimeSpan.TicksPerMillisecond;
             return ms > 0 ? ms : 0;
         }
 

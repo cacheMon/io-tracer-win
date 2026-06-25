@@ -23,6 +23,26 @@ namespace IOTracesCORE.utils
         /// </summary>
         public const long LossThreshold = 1_000_000;
 
+        /// <summary>
+        /// Consumer event-time lag (ms) that, together with the load-shedder pinned at its TOP
+        /// level, indicates a FREEZE truncation: the FileIO consumer fell so far behind that the
+        /// fs stream is dead, even though kernel-overflow loss (session.EventsLost) stayed below
+        /// <see cref="LossThreshold"/>. 60s is far above the shedder's 12s top-level entry, so a
+        /// brief burst cannot trip it — only a sustained freeze can.
+        /// </summary>
+        public const long FreezeLagMs = 60_000;
+
+        /// <summary>
+        /// Pure decision (unit-testable): should this run arm the next-launch lightweight marker?
+        /// True on EITHER kernel OVERFLOW (<paramref name="authoritativeLost"/> ≥ threshold) OR a
+        /// consumer FREEZE (load-shedder at top level AND <paramref name="lagMs"/> ≥ FreezeLagMs).
+        /// The freeze arm catches the issue-#68 pathology where the fs stream truncates for hours
+        /// while session.EventsLost reads low — which the overflow-only test missed.
+        /// </summary>
+        public static bool ShouldArm(long authoritativeLost, int shedLevel, long lagMs)
+            => authoritativeLost >= LossThreshold
+               || (shedLevel >= 2 && lagMs >= FreezeLagMs);
+
         // Honour the sticky default only while the marker is fresh, so a machine that has
         // since been fixed (or whose workload changed) stops forcing lightweight forever.
         private const double ExpiryDays = 30.0;
