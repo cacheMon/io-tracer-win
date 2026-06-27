@@ -25,8 +25,7 @@ namespace IOTracesCORE.trace
         public double CpuUsage_2m { get; set; }
         public double CpuUsage_1h { get; set; }
 
-        private readonly StringWriter buffer = new StringWriter();
-        private readonly CsvWriter csv;
+        // Row buffer/writer are provided per-thread by CsvRowBuffer (no per-row allocation).
 
         public ProcessInfo(
             DateTime ts,
@@ -52,17 +51,13 @@ namespace IOTracesCORE.trace
             CpuUsage_5s = cpuUsage_5s;
             CpuUsage_1h = cpuUsage_1h;
 
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                NewLine = "\n"
-            };
-
-            this.csv = new CsvWriter(buffer, config);
+            // CsvWriter is no longer built per row here — formatting uses the per-thread
+            // CsvRowBuffer (see FormatAsCsv). Per-row writer construction was the dominant cost.
         }
 
         public string FormatAsCsv()
         {
-            buffer.GetStringBuilder().Clear();
+            var csv = CsvRowBuffer.Begin(out var buffer);
             csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
             csv.WriteField(ProcessId);
             csv.WriteField(Name);

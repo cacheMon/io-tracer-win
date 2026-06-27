@@ -97,8 +97,7 @@ namespace IOTracesCORE.trace
         public long ByteCount { get; set; }        // Bytes involved
         public int ThreadId { get; set; }          // Thread that caused the fault
 
-        private readonly StringWriter buffer = new StringWriter();
-        private readonly CsvWriter csv;
+        // Row buffer/writer are provided per-thread by CsvRowBuffer (no per-row allocation).
 
         public MemoryTrace(
             DateTime ts,
@@ -118,16 +117,13 @@ namespace IOTracesCORE.trace
             ByteCount = byteCount;
             ThreadId = threadId;
 
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                NewLine = "\n"
-            };
-            this.csv = new CsvWriter(buffer, config);
+            // CsvWriter is no longer built per row here — formatting uses the per-thread
+            // CsvRowBuffer (see FormatAsCsv). Per-row writer construction was the dominant cost.
         }
 
         public string FormatAsCsv()
         {
-            buffer.GetStringBuilder().Clear();
+            var csv = CsvRowBuffer.Begin(out var buffer);
 
             csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
             csv.WriteField(Pid);

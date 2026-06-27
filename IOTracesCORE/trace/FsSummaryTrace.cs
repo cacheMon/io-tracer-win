@@ -34,8 +34,7 @@ namespace IOTracesCORE.trace
             ["fs_control"] = "fsctl",
         };
 
-        private readonly StringWriter buffer = new StringWriter();
-        private readonly CsvWriter csv;
+        // Row buffer/writer are provided per-thread by CsvRowBuffer (no per-row allocation).
 
         public FsSummaryTrace(DateTime ts, int pid, string comm, string filename, string op, long count)
         {
@@ -46,13 +45,13 @@ namespace IOTracesCORE.trace
             Op = op ?? "";
             Count = count;
 
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture) { NewLine = "\n" };
-            csv = new CsvWriter(buffer, config);
+            // CsvWriter is no longer built per row here — formatting uses the per-thread
+            // CsvRowBuffer (see FormatAsCsv). Per-row writer construction was the dominant cost.
         }
 
         public string FormatAsCsv(bool is_anonymous)
         {
-            buffer.GetStringBuilder().Clear();
+            var csv = CsvRowBuffer.Begin(out var buffer);
             string op = CanonicalOps.TryGetValue(Op, out var canon) ? canon : Op;
 
             csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
