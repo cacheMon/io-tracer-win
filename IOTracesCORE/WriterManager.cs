@@ -62,6 +62,12 @@ namespace IOTracesCORE
 
         private int fs_snap_part_counter = 1;
         private string empty_filename_filepath;
+        // Persistent writer for the empty-filename diagnostic log. Opened ONCE and kept open
+        // (AutoFlush) instead of open/append/close PER event: profiling under load showed the
+        // per-event CreateFile dominated (~2.6 thread-seconds) and stalled the pending-name flush
+        // timer. Guarded by empty_filename_lock (called from the flush-timer and consumer threads).
+        private StreamWriter? empty_filename_writer;
+        private readonly object empty_filename_lock = new object();
 
         private ObjectStorageHandler obj_storage;
 
@@ -630,16 +636,20 @@ namespace IOTracesCORE
 
             try
             {
-                string? dir = Path.GetDirectoryName(empty_filename_filepath);
-                if (!string.IsNullOrEmpty(dir))
-                {
-                    EnsureDirectoryExists(dir);
-                }
-
                 string logEntry = $"{ts:yyyy-MM-dd HH:mm:ss.ffffff} | Op: {op} | PID: {pid} | TID: {tid} | Comm: {comm}\n";
-                using (var writer = new StreamWriter(empty_filename_filepath, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+                lock (empty_filename_lock)
                 {
-                    writer.Write(logEntry);
+                    if (empty_filename_writer == null)
+                    {
+                        string? dir = Path.GetDirectoryName(empty_filename_filepath);
+                        if (!string.IsNullOrEmpty(dir)) EnsureDirectoryExists(dir);
+                        // Open once, keep open (AutoFlush keeps the file current and crash-safe
+                        // without an explicit flush). FileShare.Read is the StreamWriter default,
+                        // so the shutdown packager can still read the file while it is open.
+                        empty_filename_writer = new StreamWriter(empty_filename_filepath, append: true,
+                            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)) { AutoFlush = true };
+                    }
+                    empty_filename_writer.Write(logEntry);
                 }
             }
             catch (Exception ex)
@@ -970,6 +980,14 @@ namespace IOTracesCORE
             // Stop periodic (non-final) manifest refreshes so the authoritative final
             // manifest written below cannot be overwritten by a racing periodic one.
             _finalizing = true;
+
+            // Release the empty-filename diagnostic log handle so its file is flushed and closed
+            // before the packaging/compress drain below.
+            lock (empty_filename_lock)
+            {
+                try { empty_filename_writer?.Dispose(); } catch { /* best-effort */ }
+                empty_filename_writer = null;
+            }
 
             // Write + queue the FINAL manifest (finalized=true, stop_utc) UP FRONT, before
             // the potentially-slow flush/compress/upload drain below. A shutdown that is
