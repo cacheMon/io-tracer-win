@@ -40,8 +40,9 @@ namespace IOTracesCORE.trace
         public string CommandLine { get; set; }
         public int? NtStatus { get; set; }              // For op_end - final NTSTATUS of the completed IRP
 
-        private readonly StringWriter buffer = new StringWriter();
-        private readonly CsvWriter csv;
+        // Row buffer/writer are provided per-thread by CsvRowBuffer (no per-row allocation).
+        // Per-row CsvWriter construction was the dominant fs-consumer cost: ~24 KB allocated PER
+        // row (~96% of per-event cost, ~23% of wall-clock in GC) — the fs-truncation root cause.
 
         // Maps the native ETW filesystem op names onto the cross-OS canonical
         // vocabulary shared with the Linux tracer. Ops not listed (read, write,
@@ -59,7 +60,7 @@ namespace IOTracesCORE.trace
 
         public string FormatAsCsv(bool is_anonymous)
         {
-            buffer.GetStringBuilder().Clear();
+            var csv = CsvRowBuffer.Begin(out var buffer);
 
             string op = Op != null && CanonicalOps.TryGetValue(Op, out var canon) ? canon : (Op ?? "");
             // bytes_completed: Windows reports only the requested transfer size,
@@ -189,13 +190,8 @@ namespace IOTracesCORE.trace
             IoFlags = ioFlags;
             CommandLine = string.IsNullOrEmpty(commandLine) ? "" : commandLine;
             NtStatus = ntStatus;
-
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                NewLine = "\n"
-            };
-
-            this.csv = new CsvWriter(buffer, config);
+            // No per-row CsvWriter/StringWriter allocation here anymore — formatting reuses a
+            // thread-local writer in FormatAsCsv. The row object now holds only its data fields.
         }
     }
 }

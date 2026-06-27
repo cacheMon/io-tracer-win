@@ -24,8 +24,7 @@ namespace IOTracesCORE.trace
         public string Extension { get; set; }
         public bool IsReadOnly { get; set; }
 
-        private readonly StringWriter buffer = new StringWriter();
-        private readonly CsvWriter csv;
+        // Row buffer/writer are provided per-thread by CsvRowBuffer (no per-row allocation).
 
         public FilesystemInfo(string path, long size, DateTime creationDate, DateTime modificationDate, DateTime lastAccessTime, FileAttributes attributes, string extension, bool isReadOnly, DateTime timestamp)
         {
@@ -38,18 +37,14 @@ namespace IOTracesCORE.trace
             this.Extension = extension;
             this.IsReadOnly = isReadOnly;
 
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                NewLine = "\n"
-            };
-
-            this.csv = new CsvWriter(buffer, config);
+            // CsvWriter is no longer built per row here — formatting uses the per-thread
+            // CsvRowBuffer (see FormatAsCsv). Per-row writer construction was the dominant cost.
             this.timestamp = timestamp;
         }
 
         public string FormatAsCsv()
         {
-            buffer.GetStringBuilder().Clear();
+            var csv = CsvRowBuffer.Begin(out var buffer);
             csv.WriteField(timestamp.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
             csv.WriteField(path);
             csv.WriteField(size);

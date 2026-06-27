@@ -28,17 +28,13 @@ namespace IOTracesCORE.trace
 
             IrpFlags = irpFlags;
 
-            var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                NewLine = "\n"
-            };
-
-            this.csv = new CsvWriter(buffer, config);
+            // CsvWriter is no longer built per row here — formatting uses the per-thread
+            // CsvRowBuffer (see FormatAsCsv). Per-row writer construction was the dominant cost.
         }
 
         public string FormatAsCsv()
         {
-            buffer.GetStringBuilder().Clear();
+            var csv = CsvRowBuffer.Begin(out var buffer);
 
             // --- shared cross-OS prefix (columns 1-10; identical on Linux) --- #
             csv.WriteField(Ts.ToString("yyyy-MM-dd HH:mm:ss.ffffff"));
@@ -62,8 +58,7 @@ namespace IOTracesCORE.trace
         }
 
 
-        private readonly StringWriter buffer = new StringWriter();
-        private readonly CsvWriter csv;
+        // Row buffer/writer are provided per-thread by CsvRowBuffer (no per-row allocation).
 
         public DateTime Ts { get; set; }
         public int Pid { get; set; }
