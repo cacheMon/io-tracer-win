@@ -283,11 +283,24 @@ namespace IOTracesCORE
         {
             try
             {
-                using (HttpClient http = new HttpClient())
+                using (HttpClient http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) })
                 {
-                    string testUrl = "https://io-tracer-worker.1a1a11a.workers.dev/connection-test.txt";
-                    var response = await http.GetAsync(testUrl);
-                    return response.IsSuccessStatusCode;
+                    string baseUrl = "https://io-tracer-worker.1a1a11a.workers.dev";
+
+                    // Try HEAD request first (lightweight)
+                    try
+                    {
+                        var request = new HttpRequestMessage(HttpMethod.Head, baseUrl);
+                        var response = await http.SendAsync(request);
+                        if (response.IsSuccessStatusCode)
+                            return true;
+                    }
+                    catch { }
+
+                    // Fallback: try GET to presigned-url endpoint (always exists)
+                    var testUrl = $"{baseUrl}/presigned-url/connection-test";
+                    var getResponse = await http.GetAsync(testUrl);
+                    return getResponse.StatusCode != System.Net.HttpStatusCode.NotFound;
                 }
             }
             catch (Exception ex)

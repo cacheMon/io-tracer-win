@@ -148,13 +148,35 @@ namespace IOTracesCORE
         private bool is_anonymous;
         private bool is_upload_automatically;
         public static int amount_compressed_file = 0;
-        public static int disk_event_counter = 0;
+        public static long disk_event_counter = 0;
         public static long file_event_counter = 0;
         public static int memory_event_counter = 0;
         public static int fs_snapshot_file_count = 0;
         public static bool fs_snapshot_complete = false;
         public static TimeSpan active_session = TimeSpan.FromSeconds(0);
         public static TimeSpan trace_duration = TimeSpan.FromSeconds(0);
+
+        // Public accessors for telemetry client to safely read counters
+        public static long GetFileEventCount() =>
+            Interlocked.Read(ref file_event_counter);
+
+        public static long GetDiskEventCount() =>
+            Interlocked.Read(ref disk_event_counter);
+
+        public static long GetMemoryEventCount() =>
+            (long)memory_event_counter;
+
+        public static long GetNetworkEventCount() =>
+            utils.TraceStats.NetworkRows;
+
+        public static long GetProcessSnapshotCount() =>
+            utils.TraceStats.ProcessSnapshotRows;
+
+        public static long GetFilesystemSnapshotCount() =>
+            utils.TraceStats.FilesystemSnapshotRows;
+
+        public static TimeSpan GetActiveDuration() =>
+            active_session;
 
         private readonly DateTime _sessionStartUtc = DateTime.UtcNow;
 
@@ -378,7 +400,7 @@ namespace IOTracesCORE
             {
                 Thread.Sleep(1000);
                 // Atomically read-and-reset so increments racing on the ETW thread are not lost.
-                int events_in_interval = Interlocked.Exchange(ref disk_event_counter, 0);
+                long events_in_interval = Interlocked.Exchange(ref disk_event_counter, 0);
                 //Debug.WriteLine($"Rate: {events_in_interval}");
                 if (events_in_interval > 100)
                 {
