@@ -16,7 +16,7 @@ namespace IOTracesCORE.cloudstorage
 
 
 
-        public async Task PutObject(FileInfo file)
+        public async Task PutObject(FileInfo file, Func<Task>? onUploadSuccessAsync = null)
         {
             try
             {
@@ -27,18 +27,12 @@ namespace IOTracesCORE.cloudstorage
                     trace_type = "unknown_type";
                 }
 
-                var endpoint = $"{EndpointUrl}/windows_v1/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}";
+                string filepath = $"windows_v1/{PathHasher.deviceId}/{CurrentDate}/{trace_type}/{file.Name}";
+                var endpoint = $"{EndpointUrl}/presigned-url/{filepath}";
 
-                var request = new HttpRequestMessage(
-                    HttpMethod.Get,
-                    endpoint
-                );
+                var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
 
                 Debug.WriteLine(endpoint);
-
-                //request.Headers.Add("X-Active-Delta-Seconds", deltaSeconds.ToString());
-                //request.Headers.Add("X-File-Events-Delta-Collected", deltaFileEvent.ToString());
-                //request.Headers.Add("X-Computer-Id", PathHasher.deviceId);
 
                 var response = await http.SendAsync(request);
                 response.EnsureSuccessStatusCode();
@@ -58,6 +52,19 @@ namespace IOTracesCORE.cloudstorage
                 uploadResponse.EnsureSuccessStatusCode();
 
                 Debug.WriteLine($"{file.FullName} successfully uploaded");
+
+                // Fire telemetry callback in background (non-blocking)
+                if (onUploadSuccessAsync != null)
+                {
+                    try
+                    {
+                        _ = Task.Run(onUploadSuccessAsync).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[R2Client] Callback error: {ex.Message}");
+                    }
+                }
             }
             catch (Exception)
             {

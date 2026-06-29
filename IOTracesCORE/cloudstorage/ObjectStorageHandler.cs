@@ -72,7 +72,7 @@ namespace IOTracesCORE.cloudstorage
         /// </summary>
         public static event Action<string>? OnConnectionStateChanged;
 
-        private const string TestUrl = "https://io-tracer-worker.1a1a11a.workers.dev/connection-test.txt";
+        private const string TestUrl = "https://io-tracer-worker.1a1a11a.workers.dev";
         private const int RetryIntervalSeconds = 10;
 
         // ─────────────────────────────────────────────────────────────────────
@@ -80,12 +80,18 @@ namespace IOTracesCORE.cloudstorage
         public ObjectStorageHandler()
         {
             r2Client = new();
+            // Clear telemetry state at session start so each session starts with a fresh baseline
+            TelemetryClient.Instance.ClearSessionState();
         }
 
         public async Task UploadFile(string filepath)
         {
             FileInfo fi = new FileInfo(filepath);
-            await r2Client.PutObject(fi);
+            await r2Client.PutObject(fi,
+                onUploadSuccessAsync: () =>
+                    TelemetryClient.Instance.SendDeltaTelemetryAsync(
+                        utils.PathHasher.deviceId,
+                        DateTime.UtcNow));
             File.Delete(filepath);
 
             LastFileEvent = WriterManager.file_event_counter;
@@ -379,7 +385,31 @@ namespace IOTracesCORE.cloudstorage
         private async Task HeartbeatAsync(CancellationToken ct)
         {
             const int HeartbeatIntervalSeconds = 60;
+            Console.WriteLine("[Heartbeat] started.");
             Debug.WriteLine("[Heartbeat] started.");
+
+            // Check connectivity immediately on startup
+            await Task.Delay(2000, ct).ConfigureAwait(false);
+            if (IsConnected)
+            {
+                bool ok = await CheckInternetAsync().ConfigureAwait(false);
+                if (!ok)
+                {
+                    _consecutiveFailures++;
+                    _consecutiveSuccesses = 0;
+                    if (_consecutiveFailures >= FailureThreshold && IsConnected && !ct.IsCancellationRequested)
+                    {
+                        _consecutiveFailures = 0;
+                        Debug.WriteLine("[Heartbeat] Connectivity lost — entering reconnect mode.");
+                        await EnterReconnectModeAsync(ct).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    _consecutiveSuccesses = 0;
+                    _consecutiveFailures = 0;
+                }
+            }
 
             while (!ct.IsCancellationRequested)
             {
@@ -487,12 +517,37 @@ namespace IOTracesCORE.cloudstorage
         {
             try
             {
-                var response = await s_httpClient.GetAsync(TestUrl).ConfigureAwait(false);
-                return response.IsSuccessStatusCode;
+                // Try HEAD request first (lightweight)
+                var request = new HttpRequestMessage(HttpMethod.Head, TestUrl);
+                var response = await s_httpClient.SendAsync(request).ConfigureAwait(false);
+                Console.WriteLine($"[Upload] Connectivity check HEAD: {response.StatusCode}");
+                Debug.WriteLine($"[Upload] Connectivity check HEAD: {response.StatusCode}");
+                if (response.IsSuccessStatusCode)
+                    return true;
+
+                // Fallback: try GET to presigned-url endpoint (always exists)
+                var testPresignedUrl = $"{TestUrl}/presigned-url/test";
+                var getResponse = await s_httpClient.GetAsync(testPresignedUrl).ConfigureAwait(false);
+                Console.WriteLine($"[Upload] Connectivity check GET: {getResponse.StatusCode}");
+                Debug.WriteLine($"[Upload] Connectivity check GET: {getResponse.StatusCode}");
+                return getResponse.StatusCode != System.Net.HttpStatusCode.NotFound;
+            }
+            catch (HttpRequestException ex)
+            {
+                Console.WriteLine($"[Upload] HTTP error: {ex.StatusCode} - {ex.Message}");
+                Debug.WriteLine($"[Upload] HTTP error: {ex.StatusCode} - {ex.Message}");
+                return false;
+            }
+            catch (TaskCanceledException ex)
+            {
+                Console.WriteLine($"[Upload] Timeout after 8s: {ex.Message}");
+                Debug.WriteLine($"[Upload] Timeout after 8s: {ex.Message}");
+                return false;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Upload] Internet check failed: {ex.Message}");
+                Console.WriteLine($"[Upload] Internet check failed ({ex.GetType().Name}): {ex.Message}");
+                Debug.WriteLine($"[Upload] Internet check failed ({ex.GetType().Name}): {ex.Message}");
                 return false;
             }
         }
