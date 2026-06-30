@@ -94,6 +94,19 @@ namespace IOTracesCORE
                 ShowStatus();
             };
 
+            // Show notification if reward was already unlocked in previous run
+            if (RewardManager.Instance.IsUnlocked)
+            {
+                Task.Delay(2000).ContinueWith(_ =>
+                {
+                    trayIcon?.ShowBalloonTip(
+                        4000,
+                        "🎁 Reward Ready!",
+                        "Your reward code is waiting. Click the Reward button to view it.",
+                        ToolTipIcon.Info
+                    );
+                }, TaskScheduler.FromCurrentSynchronizationContext());
+            }
 
             var form = TracerConfigForm.Run(cancellationTokenSource.Token);
             form.FormClosed += (_, __) => { cancellationTokenSource?.Cancel(); };
