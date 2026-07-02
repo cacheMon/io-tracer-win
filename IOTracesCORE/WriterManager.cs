@@ -327,6 +327,21 @@ namespace IOTracesCORE
             // uploaded) even if the process is killed before a clean shutdown. Refreshed
             // periodically by EventRateDetector and finalized in CompressAllAsync.
             WriteManifest(final: false, upload: true);
+
+            // Queue a tiny session-start marker so the upload worker can trigger
+            // UnlockReward() within seconds of startup — before any buffered trace
+            // chunk reaches MaxBufferAge (5 min) or MaxBufferBytes (20 MB).
+            if (is_upload_automatically)
+            {
+                string sessionDir = Path.Combine(dir_path, "session");
+                EnsureDirectoryExists(sessionDir);
+                string markerPath = Path.Combine(sessionDir,
+                    $"session_start_{DateTime.UtcNow:yyyyMMdd_HHmmssfff}_{PathHasher.deviceId}.json");
+                File.WriteAllText(markerPath,
+                    $"{{\"device_id\":\"{PathHasher.deviceId}\",\"session_start_utc\":\"{DateTime.UtcNow:o}\"}}",
+                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                obj_storage.QueueFile(markerPath);
+            }
         }
 
         /// <summary>
