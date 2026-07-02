@@ -105,7 +105,7 @@ namespace IOTracesCORE
                         "Your reward code is waiting. Click the Reward button to view it.",
                         ToolTipIcon.Info
                     );
-                }, TaskScheduler.FromCurrentSynchronizationContext());
+                });
             }
 
             var form = TracerConfigForm.Run(cancellationTokenSource.Token);
