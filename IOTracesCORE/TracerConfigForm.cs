@@ -65,7 +65,7 @@ namespace IOTracesCORE
             {
                 Dock = DockStyle.Fill,
                 Padding = new Padding(16),
-                RowCount = 6,
+                RowCount = 5,
                 ColumnCount = 1
             };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -73,7 +73,6 @@ namespace IOTracesCORE
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             Controls.Add(root);
 
             chkAnonymous = new CheckBox
@@ -157,9 +156,14 @@ namespace IOTracesCORE
             };
             root.Controls.Add(lblStatus);
 
+            // Docked to the Form itself (not nested as a root row) and given a reserved
+            // height, so this row can never be squeezed out of the visible client area by
+            // whatever grows above it in root (extra checkbox suffix text, a larger system
+            // font/accessibility text scale, etc.) — root (Dock.Fill) yields to it instead.
             var bottomLayout = new TableLayoutPanel
             {
-                Dock = DockStyle.Fill,
+                Dock = DockStyle.Bottom,
+                Height = 56,
                 ColumnCount = 2
             };
             bottomLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -187,7 +191,10 @@ namespace IOTracesCORE
 
             bottomLayout.Controls.Add(txtInfo, 0, 0);
             bottomLayout.Controls.Add(btnRunTracer, 1, 0);
-            root.Controls.Add(bottomLayout);
+            // Added after root: WinForms docking is Z-order sensitive (later-added controls
+            // are processed first for space carve-out), so this reserves bottomLayout's slice
+            // from the bottom and leaves root (Dock.Fill) whatever remains above it.
+            Controls.Add(bottomLayout);
 
             chkEnableUpload = new CheckBox
             {
