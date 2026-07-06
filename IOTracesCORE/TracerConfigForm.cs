@@ -164,6 +164,7 @@ namespace IOTracesCORE
             {
                 Dock = DockStyle.Bottom,
                 Height = 56,
+                Padding = new Padding(16, 0, 16, 16),
                 ColumnCount = 2
             };
             bottomLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
