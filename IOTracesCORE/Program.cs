@@ -210,12 +210,19 @@ namespace IOTracesCORE
                 Debug.WriteLine($"Failed to write crash log: {logEx.Message}");
             }
 
-            MessageBox.Show(
-                "IO-Tracer hit an unexpected error and needs to close.\n" +
-                $"A log has been saved to {logPath}",
-                "IO-Tracer",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+            try
+            {
+                MessageBox.Show(
+                    "IO-Tracer hit an unexpected error and needs to close.\n" +
+                    $"A log has been saved to {logPath}",
+                    "IO-Tracer",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            catch (Exception uiEx)
+            {
+                Debug.WriteLine($"Failed to show message box: {uiEx.Message}");
+            }
 
             Environment.Exit(1);
         }
