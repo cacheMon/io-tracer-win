@@ -40,6 +40,13 @@ namespace IOTracesCORE
             var handle = GetConsoleWindow();
             ShowWindow(handle, SW_HIDE);
 
+            // Safety net: without these, an exception thrown anywhere before Application.Run
+            // (or on the UI thread afterward) kills the process silently, with nothing visible
+            // to a participant beyond "the app never opened." Log + notify instead of vanishing.
+            AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += OnThreadException;
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
@@ -172,6 +179,45 @@ namespace IOTracesCORE
         {
             int i = Array.IndexOf(args, name);
             return (i >= 0 && i + 1 < args.Length) ? args[i + 1] : dflt;
+        }
+
+        private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+        {
+            HandleFatalException(e.ExceptionObject as Exception);
+        }
+
+        private static void OnThreadException(object? sender, ThreadExceptionEventArgs e)
+        {
+            HandleFatalException(e.Exception);
+        }
+
+        // Last-resort visibility net, not a recovery mechanism: log what happened somewhere
+        // retrievable, tell the participant the app is closing, then exit deliberately rather
+        // than limping along in an unknown state.
+        private static void HandleFatalException(Exception? ex)
+        {
+            string logPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "IOTracer", "crash.log");
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+                File.AppendAllText(logPath, $"[{DateTime.UtcNow:O}] {ex}\n\n");
+            }
+            catch (Exception logEx)
+            {
+                Debug.WriteLine($"Failed to write crash log: {logEx.Message}");
+            }
+
+            MessageBox.Show(
+                "IO-Tracer hit an unexpected error and needs to close.\n" +
+                $"A log has been saved to {logPath}",
+                "IO-Tracer",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+
+            Environment.Exit(1);
         }
 
         private static void ShowStatus()

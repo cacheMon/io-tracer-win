@@ -105,7 +105,9 @@ namespace IOTracesCORE
             chkLowOverhead = new CheckBox
             {
                 Text = "Lightweight logging for low-resource machines (skips op_end + memory events)",
-                AutoSize = true,
+                AutoSize = false,
+                Width = ClientSize.Width - root.Padding.Horizontal,
+                TextAlign = ContentAlignment.TopLeft,
                 Margin = new Padding(0, 6, 0, 0)
             };
             // Sticky auto-lightweight: if a recent run on THIS machine truncated (heavy
@@ -132,6 +134,18 @@ namespace IOTracesCORE
             {
                 SaveConfiguration();
             };
+            // The base text alone is long, and the auto-on suffixes above make it longer still —
+            // AutoSize would just overflow past this fixed, non-resizable dialog's edge on
+            // whichever machines hit one of those branches. Measure the actual final text (base
+            // or with suffix) at the control's fixed width and size the control to fit, instead
+            // of guessing a height that would clip on the longer variant.
+            const int checkboxGlyphWidth = 20;
+            Size wrappedTextSize = TextRenderer.MeasureText(
+                chkLowOverhead.Text,
+                chkLowOverhead.Font,
+                new Size(chkLowOverhead.Width - checkboxGlyphWidth, int.MaxValue),
+                TextFormatFlags.WordBreak);
+            chkLowOverhead.Height = wrappedTextSize.Height + 8;
             root.Controls.Add(chkLowOverhead);
 
             lblStatus = new Label
