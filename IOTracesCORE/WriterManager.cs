@@ -406,20 +406,38 @@ namespace IOTracesCORE
         // is never reached. Timer-driven, so it also fires after a burst goes silent — when
         // no new event would ever re-trigger the event-driven size check.
         private const int IDLE_FLUSH_SECONDS = 15;
+        // Active-session activity is evaluated over a rolling window rather than per-second:
+        // if a 60s window sees more than the threshold's worth of disk events, the whole
+        // window counts as active time. This trades per-second precision for a much lower
+        // effective rate requirement (~1.7 events/sec average vs. a >100 events/sec burst
+        // every single second), which better reflects real, bursty I/O workloads. A window
+        // still in progress when the process exits is simply dropped (no partial credit),
+        // same as today's behavior of the background thread being killed on shutdown.
+        private const int ACTIVITY_WINDOW_SECONDS = 60;
+        private const int ACTIVITY_EVENT_THRESHOLD = 100;
 
         private void EventRateDetector()
         {
             int secondsSinceManifest = 0;
             int secondsSinceIdleFlush = 0;
+            int secondsSinceActivityWindow = 0;
+            long eventsInActivityWindow = 0;
             while (true)
             {
                 Thread.Sleep(1000);
                 // Atomically read-and-reset so increments racing on the ETW thread are not lost.
                 long events_in_interval = Interlocked.Exchange(ref disk_event_counter, 0);
                 //Debug.WriteLine($"Rate: {events_in_interval}");
-                if (events_in_interval > 100)
+                eventsInActivityWindow += events_in_interval;
+
+                if (++secondsSinceActivityWindow >= ACTIVITY_WINDOW_SECONDS)
                 {
-                    active_session += TimeSpan.FromSeconds(1);
+                    if (eventsInActivityWindow > ACTIVITY_EVENT_THRESHOLD)
+                    {
+                        active_session += TimeSpan.FromSeconds(ACTIVITY_WINDOW_SECONDS);
+                    }
+                    secondsSinceActivityWindow = 0;
+                    eventsInActivityWindow = 0;
                 }
 
                 if (++secondsSinceIdleFlush >= IDLE_FLUSH_SECONDS)
