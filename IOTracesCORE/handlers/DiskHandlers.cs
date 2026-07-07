@@ -101,7 +101,16 @@ namespace IOTracesCORE.handlers
                     traceSize: data.TransferSize,
                     latency: latency,
                     diskNumber: data.DiskNumber,
-                    irp: irp
+                    irp: irp,
+                    // Carry the IRP flags on read/write rows (the flush path already
+                    // does). These decode to the request's origin/class — most
+                    // importantly PagingIo (memory-mapped / section / pagefile page
+                    // faults) and Nocache, which distinguish demand-paged and
+                    // non-cached I/O from ordinary buffered reads. This is the only
+                    // request-origin signal Windows exposes at the block layer, and
+                    // the trace-format docs already document the flags column as
+                    // populated for read/write.
+                    irpFlags: (ulong)data.IrpFlags
                 );
 
             wm.Write(dt);
