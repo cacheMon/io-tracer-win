@@ -94,5 +94,23 @@ namespace IOTracesCORE.Tests
             Assert.Equal("1024345", f[5]);   // sector
             Assert.Equal("4096", f[6]);      // size
         }
+
+        [Fact]
+        public void BlockRow_ReadWrite_CarriesIrpFlags()
+        {
+            // Regression guard for the read/write flags plumbing: the flags column
+            // (index 9) must surface the IRP flags on read/write rows, not just on
+            // flush. PagingIo is the key request-origin signal — memory-mapped /
+            // section / pagefile page-in I/O that is invisible at the fs read()
+            // layer on Windows — so a caching analysis can separate demand-paged
+            // reads from ordinary buffered reads at the block layer.
+            var trace = new DiskTrace(
+                new DateTime(2026, 6, 14), 1234, 5678, "notepad.exe",
+                1024345, "read", 4096, 0.5, diskNumber: 0,
+                irpFlags: (ulong)(IrpFlagsHelper.IrpFlags.PagingIo | IrpFlagsHelper.IrpFlags.Read));
+            var f = FirstRow(trace.FormatAsCsv());
+
+            Assert.Equal("PagingIo|Read", f[9]);   // flags column populated for read/write
+        }
     }
 }
